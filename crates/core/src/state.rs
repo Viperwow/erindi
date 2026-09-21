@@ -84,7 +84,7 @@ impl Machine {
             (S::Listening, E::CancelListening) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: true, .. }) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: false, .. }) => S::Running,
-            (S::Transcribing | S::Running, E::StepFailed { .. }) => S::Failed,
+            (S::Listening | S::Transcribing | S::Running, E::StepFailed { .. }) => S::Failed,
             (S::Running, E::Cancel) => S::Cancelling,
             (S::Running, E::RunExited { ok: true, .. }) => S::Succeeded,
             (S::Running, E::RunExited { ok: false, .. }) => S::Failed,
@@ -182,6 +182,13 @@ mod tests {
 
     #[test]
     fn failures_from_async_steps() {
+        let mut m = at(Listening);
+        let op = m.op();
+        assert_eq!(
+            m.apply(StepFailed { op }),
+            Ok(Outcome::Changed(AppState::Failed))
+        );
+
         let mut m = at(Transcribing);
         let op = m.op();
         assert_eq!(

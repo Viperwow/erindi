@@ -55,6 +55,11 @@ pub enum Msg {
     Dismiss {
         op: OpId,
     },
+    /// Microphone or recognizer failure for the current operation.
+    Failed {
+        op: OpId,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -240,6 +245,15 @@ impl Controller {
                 self.apply(Event::RunExited { op, ok })
             }
             Msg::Dismiss { op } if current(op) => self.apply(Event::Dismiss),
+            Msg::Failed { op, error } if current(op) => {
+                self.view.detail = error;
+                let mut fx = match state {
+                    S::Listening => vec![Effect::StopCapture],
+                    _ => vec![],
+                };
+                fx.extend(self.apply(Event::StepFailed { op }));
+                fx
+            }
             _ => vec![],
         }
     }
@@ -676,5 +690,28 @@ mod tests {
         t.send(Msg::KeyUp(Key::Hold));
         assert_eq!(t.send(Msg::KeyDown(Key::Hold)), []);
         assert_eq!(t.send(Msg::KeyUp(Key::Hold)), []);
+    }
+
+    #[test]
+    fn microphone_failure_stops_capture_and_shows_error() {
+        let mut t = T::new();
+        let op = t.listen(Key::Toggle);
+        let fx = t.send(Msg::Failed {
+            op,
+            error: "no microphone".into(),
+        });
+        assert_eq!(fx[0], Effect::StopCapture);
+        let v = shown(&fx).unwrap();
+        assert_eq!(
+            (v.state, v.detail.as_str()),
+            (AppState::Failed, "no microphone")
+        );
+        assert_eq!(
+            t.send(Msg::Failed {
+                op: op + 1,
+                error: "x".into()
+            }),
+            []
+        );
     }
 }
