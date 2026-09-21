@@ -116,38 +116,6 @@ fn pick_models_dir(env: Option<std::ffi::OsString>, exe_dir: Option<PathBuf>) ->
         .unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../models")))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn env_var_wins() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("models")).unwrap();
-        assert_eq!(
-            pick_models_dir(Some("X:\\m".into()), Some(dir.path().into())),
-            PathBuf::from("X:\\m")
-        );
-    }
-
-    #[test]
-    fn models_next_to_exe_beat_repository() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("models")).unwrap();
-        assert_eq!(
-            pick_models_dir(None, Some(dir.path().into())),
-            dir.path().join("models")
-        );
-    }
-
-    #[test]
-    fn falls_back_to_repository_models() {
-        let dir = tempfile::tempdir().unwrap();
-        let picked = pick_models_dir(None, Some(dir.path().into()));
-        assert!(picked.ends_with("models") && picked.starts_with(env!("CARGO_MANIFEST_DIR")));
-    }
-}
-
 /// Applies the dictionary as currently saved in settings.
 struct SettingsDictionary(SharedSettings);
 
@@ -341,5 +309,37 @@ impl Executor {
             };
             let _ = tx.send(msg);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_var_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("models")).unwrap();
+        assert_eq!(
+            pick_models_dir(Some("X:\\m".into()), Some(dir.path().into())),
+            PathBuf::from("X:\\m")
+        );
+    }
+
+    #[test]
+    fn models_next_to_exe_beat_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("models")).unwrap();
+        assert_eq!(
+            pick_models_dir(None, Some(dir.path().into())),
+            dir.path().join("models")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_repository_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let picked = pick_models_dir(None, Some(dir.path().into()));
+        assert!(picked.ends_with("models") && picked.starts_with(env!("CARGO_MANIFEST_DIR")));
     }
 }
