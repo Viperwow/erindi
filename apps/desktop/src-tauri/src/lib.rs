@@ -2,6 +2,7 @@ mod overlay;
 mod runtime;
 mod settings;
 
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use tauri::menu::{Menu, MenuItem};
@@ -10,7 +11,7 @@ use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use whispio_core::controller::{Key, Msg};
 
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, SharedSettings};
 use crate::settings::Settings;
 
 pub fn run() {
@@ -19,13 +20,25 @@ pub fn run() {
             show_settings(app)
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![open_session])
+        .invoke_handler(tauri::generate_handler![
+            open_session,
+            get_settings,
+            save_settings,
+            list_microphones
+        ])
         .setup(|app| {
             overlay::create(app.handle())?;
-            let settings = Arc::new(RwLock::new(Settings::default()));
+            let path = app.path().app_config_dir()?.join("settings.json");
+            let settings = Arc::new(RwLock::new(Settings::load(&path)));
             let runtime = Runtime::start(app.handle().clone(), settings.clone());
-            register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime);
+            if let Err(e) = register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime) {
+                eprintln!("{e}");
+            }
             app.manage(runtime);
+            app.manage(SettingsStore {
+                path,
+                shared: settings,
+            });
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             TrayIconBuilder::new()
@@ -58,9 +71,38 @@ fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
     runtime.open_session()
 }
 
-fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) {
+struct SettingsStore {
+    path: PathBuf,
+    shared: SharedSettings,
+}
+
+#[tauri::command]
+fn get_settings(store: tauri::State<SettingsStore>) -> Settings {
+    store.shared.read().unwrap().clone()
+}
+
+#[tauri::command]
+fn save_settings(
+    app: AppHandle,
+    store: tauri::State<SettingsStore>,
+    runtime: tauri::State<Runtime>,
+    settings: Settings,
+) -> Result<(), String> {
+    settings.validate()?;
+    settings.save(&store.path)?;
+    *store.shared.write().unwrap() = settings.clone();
+    register_hotkeys(&app, &settings, &runtime)
+}
+
+#[tauri::command]
+fn list_microphones() -> Vec<String> {
+    whispio_audio_asr::capture::input_devices()
+}
+
+fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> Result<(), String> {
     let shortcuts = app.global_shortcut();
     let _ = shortcuts.unregister_all();
+    let mut errors = vec![];
     for (combo, key) in [
         (&settings.hold_hotkey, Key::Hold),
         (&settings.toggle_hotkey, Key::Toggle),
@@ -73,8 +115,13 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) {
             })
         });
         if let Err(e) = registered {
-            eprintln!("cannot register hotkey {combo}: {e}");
+            errors.push(format!("Hotkey {combo} is unavailable: {e}"));
         }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
     }
 }
 
