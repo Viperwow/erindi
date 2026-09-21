@@ -17,12 +17,7 @@ const MODIFIER_CODES = /^(Control|Alt|Shift|Meta|OS)(Left|Right)?$/;
 export function accelerator(e: KeyLike): string | null {
   const code = physicalCode(e);
   if (!code || MODIFIER_CODES.test(code)) return null;
-  const mods = [
-    e.ctrlKey && "Ctrl",
-    e.altKey && "Alt",
-    e.shiftKey && "Shift",
-    e.metaKey && "Super",
-  ].filter(Boolean);
+  const mods = modifiers(e);
   const isFunctionKey = /^F\d{1,2}$/.test(code);
   if (mods.length === 0 && !isFunctionKey) return null;
   const key = code.replace(/^Key([A-Z])$/, "$1").replace(/^Digit(\d)$/, "$1");
@@ -36,4 +31,15 @@ function physicalCode(e: KeyLike): string | null {
   if (/^\d$/.test(e.key)) return `Digit${e.key}`;
   if (e.key === " ") return "Space";
   return null;
+}
+
+/** Modifiers currently held, shown while the user is still building the combination. */
+export function heldModifiers(e: KeyLike): string {
+  return modifiers(e).join("+");
+}
+
+function modifiers(e: KeyLike): string[] {
+  return [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(
+    (m): m is string => !!m,
+  );
 }

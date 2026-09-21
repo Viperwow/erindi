@@ -2,7 +2,7 @@ import { render } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
-import { accelerator } from "./hotkey";
+import { accelerator, heldModifiers } from "./hotkey";
 import "./style.css";
 
 type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "bypassPermissions";
@@ -54,9 +54,11 @@ function Field(props: { label: string; hint?: string; children: ComponentChildre
 /** Click, then press the combination. Esc cancels. */
 function HotkeyInput(props: { value: string; label: string; onChange: (value: string) => void }) {
   const [recording, setRecording] = useState(false);
+  const [held, setHeld] = useState("");
 
   useEffect(() => {
     if (!recording) return;
+    setHeld("");
     invoke("set_hotkeys_paused", { paused: true });
     const onKey = (e: KeyboardEvent) => {
       e.preventDefault();
@@ -66,11 +68,16 @@ function HotkeyInput(props: { value: string; label: string; onChange: (value: st
       if (combo) {
         props.onChange(combo);
         setRecording(false);
+      } else {
+        setHeld(heldModifiers(e));
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => setHeld(heldModifiers(e));
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKeyUp, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKeyUp, true);
       invoke("set_hotkeys_paused", { paused: false });
     };
   }, [recording]);
@@ -84,7 +91,7 @@ function HotkeyInput(props: { value: string; label: string; onChange: (value: st
       onClick={() => setRecording(!recording)}
       onBlur={() => setRecording(false)}
     >
-      {recording ? "Press keys… (Esc to cancel)" : props.value}
+      {recording ? (held ? `${held.replaceAll("+", " + ")} + …` : "Press keys… (Esc to cancel)") : props.value}
     </button>
   );
 }

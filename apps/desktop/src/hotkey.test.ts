@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { accelerator } from "./hotkey.ts";
+import { accelerator, heldModifiers } from "./hotkey.ts";
 
 const key = (
   code: string,
@@ -42,4 +42,11 @@ test("falls back to the key value when the device reports no code", () => {
   assert.equal(accelerator(key("Unidentified", { alt: true }, "5")), "Alt+5");
   assert.equal(accelerator(key("", { ctrl: true }, "")), null);
   assert.equal(accelerator(key("", { ctrl: true }, "Control")), null);
+});
+
+test("held modifiers preview the combination being built", () => {
+  assert.equal(heldModifiers(key("ControlLeft", { ctrl: true })), "Ctrl");
+  assert.equal(heldModifiers(key("AltLeft", { ctrl: true, alt: true })), "Ctrl+Alt");
+  assert.equal(heldModifiers(key("MetaLeft", { meta: true, shift: true })), "Shift+Super");
+  assert.equal(heldModifiers(key("KeyA")), "");
 });
