@@ -5,6 +5,15 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+process-wrap = { version = "10.0.0", features = ["tokio1", "job-object", "process-group", "kill-on-drop", "creation-flags"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["process", "io-util", "macros", "rt-multi-thread", "time", "sync"] }
+tokio-util = { version = "0.7.19", features = ["codec"], default-features = false }
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
