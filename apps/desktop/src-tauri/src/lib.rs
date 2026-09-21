@@ -1,16 +1,29 @@
 mod overlay;
+mod runtime;
+mod settings;
+
+use std::sync::{Arc, RwLock};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use whispio_core::controller::{Key, Msg};
+
+use crate::runtime::Runtime;
+use crate::settings::Settings;
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             show_settings(app)
         }))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             overlay::create(app.handle())?;
+            let settings = Arc::new(RwLock::new(Settings::default()));
+            let runtime = Runtime::start(app.handle().clone(), settings.clone());
+            register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime);
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             TrayIconBuilder::new()
@@ -36,6 +49,26 @@ pub fn run() {
                 api.prevent_exit();
             }
         });
+}
+
+fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) {
+    let shortcuts = app.global_shortcut();
+    let _ = shortcuts.unregister_all();
+    for (combo, key) in [
+        (&settings.hold_hotkey, Key::Hold),
+        (&settings.toggle_hotkey, Key::Toggle),
+    ] {
+        let runtime = runtime.clone();
+        let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {
+            runtime.send(match event.state() {
+                ShortcutState::Pressed => Msg::KeyDown(key),
+                ShortcutState::Released => Msg::KeyUp(key),
+            })
+        });
+        if let Err(e) = registered {
+            eprintln!("cannot register hotkey {combo}: {e}");
+        }
+    }
 }
 
 fn show_settings(app: &AppHandle) {

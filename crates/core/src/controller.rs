@@ -128,10 +128,6 @@ impl Controller {
         }
     }
 
-    pub fn set_transformer(&mut self, transformer: Box<dyn PromptTransformer>) {
-        self.transformer = transformer;
-    }
-
     pub fn state(&self) -> AppState {
         self.machine.state()
     }

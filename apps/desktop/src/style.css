@@ -4,3 +4,35 @@ body.overlay {
   background: transparent;
   overflow: hidden;
 }
+
+.aurora {
+  background:
+    radial-gradient(40% 120% at 30% 100%, var(--a), transparent 70%),
+    radial-gradient(40% 120% at 70% 100%, var(--b), transparent 70%);
+  background-size: 200% 100%;
+  filter: blur(14px);
+  transform-origin: bottom;
+  transition:
+    opacity 80ms linear,
+    transform 80ms linear;
+  animation: drift 6s ease-in-out infinite alternate;
+}
+
+.aurora-sweep {
+  animation-duration: 1.6s;
+}
+
+@keyframes drift {
+  from {
+    background-position: 0% 0%;
+  }
+  to {
+    background-position: 100% 0%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora {
+    animation: none;
+  }
+}
