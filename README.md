@@ -1,3 +1,5 @@
+<p align="center"><img src="apps/desktop/src/logo.svg" width="112" alt="Erindi logo"></p>
+
 # Erindi 0.0.1
 
 > **Work in progress.** Proof of concept: Windows only, Claude Code only.

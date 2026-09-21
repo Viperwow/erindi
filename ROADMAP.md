@@ -18,7 +18,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 ### Working with agents
 
 - [x] **Continue the session.** Utterances continue the active Claude session by default. A session setting (continue, continue if recent, always new), a "new session" hotkey and spoken commands such as "new session" or "same session" choose otherwise.
-- [x] **Session history.** A Sessions page lists sessions started from Erindi with what was said, the folder and the session ID. Each one opens in a terminal or becomes the active session for the next utterance.
+- [x] **Session history.** A Sessions page lists sessions started from Erindi with what was said, the folder and the session ID. Each one opens in a terminal, becomes the active session for the next utterance, or is deleted from the list.
 - [ ] **Prompt cleanup model.** A fast intermediate LLM turns the raw transcript into clear, logical text before it reaches the agent.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
@@ -33,6 +33,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Hotkey recorder.** Click the field and press the combination, as in games.
 - [ ] **Mouse buttons as hotkeys.** Needs a low-level input hook; the current global shortcut plugin handles keyboard keys only.
 - [ ] **Startup behavior.** Choose between opening Settings on launch and starting minimized to the tray.
+- [ ] **Tray click.** Clicking or double-clicking the tray icon opens the window.
 
 ### UI and UX
 

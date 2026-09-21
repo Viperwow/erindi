@@ -29,7 +29,8 @@ pub fn run() {
             set_hotkeys_paused,
             list_sessions,
             open_history_session,
-            continue_session
+            continue_session,
+            delete_session
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
@@ -98,6 +99,11 @@ fn open_history_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Resul
 #[tauri::command]
 fn continue_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<(), String> {
     runtime.continue_session(id)
+}
+
+#[tauri::command]
+fn delete_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<(), String> {
+    runtime.delete_session(id)
 }
 
 struct SettingsStore {
