@@ -31,17 +31,18 @@ cd apps/desktop
 pnpm tauri dev
 ```
 
-The app starts in the tray. Open **Settings** from the tray icon to choose the project folder.
+The app starts in the tray. Choose **Settings** in the tray menu to open the window, then pick the project folder on the Settings page.
 
 ## Test and lint
 
-CI runs the same commands on every push and pull request:
+CI runs the same commands on every pull request into `main`:
 
 ```powershell
 cd apps/desktop; pnpm build; cd ../..   # the Rust build embeds the frontend
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cd apps/desktop; pnpm test; cd ../..   # frontend unit tests
 ```
 
 Tests that need the models or a microphone are ignored by default:
@@ -61,7 +62,20 @@ cd ../..
 
 The archive holds `erindi.exe`, the sherpa-onnx and onnxruntime DLLs it needs, and `scripts/fetch-models.ps1`. Users unpack it, run the script once, and start `erindi.exe`.
 
-Pushing a tag `vX.Y.Z` makes CI build the same archive and attach it to a GitHub pre-release. Bump the version in `Cargo.toml`, `apps/desktop/package.json` and `apps/desktop/src-tauri/tauri.conf.json` first.
+Pull requests into `main` run the checks only. Every merge into `main` makes CI build the same archive and publish it as the `latest` pre-release, replacing the previous one. Bump the version in `Cargo.toml`, `apps/desktop/package.json` and `apps/desktop/src-tauri/tauri.conf.json` when it changes.
+
+## Useful tools
+
+- `cargo run -p erindi-core --example claude-smoke -- <folder> <prompt>` sends one prompt to the real `claude` through the same runner the app uses.
+- `node scripts/logo.mjs` in `apps/desktop` redraws the logo into `src/logo.svg` and `app-icon.png`. Then run `pnpm tauri icon app-icon.png -o src-tauri/icons` and delete the generated `android` and `ios` folders.
+
+## Local data
+
+| File | Location on Windows |
+|---|---|
+| `settings.json` | `%APPDATA%\com.viperwow.erindi` |
+| `sessions.json` (session history, newest 200) | `%APPDATA%\com.viperwow.erindi` |
+| Speech models | `models/` next to the exe, or in the repository for development builds; `ERINDI_MODELS` overrides both |
 
 ## Project layout
 
@@ -70,7 +84,8 @@ Pushing a tag `vX.Y.Z` makes CI build the same archive and attach it to a GitHub
 | `crates/core` | State machine, controller, prompt dictionary, Claude arguments, process runner |
 | `crates/audio-asr` | Microphone capture, resampling, Silero VAD, Parakeet ASR |
 | `apps/desktop/src-tauri` | Tauri shell: tray, hotkeys, overlay, settings, runtime |
-| `apps/desktop/src` | Preact + Tailwind UI for the overlay and settings |
+| `apps/desktop/src` | Preact + Tailwind UI: overlay, Sessions and Settings pages |
+| `apps/desktop/scripts` | Logo generator |
 | `scripts` | Model download and release packaging |
 
 ## How we work

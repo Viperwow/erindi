@@ -1,3 +1,4 @@
+mod history;
 mod overlay;
 mod runtime;
 mod settings;
@@ -24,13 +25,18 @@ pub fn run() {
             open_session,
             get_settings,
             save_settings,
-            list_microphones
+            list_microphones,
+            set_hotkeys_paused,
+            list_sessions,
+            open_history_session,
+            continue_session
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
             let path = app.path().app_config_dir()?.join("settings.json");
+            let history_path = app.path().app_data_dir()?.join("sessions.json");
             let settings = Arc::new(RwLock::new(Settings::load(&path)));
-            let runtime = Runtime::start(app.handle().clone(), settings.clone());
+            let runtime = Runtime::start(app.handle().clone(), settings.clone(), &history_path);
             if let Err(e) = register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime) {
                 eprintln!("{e}");
             }
@@ -71,6 +77,29 @@ fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
     runtime.open_session()
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Sessions {
+    entries: Vec<history::Entry>,
+    active: Option<uuid::Uuid>,
+}
+
+#[tauri::command]
+fn list_sessions(runtime: tauri::State<Runtime>) -> Sessions {
+    let (entries, active) = runtime.sessions();
+    Sessions { entries, active }
+}
+
+#[tauri::command]
+fn open_history_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<(), String> {
+    runtime.open_history_session(id)
+}
+
+#[tauri::command]
+fn continue_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<(), String> {
+    runtime.continue_session(id)
+}
+
 struct SettingsStore {
     path: PathBuf,
     shared: SharedSettings,
@@ -91,6 +120,25 @@ fn save_settings(
     settings.validate()?;
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
+    runtime.send(settings.session_msg());
+    register_hotkeys(&app, &settings, &runtime)
+}
+
+/// Lets the settings window record a hotkey without triggering the registered ones.
+#[tauri::command]
+fn set_hotkeys_paused(
+    app: AppHandle,
+    store: tauri::State<SettingsStore>,
+    runtime: tauri::State<Runtime>,
+    paused: bool,
+) -> Result<(), String> {
+    if paused {
+        return app
+            .global_shortcut()
+            .unregister_all()
+            .map_err(|e| e.to_string());
+    }
+    let settings = store.shared.read().unwrap().clone();
     register_hotkeys(&app, &settings, &runtime)
 }
 
@@ -106,6 +154,7 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     for (combo, key) in [
         (&settings.hold_hotkey, Key::Hold),
         (&settings.toggle_hotkey, Key::Toggle),
+        (&settings.new_session_hotkey, Key::NewSession),
     ] {
         let runtime = runtime.clone();
         let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {
@@ -133,7 +182,7 @@ fn show_settings(app: &AppHandle) {
     }
     let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html".into()))
         .title("Erindi")
-        .inner_size(520.0, 620.0)
+        .inner_size(880.0, 680.0)
         .build();
 }
 

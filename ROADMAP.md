@@ -11,14 +11,14 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] Headless Claude Code runs with a permission mode and whole-process-tree cancel.
 - [x] Click the finished bubble to open the session with `claude --resume` in Windows Terminal.
 - [x] Settings: project folder, model, hotkeys, microphone, silence length.
-- [x] CI checks and a Windows release archive.
+- [x] CI checks on pull requests and a Windows build published as the `latest` pre-release on every merge into `main`.
 
 ## Next
 
 ### Working with agents
 
-- [ ] **Continue the session.** A separate hotkey or checkbox sends the next utterance into the same Claude session, to add to a task or answer the agent.
-- [ ] **Session history.** A "Recent" sidebar lists sessions started from Erindi with their transcript and session ID; clicking one opens it.
+- [x] **Continue the session.** Utterances continue the active Claude session by default. A session setting (continue, continue if recent, always new), a "new session" hotkey and spoken commands such as "new session" or "same session" choose otherwise.
+- [x] **Session history.** A Sessions page lists sessions started from Erindi with what was said, the folder and the session ID. Each one opens in a terminal or becomes the active session for the next utterance.
 - [ ] **Prompt cleanup model.** A fast intermediate LLM turns the raw transcript into clear, logical text before it reaches the agent.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
@@ -30,7 +30,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 ### Controls
 
-- [ ] **Hotkey recorder.** Click the field and press the combination, as in games. Mouse buttons are supported.
+- [x] **Hotkey recorder.** Click the field and press the combination, as in games.
+- [ ] **Mouse buttons as hotkeys.** Needs a low-level input hook; the current global shortcut plugin handles keyboard keys only.
 - [ ] **Startup behavior.** Choose between opening Settings on launch and starting minimized to the tray.
 
 ### UI and UX
@@ -38,7 +39,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Redesign.** Modern look, dark by default, with accent colors.
 - [ ] **Themes.** Light, dark and system modes, with main colors set as hex codes.
 - [ ] **Dictionary tab.** Move the dictionary to its own tab; the main page keeps only what matters most.
-- [ ] **Branding.** Show the name once, following how strong brands handle window titles and headers.
+- [x] **Branding.** The name shows once, in the window title and the sidebar header.
+- [x] **Logo.** Three normal-distribution peaks in the aurora stage colors: green, orange and blue with lilac joins.
 - [x] **Form saving.** One Save button for the whole form (keep it).
 - [ ] **Localization.** English interface by default, with infrastructure for more interface and speech languages.
 

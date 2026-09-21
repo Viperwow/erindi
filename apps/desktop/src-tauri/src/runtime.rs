@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -8,7 +8,7 @@ use erindi_audio_asr::asr::Asr;
 use erindi_audio_asr::capture::{self, Capture};
 use erindi_audio_asr::dsp::{To16k, rms};
 use erindi_audio_asr::vad::{Endpoint, Endpointer};
-use erindi_core::claude::{ClaudeRequest, claude_args, claude_env, resume_in_terminal};
+use erindi_core::claude::{ClaudeRequest, Session, claude_args, claude_env, resume_in_terminal};
 use erindi_core::controller::{Controller, Effect, Msg};
 use erindi_core::prompt::{Dictionary, PromptTransformer};
 use erindi_core::run::{RunEnd, RunSpec, run};
@@ -17,6 +17,7 @@ use erindi_core::stream::parse_line;
 use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
+use crate::history::{Entry, History};
 use crate::overlay;
 use crate::settings::Settings;
 
@@ -30,22 +31,26 @@ pub type SharedSettings = Arc<RwLock<Settings>>;
 #[derive(Clone)]
 pub struct Runtime {
     tx: Sender<Msg>,
-    last_session: Arc<Mutex<Option<Session>>>,
+    last_session: Arc<Mutex<Option<LastRun>>>,
+    history: Arc<Mutex<History>>,
+    active: Arc<Mutex<Option<uuid::Uuid>>>,
 }
 
 /// The most recent Claude run, which the overlay can reopen in a terminal.
 #[derive(Clone)]
-struct Session {
+struct LastRun {
     op: OpId,
     id: uuid::Uuid,
     cwd: String,
 }
 
 impl Runtime {
-    pub fn start(app: AppHandle, settings: SharedSettings) -> Self {
+    pub fn start(app: AppHandle, settings: SharedSettings, history_path: &Path) -> Self {
         let (tx, rx) = mpsc::channel();
         let asr = Arc::new(OnceLock::new());
         let last_session = Arc::new(Mutex::new(None));
+        let history = Arc::new(Mutex::new(History::load(history_path)));
+        let active = Arc::new(Mutex::new(None));
 
         let (load_tx, load_asr) = (tx.clone(), asr.clone());
         std::thread::spawn(move || match Asr::load(&models_dir()) {
@@ -67,16 +72,50 @@ impl Runtime {
             cancel: None,
             last_session: last_session.clone(),
             clickable_op: Arc::new(AtomicU64::new(0)),
+            history: history.clone(),
+            active: active.clone(),
         };
         std::thread::spawn(move || {
-            let mut controller = Controller::new(Box::new(SettingsDictionary(settings)));
+            let mut controller = Controller::new(Box::new(SettingsDictionary(settings.clone())));
+            let first = settings.read().unwrap().session_msg();
+            for effect in controller.handle(first, Instant::now()) {
+                executor.execute(effect);
+            }
             for msg in rx {
                 for effect in controller.handle(msg, Instant::now()) {
                     executor.execute(effect);
                 }
             }
         });
-        Self { tx, last_session }
+        Self {
+            tx,
+            last_session,
+            history,
+            active,
+        }
+    }
+
+    /// Sessions newest first, with the one the next utterance continues.
+    pub fn sessions(&self) -> (Vec<Entry>, Option<uuid::Uuid>) {
+        let entries = self.history.lock().unwrap().entries().to_vec();
+        (entries, *self.active.lock().unwrap())
+    }
+
+    pub fn open_history_session(&self, id: uuid::Uuid) -> Result<(), String> {
+        let cwd = self.session_cwd(id)?;
+        open_terminal(&cwd, id)
+    }
+
+    pub fn continue_session(&self, id: uuid::Uuid) -> Result<(), String> {
+        let cwd = self.session_cwd(id)?;
+        self.send(Msg::SetActive { id, cwd });
+        Ok(())
+    }
+
+    fn session_cwd(&self, id: uuid::Uuid) -> Result<String, String> {
+        let history = self.history.lock().unwrap();
+        let entry = history.get(id).ok_or("Session not found")?;
+        Ok(entry.cwd.clone())
     }
 
     pub fn send(&self, msg: Msg) {
@@ -86,15 +125,20 @@ impl Runtime {
     pub fn open_session(&self) -> Result<(), String> {
         let session = self.last_session.lock().unwrap().clone();
         let session = session.ok_or("No Claude session yet")?;
-        let args = resume_in_terminal(&session.cwd, session.id)
-            .map_err(|_| format!("Cannot open a terminal in {}", session.cwd))?;
-        std::process::Command::new("wt.exe")
-            .args(args)
-            .spawn()
-            .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
+        open_terminal(&session.cwd, session.id)?;
         self.send(Msg::Dismiss { op: session.op });
         Ok(())
     }
+}
+
+fn open_terminal(cwd: &str, id: uuid::Uuid) -> Result<(), String> {
+    let args =
+        resume_in_terminal(cwd, id).map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
+    std::process::Command::new("wt.exe")
+        .args(args)
+        .spawn()
+        .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
+    Ok(())
 }
 
 pub fn models_dir() -> PathBuf {
@@ -133,8 +177,10 @@ struct Executor {
     asr: Arc<OnceLock<Asr>>,
     capture: Option<Capture>,
     cancel: Option<CancellationToken>,
-    last_session: Arc<Mutex<Option<Session>>>,
+    last_session: Arc<Mutex<Option<LastRun>>>,
     clickable_op: Arc<AtomicU64>,
+    history: Arc<Mutex<History>>,
+    active: Arc<Mutex<Option<uuid::Uuid>>>,
 }
 
 impl Executor {
@@ -151,8 +197,13 @@ impl Executor {
             Effect::StartRun {
                 op,
                 prompt,
-                session_id,
-            } => self.start_run(op, prompt, session_id),
+                session,
+                cwd,
+            } => self.start_run(op, prompt, session, cwd),
+            Effect::ActiveChanged(id) => {
+                *self.active.lock().unwrap() = id;
+                let _ = self.app.emit_to("settings", "sessions-changed", ());
+            }
             Effect::CancelRun => {
                 if let Some(token) = self.cancel.take() {
                     token.cancel();
@@ -257,12 +308,12 @@ impl Executor {
         });
     }
 
-    fn start_run(&mut self, op: OpId, prompt: String, session_id: uuid::Uuid) {
+    fn start_run(&mut self, op: OpId, prompt: String, session: Session, cwd: String) {
         let settings = self.settings.read().unwrap().clone();
         let request = ClaudeRequest {
             mode: settings.mode,
             model: (!settings.model.is_empty()).then_some(settings.model),
-            session_id,
+            session,
         };
         let Ok(args) = claude_args(&request) else {
             let _ = self.tx.send(Msg::RunExited {
@@ -275,16 +326,31 @@ impl Executor {
         let spec = RunSpec {
             program: "claude".into(),
             args,
-            cwd: settings.cwd.clone().into(),
+            cwd: cwd.clone().into(),
             env: claude_env(std::env::vars()),
-            stdin: prompt,
+            stdin: prompt.clone(),
             timeout: RUN_TIMEOUT,
         };
-        *self.last_session.lock().unwrap() = Some(Session {
+        let id = match session {
+            Session::New(id) | Session::Resume(id) => id,
+        };
+        *self.last_session.lock().unwrap() = Some(LastRun {
             op,
-            id: session_id,
-            cwd: settings.cwd.clone(),
+            id,
+            cwd: cwd.clone(),
         });
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        if let Err(e) = self
+            .history
+            .lock()
+            .unwrap()
+            .record(id, &cwd, &prompt, now_ms)
+        {
+            eprintln!("cannot save session history: {e}");
+        }
+        let _ = self.app.emit_to("settings", "sessions-changed", ());
         let token = CancellationToken::new();
         self.cancel = Some(token.clone());
         let tx = self.tx.clone();

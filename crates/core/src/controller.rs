@@ -3,8 +3,10 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::claude::Session;
 use crate::prompt::PromptTransformer;
 use crate::run::RunEnd;
+use crate::session::{Active, Intent, SessionPolicy, choose, parse_intent};
 use crate::state::{AppState, Event, Machine, OpId, Outcome};
 use crate::stream::RunEvent;
 
@@ -17,6 +19,8 @@ pub const MAX_RECORDING: usize = 16_000 * 300;
 pub enum Key {
     Hold,
     Toggle,
+    /// Hands-free recording that always goes to a new session.
+    NewSession,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +59,16 @@ pub enum Msg {
     Dismiss {
         op: OpId,
     },
+    Settings {
+        policy: SessionPolicy,
+        recent: Duration,
+        cwd: String,
+    },
+    /// Makes a session from history the one the next utterance continues.
+    SetActive {
+        id: Uuid,
+        cwd: String,
+    },
     /// Microphone or recognizer failure for the current operation.
     Failed {
         op: OpId,
@@ -80,9 +94,12 @@ pub enum Effect {
     StartRun {
         op: OpId,
         prompt: String,
-        session_id: Uuid,
+        session: Session,
+        /// Resumed sessions run in their own project folder.
+        cwd: String,
     },
     CancelRun,
+    ActiveChanged(Option<Uuid>),
     Show(View),
 }
 
@@ -95,6 +112,8 @@ pub struct View {
     pub text: String,
     pub detail: String,
     pub session_id: Option<Uuid>,
+    /// The run continues an earlier session rather than starting one.
+    pub continued: bool,
 }
 
 pub struct Controller {
@@ -106,6 +125,11 @@ pub struct Controller {
     live_in_flight: bool,
     result: Option<(bool, String)>,
     view: View,
+    policy: SessionPolicy,
+    recent: Duration,
+    cwd: String,
+    active: Option<Active>,
+    running: Option<(Session, String)>,
 }
 
 impl Controller {
@@ -124,7 +148,13 @@ impl Controller {
                 text: String::new(),
                 detail: String::new(),
                 session_id: None,
+                continued: false,
             },
+            policy: SessionPolicy::default(),
+            recent: Duration::ZERO,
+            cwd: String::new(),
+            active: None,
+            running: None,
         }
     }
 
@@ -144,7 +174,7 @@ impl Controller {
             }
             Msg::KeyDown(key) => match state {
                 S::Idle => self.start_listening(key, now),
-                S::Listening if self.mode == Key::Toggle => self.stop_listening(),
+                S::Listening if self.mode != Key::Hold => self.stop_listening(),
                 S::Running => {
                     let mut fx = vec![Effect::CancelRun];
                     fx.extend(self.apply(Event::Cancel));
@@ -194,20 +224,33 @@ impl Controller {
                 vec![self.show()]
             }
             Msg::Transcribed { op, text } => {
-                let prompt = self.transformer.transform(&text);
+                let (intent, spoken) = parse_intent(&text);
+                let intent = match self.mode {
+                    Key::NewSession => Intent::New,
+                    _ => intent,
+                };
+                let prompt = self.transformer.transform(&spoken);
                 let empty = prompt.is_empty();
                 match self.machine.apply(Event::Transcribed { op, empty }) {
                     Ok(Outcome::Changed(S::Running)) => {
-                        let session_id = Uuid::new_v4();
+                        let resume =
+                            choose(self.policy, self.recent, intent, self.active.as_ref(), now);
+                        let (session, cwd) = match (resume, &self.active) {
+                            (Some(id), Some(active)) => (Session::Resume(id), active.cwd.clone()),
+                            _ => (Session::New(Uuid::new_v4()), self.cwd.clone()),
+                        };
+                        self.running = Some((session, cwd.clone()));
                         self.result = None;
                         self.view.text = prompt.clone();
-                        self.view.session_id = Some(session_id);
+                        self.view.session_id = Some(session_id(session));
+                        self.view.continued = resume.is_some();
                         self.view.detail.clear();
                         vec![
                             Effect::StartRun {
                                 op,
                                 prompt,
-                                session_id,
+                                session,
+                                cwd,
                             },
                             self.show(),
                         ]
@@ -233,14 +276,37 @@ impl Controller {
             Msg::RunExited { op, end, stderr } if current(op) => {
                 let result_ok = self.result.as_ref().is_none_or(|(ok, _)| *ok);
                 let ok = end == RunEnd::Exited { success: true } && result_ok;
+                let mut fx = match self.running.take() {
+                    Some((session, cwd)) => self.remember(session, cwd, &end, ok, now),
+                    None => vec![],
+                };
                 self.view.detail = match (&self.result, &end) {
                     (Some((_, text)), _) if !text.is_empty() => text.clone(),
                     (_, RunEnd::TimedOut) => "Timed out".into(),
                     _ => stderr.trim().lines().last().unwrap_or_default().into(),
                 };
-                self.apply(Event::RunExited { op, ok })
+                fx.extend(self.apply(Event::RunExited { op, ok }));
+                fx
             }
             Msg::Dismiss { op } if current(op) => self.apply(Event::Dismiss),
+            Msg::Settings {
+                policy,
+                recent,
+                cwd,
+            } => {
+                self.policy = policy;
+                self.recent = recent;
+                if cwd == self.cwd {
+                    return vec![];
+                }
+                self.cwd = cwd;
+                self.set_active(None)
+            }
+            Msg::SetActive { id, cwd } => self.set_active(Some(Active {
+                id,
+                cwd,
+                last_used: now,
+            })),
             Msg::Failed { op, error } if current(op) => {
                 self.view.detail = error;
                 let mut fx = match state {
@@ -251,6 +317,44 @@ impl Controller {
                 fx
             }
             _ => vec![],
+        }
+    }
+
+    /// Updates the active session after a run. A run that produced a result proves its session
+    /// exists; a resume that failed without one most likely points at a session Claude no longer has.
+    fn remember(
+        &mut self,
+        session: Session,
+        cwd: String,
+        end: &RunEnd,
+        ok: bool,
+        now: Instant,
+    ) -> Vec<Effect> {
+        if *end == RunEnd::Cancelled {
+            return vec![];
+        }
+        if ok || self.result.is_some() {
+            self.set_active(Some(Active {
+                id: session_id(session),
+                cwd,
+                last_used: now,
+            }))
+        } else if matches!(session, Session::Resume(_)) {
+            self.set_active(None)
+        } else {
+            vec![]
+        }
+    }
+
+    /// Replaces the active session, announcing only a change of session.
+    fn set_active(&mut self, active: Option<Active>) -> Vec<Effect> {
+        let before = self.active.as_ref().map(|a| a.id);
+        let after = active.as_ref().map(|a| a.id);
+        self.active = active;
+        if before == after {
+            vec![]
+        } else {
+            vec![Effect::ActiveChanged(after)]
         }
     }
 
@@ -278,10 +382,11 @@ impl Controller {
         self.view.text.clear();
         self.view.detail.clear();
         self.view.session_id = None;
+        self.view.continued = false;
         vec![
             Effect::StartCapture {
                 op: self.machine.op(),
-                endpointing: key == Key::Toggle,
+                endpointing: key != Key::Hold,
             },
             self.show(),
         ]
@@ -299,6 +404,12 @@ impl Controller {
             },
             self.show(),
         ]
+    }
+}
+
+fn session_id(session: Session) -> Uuid {
+    match session {
+        Session::New(id) | Session::Resume(id) => id,
     }
 }
 
@@ -320,6 +431,7 @@ mod tests {
                 now: Instant::now(),
             };
             t.send(Msg::ModelReady);
+            t.send(settings(SessionPolicy::Continue, "C:/p"));
             t
         }
 
@@ -337,6 +449,37 @@ mod tests {
         }
 
         fn run(&mut self) -> OpId {
+            self.run_saying("клод, проверь diff")
+        }
+
+        /// Runs `text` to completion and returns the session it used.
+        fn finish_saying(&mut self, text: &str) -> Session {
+            let op = self.listen(Key::Hold);
+            self.send(Msg::KeyUp(Key::Hold));
+            let fx = self.send(Msg::Transcribed {
+                op,
+                text: text.into(),
+            });
+            let Some(Effect::StartRun { session, .. }) = fx.first() else {
+                panic!("{fx:?}")
+            };
+            let session = *session;
+            self.send(Msg::Run {
+                op,
+                event: RunEvent::Result {
+                    ok: true,
+                    text: "done".into(),
+                },
+            });
+            self.send(Msg::RunExited {
+                op,
+                end: RunEnd::Exited { success: true },
+                stderr: String::new(),
+            });
+            session
+        }
+
+        fn run_saying(&mut self, text: &str) -> OpId {
             let op = self.listen(Key::Hold);
             self.send(Msg::Audio {
                 op,
@@ -345,9 +488,23 @@ mod tests {
             self.send(Msg::KeyUp(Key::Hold));
             self.send(Msg::Transcribed {
                 op,
-                text: "клод, проверь diff".into(),
+                text: text.into(),
             });
             op
+        }
+    }
+
+    fn settings(policy: SessionPolicy, cwd: &str) -> Msg {
+        Msg::Settings {
+            policy,
+            recent: Duration::from_secs(600),
+            cwd: cwd.into(),
+        }
+    }
+
+    fn id(session: Session) -> Uuid {
+        match session {
+            Session::New(id) | Session::Resume(id) => id,
         }
     }
 
@@ -511,13 +668,15 @@ mod tests {
         let Some(Effect::StartRun {
             op: rop,
             prompt,
-            session_id,
+            session: Session::New(session_id),
+            ..
         }) = fx.first()
         else {
             panic!("{fx:?}")
         };
         assert_eq!((*rop, prompt.as_str()), (op, "Claude go"));
         assert_eq!(shown(&fx).unwrap().session_id, Some(*session_id));
+        assert!(!shown(&fx).unwrap().continued);
     }
 
     #[test]
@@ -709,5 +868,178 @@ mod tests {
             }),
             []
         );
+    }
+
+    #[test]
+    fn next_utterance_continues_the_session() {
+        let mut t = T::new();
+        let first = t.finish_saying("проверь diff");
+        assert!(matches!(first, Session::New(_)));
+        assert!(!t.c.view.continued);
+        let second = t.finish_saying("теперь добавь тесты");
+        assert_eq!(second, Session::Resume(id(first)));
+        assert!(t.c.view.continued);
+        assert_eq!(t.c.view.session_id, Some(id(first)));
+    }
+
+    #[test]
+    fn spoken_command_starts_a_new_session_and_is_removed() {
+        let mut t = T::new();
+        let first = t.finish_saying("проверь diff");
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "в новой сессии клод, найди баг".into(),
+        });
+        let Some(Effect::StartRun {
+            prompt, session, ..
+        }) = fx.first()
+        else {
+            panic!("{fx:?}")
+        };
+        assert_eq!(prompt, "Claude, найди баг");
+        assert!(matches!(session, Session::New(new) if *new != id(first)));
+    }
+
+    #[test]
+    fn new_session_key_records_hands_free_into_a_new_session() {
+        let mut t = T::new();
+        t.finish_saying("проверь diff");
+        let fx = t.send(Msg::KeyDown(Key::NewSession));
+        let op = t.op();
+        assert_eq!(
+            fx[0],
+            Effect::StartCapture {
+                op,
+                endpointing: true
+            }
+        );
+        t.send(Msg::SpeechEnded { op });
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "найди баг".into(),
+        });
+        assert!(matches!(
+            fx.first(),
+            Some(Effect::StartRun {
+                session: Session::New(_),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn changing_project_folder_starts_fresh() {
+        let mut t = T::new();
+        t.finish_saying("проверь diff");
+        t.send(settings(SessionPolicy::Continue, "C:/other"));
+        assert!(matches!(t.finish_saying("проверь diff"), Session::New(_)));
+    }
+
+    #[test]
+    fn always_new_policy_ignores_the_active_session() {
+        let mut t = T::new();
+        t.send(settings(SessionPolicy::AlwaysNew, "C:/p"));
+        t.finish_saying("проверь diff");
+        assert!(matches!(t.finish_saying("ещё раз"), Session::New(_)));
+        assert!(matches!(
+            t.finish_saying("в этой же сессии ещё раз"),
+            Session::Resume(_)
+        ));
+    }
+
+    #[test]
+    fn recent_policy_expires() {
+        let mut t = T::new();
+        t.send(settings(SessionPolicy::ContinueIfRecent, "C:/p"));
+        t.finish_saying("проверь diff");
+        t.now += Duration::from_secs(601);
+        assert!(matches!(t.finish_saying("ещё раз"), Session::New(_)));
+    }
+
+    #[test]
+    fn failed_resume_without_result_forgets_the_session() {
+        let mut t = T::new();
+        t.finish_saying("проверь diff");
+        let op = t.run_saying("продолжай");
+        t.send(Msg::RunExited {
+            op,
+            end: RunEnd::Exited { success: false },
+            stderr: "No conversation found".into(),
+        });
+        t.send(Msg::Dismiss { op });
+        assert!(matches!(t.finish_saying("ещё раз"), Session::New(_)));
+    }
+
+    fn active_changes(effects: &[Effect]) -> Vec<Option<Uuid>> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::ActiveChanged(id) => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn announces_the_active_session() {
+        let mut t = T::new();
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "проверь diff".into(),
+        });
+        let Some(Effect::StartRun { session, .. }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        let session = *session;
+        let fx = t.send(Msg::RunExited {
+            op,
+            end: RunEnd::Exited { success: true },
+            stderr: String::new(),
+        });
+        assert_eq!(active_changes(&fx), [Some(id(session))]);
+        let fx = t.send(settings(SessionPolicy::Continue, "C:/other"));
+        assert_eq!(active_changes(&fx), [None]);
+    }
+
+    #[test]
+    fn picked_session_is_continued_in_its_own_folder() {
+        let mut t = T::new();
+        let picked = Uuid::from_u128(42);
+        let fx = t.send(Msg::SetActive {
+            id: picked,
+            cwd: "D:/elsewhere".into(),
+        });
+        assert_eq!(active_changes(&fx), [Some(picked)]);
+
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "продолжай".into(),
+        });
+        let Some(Effect::StartRun { session, cwd, .. }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        assert_eq!(*session, Session::Resume(picked));
+        assert_eq!(cwd, "D:/elsewhere");
+    }
+
+    #[test]
+    fn new_sessions_run_in_the_settings_folder() {
+        let mut t = T::new();
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "проверь diff".into(),
+        });
+        let Some(Effect::StartRun { cwd, .. }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        assert_eq!(cwd, "C:/p");
     }
 }

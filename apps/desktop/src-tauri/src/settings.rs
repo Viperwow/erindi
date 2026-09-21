@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use erindi_core::claude::{ClaudeMode, ClaudeRequest, claude_args, resume_in_terminal};
+use erindi_core::claude::{ClaudeMode, ClaudeRequest, Session, claude_args, resume_in_terminal};
+use erindi_core::controller::Msg;
+use erindi_core::session::SessionPolicy;
 use serde::{Deserialize, Serialize};
 use tauri_plugin_global_shortcut::Shortcut;
 use uuid::Uuid;
@@ -10,6 +12,7 @@ use uuid::Uuid;
 pub struct Settings {
     pub hold_hotkey: String,
     pub toggle_hotkey: String,
+    pub new_session_hotkey: String,
     pub cwd: String,
     pub mode: ClaudeMode,
     /// Empty means the default model of Claude Code.
@@ -17,6 +20,9 @@ pub struct Settings {
     /// Empty means the system default microphone.
     pub microphone: String,
     pub silence_secs: f32,
+    pub session_policy: SessionPolicy,
+    /// Used by `SessionPolicy::ContinueIfRecent`.
+    pub recent_minutes: u32,
     pub dictionary: Vec<(String, String)>,
 }
 
@@ -25,11 +31,14 @@ impl Default for Settings {
         Self {
             hold_hotkey: "Ctrl+Alt+Space".into(),
             toggle_hotkey: "Ctrl+Alt+Shift+Space".into(),
+            new_session_hotkey: "Ctrl+Alt+N".into(),
             cwd: std::env::var("USERPROFILE").unwrap_or_default(),
             mode: ClaudeMode::Default,
             model: String::new(),
             microphone: String::new(),
             silence_secs: 2.0,
+            session_policy: SessionPolicy::Continue,
+            recent_minutes: 30,
             dictionary: vec![],
         }
     }
@@ -52,14 +61,30 @@ impl Settings {
         std::fs::write(path, json).map_err(|e| e.to_string())
     }
 
+    /// The part of the settings the controller needs to pick sessions.
+    pub fn session_msg(&self) -> Msg {
+        Msg::Settings {
+            policy: self.session_policy,
+            recent: std::time::Duration::from_secs(u64::from(self.recent_minutes) * 60),
+            cwd: self.cwd.clone(),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
-        for combo in [&self.hold_hotkey, &self.toggle_hotkey] {
+        let hotkeys = [
+            &self.hold_hotkey,
+            &self.toggle_hotkey,
+            &self.new_session_hotkey,
+        ];
+        for combo in hotkeys {
             combo
                 .parse::<Shortcut>()
                 .map_err(|e| format!("Invalid hotkey {combo:?}: {e}"))?;
         }
-        if self.hold_hotkey.eq_ignore_ascii_case(&self.toggle_hotkey) {
-            return Err("Hold and toggle hotkeys must differ".into());
+        for (i, a) in hotkeys.iter().enumerate() {
+            if hotkeys[i + 1..].iter().any(|b| a.eq_ignore_ascii_case(b)) {
+                return Err(format!("Hotkey {a} is used twice"));
+            }
         }
         if !Path::new(&self.cwd).is_dir() {
             return Err(format!("Folder does not exist: {}", self.cwd));
@@ -69,9 +94,12 @@ impl Settings {
         let request = ClaudeRequest {
             mode: self.mode,
             model: (!self.model.is_empty()).then(|| self.model.clone()),
-            session_id: Uuid::nil(),
+            session: Session::New(Uuid::nil()),
         };
         claude_args(&request).map_err(|_| format!("Invalid model name: {}", self.model))?;
+        if !(1..=1440).contains(&self.recent_minutes) {
+            return Err("Recent session window must be between 1 and 1440 minutes".into());
+        }
         if !(0.5..=10.0).contains(&self.silence_secs) {
             return Err("Silence must be between 0.5 and 10 seconds".into());
         }
@@ -120,6 +148,7 @@ mod tests {
         let loaded = Settings::load(&path);
         assert_eq!(loaded.mode, ClaudeMode::Plan);
         assert_eq!(loaded.hold_hotkey, Settings::default().hold_hotkey);
+        assert_eq!(loaded.session_policy, SessionPolicy::Continue);
     }
 
     #[test]
@@ -157,12 +186,34 @@ mod tests {
                 ..ok.clone()
             },
             Settings {
+                new_session_hotkey: ok.hold_hotkey.clone(),
+                ..ok.clone()
+            },
+            Settings {
+                recent_minutes: 0,
+                ..ok.clone()
+            },
+            Settings {
                 dictionary: vec![("".into(), "x".into())],
                 ..ok.clone()
             },
         ];
         for s in bad {
             assert!(s.validate().is_err(), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn hotkeys_from_the_recorder_parse() {
+        for combo in [
+            "Ctrl+Alt+Shift+Space",
+            "Ctrl+Super+N",
+            "Ctrl+5",
+            "Alt+Backquote",
+            "F9",
+            "Shift+F13",
+        ] {
+            assert!(combo.parse::<Shortcut>().is_ok(), "{combo}");
         }
     }
 }

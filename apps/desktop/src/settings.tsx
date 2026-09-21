@@ -2,13 +2,21 @@ import { render } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { accelerator, heldModifiers } from "./hotkey";
+import { SessionsView } from "./sessions";
+import logo from "./logo.svg";
 import "./style.css";
 
 type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "bypassPermissions";
 
+type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
+
 type Settings = {
   holdHotkey: string;
   toggleHotkey: string;
+  newSessionHotkey: string;
+  sessionPolicy: SessionPolicy;
+  recentMinutes: number;
   cwd: string;
   mode: Mode;
   model: string;
@@ -26,6 +34,12 @@ const modes: [Mode, string][] = [
   ["bypassPermissions", "Bypass permissions (unsafe)"],
 ];
 
+const policies: [SessionPolicy, string][] = [
+  ["continue", "Continue the active session"],
+  ["continueIfRecent", "Continue if used recently"],
+  ["alwaysNew", "Always start a new session"],
+];
+
 const input =
   "w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900";
 
@@ -39,7 +53,52 @@ function Field(props: { label: string; hint?: string; children: ComponentChildre
   );
 }
 
-function App() {
+/** Click, then press the combination. Esc cancels. */
+function HotkeyInput(props: { value: string; label: string; onChange: (value: string) => void }) {
+  const [recording, setRecording] = useState(false);
+  const [held, setHeld] = useState("");
+
+  useEffect(() => {
+    if (!recording) return;
+    setHeld("");
+    invoke("set_hotkeys_paused", { paused: true });
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === "Escape") return setRecording(false);
+      const combo = accelerator(e);
+      if (combo) {
+        props.onChange(combo);
+        setRecording(false);
+      } else {
+        setHeld(heldModifiers(e));
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => setHeld(heldModifiers(e));
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      invoke("set_hotkeys_paused", { paused: false });
+    };
+  }, [recording]);
+
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      aria-pressed={recording}
+      class={`${input} text-left font-mono ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
+      onClick={() => setRecording(!recording)}
+      onBlur={() => setRecording(false)}
+    >
+      {recording ? (held ? `${held.replaceAll("+", " + ")} + …` : "Press keys… (Esc to cancel)") : props.value}
+    </button>
+  );
+}
+
+function SettingsView() {
   const [s, setS] = useState<Settings | null>(null);
   const [mics, setMics] = useState<string[]>([]);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -72,9 +131,9 @@ function App() {
   return (
     <form
       onSubmit={save}
-      class="min-h-screen space-y-4 bg-neutral-50 p-6 text-sm text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100"
+      class="max-w-2xl space-y-4 p-6"
     >
-      <h1 class="text-lg font-semibold">Erindi</h1>
+      <h2 class="text-base font-semibold">Settings</h2>
 
       <Field label="Project folder" hint="Claude runs here.">
         <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
@@ -103,21 +162,47 @@ function App() {
       </div>
 
       <div class="grid grid-cols-2 gap-3">
-        <Field label="Hold to talk">
-          <input
+        <Field label="Session" hint={'Say "new session" or "same session" to override.'}>
+          <select
             class={input}
-            value={s.holdHotkey}
-            onInput={(e) => set({ holdHotkey: e.currentTarget.value })}
-          />
+            value={s.sessionPolicy}
+            onChange={(e) => set({ sessionPolicy: e.currentTarget.value as SessionPolicy })}
+          >
+            {policies.map(([value, label]) => (
+              <option value={value}>{label}</option>
+            ))}
+          </select>
         </Field>
-        <Field label="Toggle hands-free">
-          <input
-            class={input}
-            value={s.toggleHotkey}
-            onInput={(e) => set({ toggleHotkey: e.currentTarget.value })}
-          />
-        </Field>
+        {s.sessionPolicy === "continueIfRecent" && (
+          <Field label="Recent means within (min)">
+            <input
+              class={input}
+              type="number"
+              min="1"
+              max="1440"
+              value={s.recentMinutes}
+              onInput={(e) => set({ recentMinutes: Number(e.currentTarget.value) })}
+            />
+          </Field>
+        )}
       </div>
+
+      <fieldset class="space-y-2">
+        <legend class="font-medium">Hotkeys</legend>
+        <p class="text-xs text-neutral-500">Click a field, then press the combination.</p>
+        {(
+          [
+            ["holdHotkey", "Hold to talk"],
+            ["toggleHotkey", "Hands-free"],
+            ["newSessionHotkey", "Hands-free, new session"],
+          ] as const
+        ).map(([field, label]) => (
+          <div class="flex items-center gap-3">
+            <span class="w-44 shrink-0">{label}</span>
+            <HotkeyInput label={label} value={s[field]} onChange={(value) => set({ [field]: value })} />
+          </div>
+        ))}
+      </fieldset>
 
       <div class="grid grid-cols-2 gap-3">
         <Field label="Microphone">
@@ -197,6 +282,40 @@ function App() {
         )}
       </div>
     </form>
+  );
+}
+
+const tabs = [
+  ["sessions", "Sessions"],
+  ["settings", "Settings"],
+] as const;
+
+function App() {
+  const [tab, setTab] = useState<(typeof tabs)[number][0]>("sessions");
+  return (
+    <div class="flex h-screen bg-neutral-50 text-sm text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <nav class="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-3 dark:border-neutral-800">
+        <div class="flex items-center gap-2 px-2 pb-3 font-semibold tracking-wide">
+          <img src={logo} alt="" class="h-6 w-6" />
+          Erindi
+        </div>
+        {tabs.map(([id, label]) => (
+          <button
+            type="button"
+            aria-current={tab === id ? "page" : undefined}
+            class={`rounded-md px-2 py-1.5 text-left ${
+              tab === id
+                ? "bg-neutral-200 font-medium dark:bg-neutral-800"
+                : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900"
+            }`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      <main class="flex-1 overflow-y-auto">{tab === "sessions" ? <SessionsView /> : <SettingsView />}</main>
+    </div>
   );
 }
 
