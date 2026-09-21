@@ -17,14 +17,20 @@ const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? 
 
 const button =
   "rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
+const dangerButton =
+  "rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40";
+
+/** How long the Delete button waits for the confirming second click. */
+const CONFIRM_MS = 3000;
 
 export function SessionsView() {
   const [data, setData] = useState<Sessions | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const load = () => invoke<Sessions>("list_sessions").then(setData);
 
   useEffect(() => {
-    const load = () => invoke<Sessions>("list_sessions").then(setData);
     load();
     const off = listen("sessions-changed", load);
     return () => {
@@ -37,6 +43,16 @@ export function SessionsView() {
       () => setError(null),
       (e) => setError(String(e)),
     );
+
+  const remove = (id: string) => {
+    if (confirming !== id) {
+      setConfirming(id);
+      setTimeout(() => setConfirming((current) => (current === id ? null : current)), CONFIRM_MS);
+      return;
+    }
+    setConfirming(null);
+    act("delete_session", id).then(load);
+  };
 
   if (!data) return null;
   if (data.entries.length === 0) {
@@ -55,7 +71,7 @@ export function SessionsView() {
         {data.entries.map((entry) => {
           const active = entry.id === data.active;
           const expanded = open === entry.id;
-          const more = entry.prompts.length - 1;
+          const count = entry.prompts.length;
           return (
             <li
               class={`rounded-lg border p-3 ${
@@ -64,32 +80,38 @@ export function SessionsView() {
                   : "border-neutral-200 dark:border-neutral-800"
               }`}
             >
+              <p class="line-clamp-2 font-medium">{entry.prompts[0]}</p>
+              <p class="mt-1 text-xs text-neutral-500">
+                {[folderName(entry.cwd), ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}
+              </p>
               <button
                 type="button"
-                class="block w-full text-left"
+                class="mt-2 -ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
                 aria-expanded={expanded}
                 onClick={() => setOpen(expanded ? null : entry.id)}
               >
-                <p class={expanded ? "" : "line-clamp-2"}>{entry.prompts[0]}</p>
-                {expanded && more > 0 && (
-                  <ol class="mt-2 space-y-1 border-l-2 border-neutral-300 pl-3 text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
-                    {entry.prompts.slice(1).map((p) => (
-                      <li>{p}</li>
-                    ))}
-                  </ol>
-                )}
-                <p class="mt-1 text-xs text-neutral-500">
-                  {[
-                    folderName(entry.cwd),
-                    ago(entry.updatedMs),
-                    !expanded && more > 0 && `+${more} more`,
-                    entry.id.slice(0, 8),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 16 16"
+                  class={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+                >
+                  <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                {expanded ? "Hide" : "Show"} {count} {count === 1 ? "prompt" : "prompts"}
               </button>
-              <div class="mt-2 flex gap-2">
+              {expanded && (
+                <ol class="mt-2 space-y-1.5 rounded-md bg-neutral-100 p-3 dark:bg-neutral-900">
+                  {entry.prompts.map((p, i) => (
+                    <li class="flex gap-2">
+                      <span class="w-5 shrink-0 text-right text-xs leading-5 text-neutral-500 tabular-nums">
+                        {i + 1}.
+                      </span>
+                      <span>{p}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <div class="mt-3 flex gap-2">
                 <button type="button" class={button} onClick={() => act("open_history_session", entry.id)}>
                   Open in terminal
                 </button>
@@ -100,6 +122,9 @@ export function SessionsView() {
                   onClick={() => act("continue_session", entry.id)}
                 >
                   {active ? "Active" : "Continue by voice"}
+                </button>
+                <button type="button" class={`${dangerButton} ml-auto`} onClick={() => remove(entry.id)}>
+                  {confirming === entry.id ? "Confirm delete" : "Delete"}
                 </button>
               </div>
             </li>
