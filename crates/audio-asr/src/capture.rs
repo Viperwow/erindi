@@ -1,4 +1,4 @@
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::mpsc;
 use std::thread::JoinHandle;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -28,7 +28,10 @@ fn find_device(name: Option<&str>) -> Result<cpal::Device, String> {
     }
 }
 
-fn open(device: Option<&str>, tx: SyncSender<Vec<f32>>) -> Result<(cpal::Stream, u32), String> {
+fn open(
+    device: Option<&str>,
+    mut on_chunk: impl FnMut(Vec<f32>) + Send + 'static,
+) -> Result<(cpal::Stream, u32), String> {
     let device = find_device(device)?;
     let supported = device.default_input_config().map_err(|e| e.to_string())?;
     let channels = supported.channels() as usize;
@@ -38,7 +41,7 @@ fn open(device: Option<&str>, tx: SyncSender<Vec<f32>>) -> Result<(cpal::Stream,
         cpal::SampleFormat::F32 => device.build_input_stream(
             supported.config(),
             move |data: &[f32], _: &_| {
-                let _ = tx.try_send(downmix(data, channels));
+                on_chunk(downmix(data, channels));
             },
             on_error,
             None,
@@ -47,7 +50,7 @@ fn open(device: Option<&str>, tx: SyncSender<Vec<f32>>) -> Result<(cpal::Stream,
             supported.config(),
             move |data: &[i16], _: &_| {
                 let data: Vec<f32> = data.iter().map(|&s| s as f32 / 32768.0).collect();
-                let _ = tx.try_send(downmix(&data, channels));
+                on_chunk(downmix(&data, channels));
             },
             on_error,
             None,
@@ -59,20 +62,23 @@ fn open(device: Option<&str>, tx: SyncSender<Vec<f32>>) -> Result<(cpal::Stream,
     Ok((stream, rate))
 }
 
-/// A running microphone stream. Mono chunks at the device rate go to the channel given to [`start`].
+/// A running microphone stream; dropping it stops the stream.
 pub struct Capture {
     stop: Option<mpsc::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
 
 /// Opens `device` (or the default input) and returns the capture with its sample rate.
-/// Chunks that do not fit into `tx` are dropped so the audio callback never blocks.
-pub fn start(device: Option<&str>, tx: SyncSender<Vec<f32>>) -> Result<(Capture, u32), String> {
+/// `on_chunk` receives mono samples at that rate on the audio thread and must not block.
+pub fn start(
+    device: Option<&str>,
+    on_chunk: impl FnMut(Vec<f32>) + Send + 'static,
+) -> Result<(Capture, u32), String> {
     let device = device.map(str::to_string);
     let (ready_tx, ready_rx) = mpsc::channel();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     // cpal streams are not Send on every platform, so the stream lives and dies on its own thread.
-    let thread = std::thread::spawn(move || match open(device.as_deref(), tx) {
+    let thread = std::thread::spawn(move || match open(device.as_deref(), on_chunk) {
         Ok((stream, rate)) => {
             let _ = ready_tx.send(Ok(rate));
             let _ = stop_rx.recv();
@@ -115,15 +121,17 @@ mod tests {
 
     #[test]
     fn unknown_device_is_an_error() {
-        let (tx, _rx) = mpsc::sync_channel(4);
-        assert!(start(Some("no such microphone"), tx).is_err());
+        assert!(start(Some("no such microphone"), |_| {}).is_err());
     }
 
     #[test]
     #[ignore = "needs a microphone"]
     fn records_from_default_microphone() {
         let (tx, rx) = mpsc::sync_channel(64);
-        let (capture, rate) = start(None, tx).unwrap();
+        let (capture, rate) = start(None, move |c| {
+            let _ = tx.try_send(c);
+        })
+        .unwrap();
         let started = Instant::now();
         let mut samples = 0;
         while started.elapsed() < Duration::from_millis(500) {
