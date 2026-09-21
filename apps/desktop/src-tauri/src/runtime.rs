@@ -98,9 +98,54 @@ impl Runtime {
 }
 
 pub fn models_dir() -> PathBuf {
-    std::env::var_os("WHISPIO_MODELS")
-        .map(PathBuf::from)
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(PathBuf::from));
+    pick_models_dir(std::env::var_os("WHISPIO_MODELS"), exe_dir)
+}
+
+/// `WHISPIO_MODELS` wins, then `models/` next to the executable (release archive),
+/// then `models/` in the repository (development builds).
+fn pick_models_dir(env: Option<std::ffi::OsString>, exe_dir: Option<PathBuf>) -> PathBuf {
+    if let Some(env) = env {
+        return env.into();
+    }
+    exe_dir
+        .map(|dir| dir.join("models"))
+        .filter(|dir| dir.is_dir())
         .unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../models")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_var_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("models")).unwrap();
+        assert_eq!(
+            pick_models_dir(Some("X:\\m".into()), Some(dir.path().into())),
+            PathBuf::from("X:\\m")
+        );
+    }
+
+    #[test]
+    fn models_next_to_exe_beat_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("models")).unwrap();
+        assert_eq!(
+            pick_models_dir(None, Some(dir.path().into())),
+            dir.path().join("models")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_repository_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let picked = pick_models_dir(None, Some(dir.path().into()));
+        assert!(picked.ends_with("models") && picked.starts_with(env!("CARGO_MANIFEST_DIR")));
+    }
 }
 
 /// Applies the dictionary as currently saved in settings.
