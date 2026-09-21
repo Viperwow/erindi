@@ -1,11 +1,11 @@
 [package]
-name = "ella-desktop"
+name = "erindi-desktop"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [lib]
-name = "ella_desktop"
+name = "erindi_desktop"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -18,8 +18,8 @@ tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-single-instance = "2.4.5"
 tokio-util = { version = "0.7.19", default-features = false }
 uuid = "1.26.1"
-ella-audio-asr = { version = "0.0.1", path = "../../../crates/audio-asr" }
-ella-core = { version = "0.0.1", path = "../../../crates/core" }
+erindi-audio-asr = { version = "0.0.1", path = "../../../crates/audio-asr" }
+erindi-core = { version = "0.0.1", path = "../../../crates/core" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

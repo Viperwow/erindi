@@ -1,8 +1,8 @@
-# Ella 0.0.1
+# Erindi 0.0.1
 
 > **Work in progress.** Proof of concept: Windows only, Claude Code only.
 
-Hold a hotkey, speak a task, and Ella transcribes it locally and runs it in Claude Code, without leaving the app you are in.
+*Erindi* is Icelandic for an errand, a message and a speech. Hold a hotkey, speak a task, and Erindi transcribes it locally and runs it in Claude Code, without leaving the app you are in.
 
 | Part | Built with |
 |---|---|

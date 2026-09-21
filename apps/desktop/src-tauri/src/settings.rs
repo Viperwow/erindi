@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use ella_core::claude::{ClaudeMode, ClaudeRequest, claude_args, resume_in_terminal};
+use erindi_core::claude::{ClaudeMode, ClaudeRequest, claude_args, resume_in_terminal};
 use serde::{Deserialize, Serialize};
 use tauri_plugin_global_shortcut::Shortcut;
 use uuid::Uuid;

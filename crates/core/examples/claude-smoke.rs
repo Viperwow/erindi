@@ -2,9 +2,9 @@
 
 use std::time::Duration;
 
-use ella_core::claude::{ClaudeMode, ClaudeRequest, claude_args, claude_env};
-use ella_core::run::{RunSpec, run};
-use ella_core::stream::parse_line;
+use erindi_core::claude::{ClaudeMode, ClaudeRequest, claude_args, claude_env};
+use erindi_core::run::{RunSpec, run};
+use erindi_core::stream::parse_line;
 use tokio_util::sync::CancellationToken;
 
 #[tokio::main]

@@ -74,7 +74,7 @@ function App() {
       onSubmit={save}
       class="min-h-screen space-y-4 bg-neutral-50 p-6 text-sm text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100"
     >
-      <h1 class="text-lg font-semibold">Ella</h1>
+      <h1 class="text-lg font-semibold">Erindi</h1>
 
       <Field label="Project folder" hint="Claude runs here.">
         <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />

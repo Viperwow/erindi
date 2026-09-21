@@ -4,16 +4,16 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
-use ella_audio_asr::asr::Asr;
-use ella_audio_asr::capture::{self, Capture};
-use ella_audio_asr::dsp::{To16k, rms};
-use ella_audio_asr::vad::{Endpoint, Endpointer};
-use ella_core::claude::{ClaudeRequest, claude_args, claude_env, resume_in_terminal};
-use ella_core::controller::{Controller, Effect, Msg};
-use ella_core::prompt::{Dictionary, PromptTransformer};
-use ella_core::run::{RunEnd, RunSpec, run};
-use ella_core::state::{AppState, OpId};
-use ella_core::stream::parse_line;
+use erindi_audio_asr::asr::Asr;
+use erindi_audio_asr::capture::{self, Capture};
+use erindi_audio_asr::dsp::{To16k, rms};
+use erindi_audio_asr::vad::{Endpoint, Endpointer};
+use erindi_core::claude::{ClaudeRequest, claude_args, claude_env, resume_in_terminal};
+use erindi_core::controller::{Controller, Effect, Msg};
+use erindi_core::prompt::{Dictionary, PromptTransformer};
+use erindi_core::run::{RunEnd, RunSpec, run};
+use erindi_core::state::{AppState, OpId};
+use erindi_core::stream::parse_line;
 use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
@@ -101,10 +101,10 @@ pub fn models_dir() -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from));
-    pick_models_dir(std::env::var_os("ELLA_MODELS"), exe_dir)
+    pick_models_dir(std::env::var_os("ERINDI_MODELS"), exe_dir)
 }
 
-/// `ELLA_MODELS` wins, then `models/` next to the executable (release archive),
+/// `ERINDI_MODELS` wins, then `models/` next to the executable (release archive),
 /// then `models/` in the repository (development builds).
 fn pick_models_dir(env: Option<std::ffi::OsString>, exe_dir: Option<PathBuf>) -> PathBuf {
     if let Some(env) = env {

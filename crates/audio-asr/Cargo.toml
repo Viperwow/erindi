@@ -1,5 +1,5 @@
 [package]
-name = "ella-audio-asr"
+name = "erindi-audio-asr"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

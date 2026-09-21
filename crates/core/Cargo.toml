@@ -1,5 +1,5 @@
 [package]
-name = "ella-core"
+name = "erindi-core"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
