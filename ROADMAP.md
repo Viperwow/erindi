@@ -11,7 +11,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] Headless Claude Code runs with a permission mode and whole-process-tree cancel.
 - [x] Click the finished bubble to open the session with `claude --resume` in Windows Terminal.
 - [x] Settings: project folder, model, hotkeys, microphone, silence length.
-- [x] CI checks and a Windows release archive.
+- [x] CI checks on pull requests and a Windows build published as the `latest` pre-release on every merge into `main`.
 
 ## Next
 
@@ -39,7 +39,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Redesign.** Modern look, dark by default, with accent colors.
 - [ ] **Themes.** Light, dark and system modes, with main colors set as hex codes.
 - [ ] **Dictionary tab.** Move the dictionary to its own tab; the main page keeps only what matters most.
-- [ ] **Branding.** Show the name once, following how strong brands handle window titles and headers.
+- [x] **Branding.** The name shows once, in the window title and the sidebar header.
+- [x] **Logo.** Three normal-distribution peaks in the aurora stage colors: green, orange and blue with lilac joins.
 - [x] **Form saving.** One Save button for the whole form (keep it).
 - [ ] **Localization.** English interface by default, with infrastructure for more interface and speech languages.
 
