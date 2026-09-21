@@ -6,10 +6,11 @@ import { deflateSync } from "node:zlib";
 const SIZE = 1024;
 const RADIUS = 224;
 const BACKGROUND = [10, 10, 20];
+// One color per peak, left to right: the aurora colors of the pipeline stages.
 const STOPS = [
-  [0, [34, 211, 238]], // cyan
-  [0.5, [59, 130, 246]], // blue
-  [1, [168, 85, 247]], // violet
+  [0.25, [34, 197, 94]], // green
+  [0.5, [245, 158, 11]], // orange
+  [0.75, [59, 130, 246]], // blue
 ];
 const PEAKS = [
   [0.25, 0.62],
@@ -35,10 +36,10 @@ const curveY = (x) => {
 };
 const color = (x) => {
   const t = Math.min(1, Math.max(0, (x / SIZE - LEFT) / (RIGHT - LEFT)));
-  const i = t <= 0.5 ? 0 : 1;
+  const i = t <= STOPS[1][0] ? 0 : 1;
   const [t0, a] = STOPS[i];
   const [t1, b] = STOPS[i + 1];
-  const k = (t - t0) / (t1 - t0);
+  const k = Math.min(1, Math.max(0, (t - t0) / (t1 - t0)));
   return a.map((v, j) => v + (b[j] - v) * k);
 };
 const insideTile = (x, y) => {
