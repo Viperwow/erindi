@@ -2,8 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { accelerator } from "./hotkey.ts";
 
-const key = (code: string, mods: Partial<Record<"ctrl" | "alt" | "shift" | "meta", boolean>> = {}) => ({
+const key = (
+  code: string,
+  mods: Partial<Record<"ctrl" | "alt" | "shift" | "meta", boolean>> = {},
+  keyValue = "",
+) => ({
   code,
+  key: keyValue,
   ctrlKey: !!mods.ctrl,
   altKey: !!mods.alt,
   shiftKey: !!mods.shift,
@@ -30,4 +35,11 @@ test("plain keys need a modifier, function keys do not", () => {
   assert.equal(accelerator(key("KeyA")), null);
   assert.equal(accelerator(key("F9")), "F9");
   assert.equal(accelerator(key("F13", { shift: true })), "Shift+F13");
+});
+
+test("falls back to the key value when the device reports no code", () => {
+  assert.equal(accelerator(key("", { ctrl: true, shift: true }, "k")), "Ctrl+Shift+K");
+  assert.equal(accelerator(key("Unidentified", { alt: true }, "5")), "Alt+5");
+  assert.equal(accelerator(key("", { ctrl: true }, "")), null);
+  assert.equal(accelerator(key("", { ctrl: true }, "Control")), null);
 });

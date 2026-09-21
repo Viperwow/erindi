@@ -178,29 +178,22 @@ function App() {
         )}
       </div>
 
-      <div class="grid grid-cols-3 gap-3">
-        <Field label="Hold to talk">
-          <HotkeyInput
-            label="Hold to talk"
-            value={s.holdHotkey}
-            onChange={(holdHotkey) => set({ holdHotkey })}
-          />
-        </Field>
-        <Field label="Toggle hands-free">
-          <HotkeyInput
-            label="Toggle hands-free"
-            value={s.toggleHotkey}
-            onChange={(toggleHotkey) => set({ toggleHotkey })}
-          />
-        </Field>
-        <Field label="New session">
-          <HotkeyInput
-            label="New session"
-            value={s.newSessionHotkey}
-            onChange={(newSessionHotkey) => set({ newSessionHotkey })}
-          />
-        </Field>
-      </div>
+      <fieldset class="space-y-2">
+        <legend class="font-medium">Hotkeys</legend>
+        <p class="text-xs text-neutral-500">Click a field, then press the combination.</p>
+        {(
+          [
+            ["holdHotkey", "Hold to talk"],
+            ["toggleHotkey", "Hands-free"],
+            ["newSessionHotkey", "Hands-free, new session"],
+          ] as const
+        ).map(([field, label]) => (
+          <div class="flex items-center gap-3">
+            <span class="w-44 shrink-0">{label}</span>
+            <HotkeyInput label={label} value={s[field]} onChange={(value) => set({ [field]: value })} />
+          </div>
+        ))}
+      </fieldset>
 
       <div class="grid grid-cols-2 gap-3">
         <Field label="Microphone">
