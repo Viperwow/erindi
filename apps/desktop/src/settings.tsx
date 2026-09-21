@@ -4,6 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { accelerator, heldModifiers } from "./hotkey";
 import { SessionsView } from "./sessions";
+import logo from "./logo.svg";
 import "./style.css";
 
 type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "bypassPermissions";
@@ -294,7 +295,10 @@ function App() {
   return (
     <div class="flex h-screen bg-neutral-50 text-sm text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <nav class="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-3 dark:border-neutral-800">
-        <div class="px-2 pb-3 font-semibold tracking-wide">Erindi</div>
+        <div class="flex items-center gap-2 px-2 pb-3 font-semibold tracking-wide">
+          <img src={logo} alt="" class="h-6 w-6" />
+          Erindi
+        </div>
         {tabs.map(([id, label]) => (
           <button
             type="button"
