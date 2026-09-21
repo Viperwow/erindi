@@ -91,6 +91,7 @@ fn save_settings(
     settings.validate()?;
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
+    runtime.send(settings.session_msg());
     register_hotkeys(&app, &settings, &runtime)
 }
 
@@ -106,6 +107,7 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     for (combo, key) in [
         (&settings.hold_hotkey, Key::Hold),
         (&settings.toggle_hotkey, Key::Toggle),
+        (&settings.new_session_hotkey, Key::NewSession),
     ] {
         let runtime = runtime.clone();
         let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {

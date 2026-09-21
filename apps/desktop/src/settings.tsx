@@ -6,9 +6,14 @@ import "./style.css";
 
 type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "bypassPermissions";
 
+type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
+
 type Settings = {
   holdHotkey: string;
   toggleHotkey: string;
+  newSessionHotkey: string;
+  sessionPolicy: SessionPolicy;
+  recentMinutes: number;
   cwd: string;
   mode: Mode;
   model: string;
@@ -24,6 +29,12 @@ const modes: [Mode, string][] = [
   ["plan", "Plan"],
   ["dontAsk", "Don't ask"],
   ["bypassPermissions", "Bypass permissions (unsafe)"],
+];
+
+const policies: [SessionPolicy, string][] = [
+  ["continue", "Continue the active session"],
+  ["continueIfRecent", "Continue if used recently"],
+  ["alwaysNew", "Always start a new session"],
 ];
 
 const input =
@@ -103,6 +114,32 @@ function App() {
       </div>
 
       <div class="grid grid-cols-2 gap-3">
+        <Field label="Session" hint={'Say "new session" or "same session" to override.'}>
+          <select
+            class={input}
+            value={s.sessionPolicy}
+            onChange={(e) => set({ sessionPolicy: e.currentTarget.value as SessionPolicy })}
+          >
+            {policies.map(([value, label]) => (
+              <option value={value}>{label}</option>
+            ))}
+          </select>
+        </Field>
+        {s.sessionPolicy === "continueIfRecent" && (
+          <Field label="Recent means within (min)">
+            <input
+              class={input}
+              type="number"
+              min="1"
+              max="1440"
+              value={s.recentMinutes}
+              onInput={(e) => set({ recentMinutes: Number(e.currentTarget.value) })}
+            />
+          </Field>
+        )}
+      </div>
+
+      <div class="grid grid-cols-3 gap-3">
         <Field label="Hold to talk">
           <input
             class={input}
@@ -115,6 +152,13 @@ function App() {
             class={input}
             value={s.toggleHotkey}
             onInput={(e) => set({ toggleHotkey: e.currentTarget.value })}
+          />
+        </Field>
+        <Field label="New session">
+          <input
+            class={input}
+            value={s.newSessionHotkey}
+            onInput={(e) => set({ newSessionHotkey: e.currentTarget.value })}
           />
         </Field>
       </div>

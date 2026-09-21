@@ -69,7 +69,11 @@ impl Runtime {
             clickable_op: Arc::new(AtomicU64::new(0)),
         };
         std::thread::spawn(move || {
-            let mut controller = Controller::new(Box::new(SettingsDictionary(settings)));
+            let mut controller = Controller::new(Box::new(SettingsDictionary(settings.clone())));
+            let first = settings.read().unwrap().session_msg();
+            for effect in controller.handle(first, Instant::now()) {
+                executor.execute(effect);
+            }
             for msg in rx {
                 for effect in controller.handle(msg, Instant::now()) {
                     executor.execute(effect);
@@ -151,8 +155,8 @@ impl Executor {
             Effect::StartRun {
                 op,
                 prompt,
-                session_id,
-            } => self.start_run(op, prompt, session_id),
+                session,
+            } => self.start_run(op, prompt, session),
             Effect::CancelRun => {
                 if let Some(token) = self.cancel.take() {
                     token.cancel();
@@ -257,12 +261,12 @@ impl Executor {
         });
     }
 
-    fn start_run(&mut self, op: OpId, prompt: String, session_id: uuid::Uuid) {
+    fn start_run(&mut self, op: OpId, prompt: String, session: Session) {
         let settings = self.settings.read().unwrap().clone();
         let request = ClaudeRequest {
             mode: settings.mode,
             model: (!settings.model.is_empty()).then_some(settings.model),
-            session: Session::New(session_id),
+            session,
         };
         let Ok(args) = claude_args(&request) else {
             let _ = self.tx.send(Msg::RunExited {
@@ -282,7 +286,9 @@ impl Executor {
         };
         *self.last_session.lock().unwrap() = Some(LastRun {
             op,
-            id: session_id,
+            id: match session {
+                Session::New(id) | Session::Resume(id) => id,
+            },
             cwd: settings.cwd.clone(),
         });
         let token = CancellationToken::new();

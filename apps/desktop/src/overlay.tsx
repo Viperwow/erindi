@@ -20,6 +20,7 @@ type View = {
   text: string;
   detail: string;
   sessionId: string | null;
+  continued: boolean;
 };
 
 const palette: Record<AppState, [string, string]> = {
@@ -59,6 +60,12 @@ function Overlay() {
   const listening = view.state === "Listening";
   const intensity = listening ? Math.min(1, 0.6 + level * 8) : 0.8;
   const status = labels[view.state];
+  const target =
+    view.sessionId && view.state !== "Listening"
+      ? view.continued
+        ? `↩ ${view.sessionId.slice(0, 6)}`
+        : "+ new session"
+      : null;
   const hasBubble = view.text || view.detail || status;
   const canOpen =
     view.sessionId && (view.state === "Succeeded" || view.state === "Failed");
@@ -73,7 +80,7 @@ function Overlay() {
           {view.text && <p class="leading-snug">{view.text}</p>}
           {(status || view.detail) && (
             <p class="mt-0.5 truncate text-xs text-white/60">
-              {[status, view.detail, canOpen && "click to open in terminal"]
+              {[status, target, view.detail, canOpen && "click to open in terminal"]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
