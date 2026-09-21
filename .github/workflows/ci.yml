@@ -14,16 +14,28 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      # rust-cache drops target/sherpa-onnx-prebuilt but keeps the build script as done,
-      # so the linker would miss the prebuilt sherpa-onnx libraries.
+      # sherpa-onnx-sys downloads its libraries into target/, which rust-cache does not keep while it
+      # keeps the build script marked as done. Providing SHERPA_ONNX_LIB_DIR avoids that dependency.
+      - name: Locate sherpa-onnx libraries
+        id: sherpa
+        run: |
+          $line = (Select-String -Path Cargo.lock -Pattern '^name = "sherpa-onnx-sys"$' -Context 0,1).Context.PostContext[0]
+          $v = $line -replace '.*"(.*)".*', '$1'
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "SHERPA_ONNX_LIB_DIR=$env:RUNNER_TEMP\sherpa-onnx\sherpa-onnx-v$v-win-x64-shared-MT-Release-lib\lib" >> $env:GITHUB_ENV
       - uses: actions/cache@v4
         with:
-          path: target/sherpa-onnx-prebuilt
-          key: sherpa-onnx-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-      - name: Rerun the sherpa-onnx build script when its libraries are missing
+          path: ${{ runner.temp }}/sherpa-onnx
+          key: sherpa-onnx-${{ runner.os }}-${{ steps.sherpa.outputs.version }}
+      - name: Download sherpa-onnx libraries
         run: |
-          if (-not (Test-Path target/sherpa-onnx-prebuilt)) {
-            Remove-Item -Recurse -Force target/*/build/sherpa-onnx-sys-*, target/*/.fingerprint/sherpa-onnx-sys-* -ErrorAction SilentlyContinue
+          if (-not (Test-Path $env:SHERPA_ONNX_LIB_DIR)) {
+            $v = "${{ steps.sherpa.outputs.version }}"
+            $name = "sherpa-onnx-v$v-win-x64-shared-MT-Release-lib.tar.bz2"
+            $dir = "$env:RUNNER_TEMP\sherpa-onnx"
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Invoke-WebRequest "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$v/$name" -OutFile "$dir\$name"
+            tar -xjf "$dir\$name" -C $dir
           }
       - uses: pnpm/action-setup@v4
         with:
