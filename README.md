@@ -21,4 +21,16 @@ Hotkeys: `Ctrl+Alt+Space` hold to talk, `Ctrl+Alt+Shift+Space` hands-free.
 cd apps/desktop; pnpm install; pnpm tauri dev
 ```
 
-Tests: `cargo test --workspace`. Building and contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Plans: [ROADMAP.md](ROADMAP.md).
+## Status
+
+- [x] Speak a task with a hold or hands-free hotkey
+- [x] Local speech recognition with a live transcript
+- [x] Run Claude Code headless, cancel it, reopen the session
+- [ ] Continue the same session by voice
+- [ ] Session history sidebar
+- [ ] Prompt cleanup with a fast LLM
+- [ ] Provider and model picker
+- [ ] Hotkey recorder with mouse buttons
+- [ ] macOS build
+
+Full plan: [ROADMAP.md](ROADMAP.md). Building and contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Tests: `cargo test --workspace`.
