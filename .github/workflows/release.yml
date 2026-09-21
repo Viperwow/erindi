@@ -25,6 +25,11 @@ jobs:
         with:
           path: target/sherpa-onnx-prebuilt
           key: sherpa-onnx-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+      - name: Rerun the sherpa-onnx build script when its libraries are missing
+        run: |
+          if (-not (Test-Path target/sherpa-onnx-prebuilt)) {
+            Remove-Item -Recurse -Force target/*/build/sherpa-onnx-sys-*, target/*/.fingerprint/sherpa-onnx-sys-* -ErrorAction SilentlyContinue
+          }
       - uses: pnpm/action-setup@v4
         with:
           version: 10
