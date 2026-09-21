@@ -1,4 +1,6 @@
 fn main() {
+    // tauri-build embeds icons/icon.ico into the exe but does not rerun when it changes.
+    println!("cargo:rerun-if-changed=icons");
     let commands = tauri_build::AppManifest::new().commands(&[
         "open_session",
         "get_settings",
