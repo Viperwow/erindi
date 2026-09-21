@@ -24,6 +24,54 @@ pub struct ClaudeRequest {
 #[derive(Debug, PartialEq, Eq)]
 pub struct InvalidModel;
 
+/// Environment variables Claude Code needs on Windows; everything else stays with the launcher.
+const ENV_ALLOW: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "HOME",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMW6432",
+    "COMMONPROGRAMFILES",
+    "COMMONPROGRAMFILES(X86)",
+    "COMMONPROGRAMW6432",
+    "TEMP",
+    "TMP",
+    "USERNAME",
+    "USERDOMAIN",
+    "COMPUTERNAME",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "OS",
+    "LANG",
+    "LC_ALL",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+];
+const ENV_ALLOW_PREFIX: &[&str] = &["ANTHROPIC_", "CLAUDE_"];
+
+pub fn claude_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+    vars.into_iter()
+        .filter(|(k, _)| {
+            let k = k.to_uppercase();
+            ENV_ALLOW.contains(&k.as_str()) || ENV_ALLOW_PREFIX.iter().any(|p| k.starts_with(p))
+        })
+        .collect()
+}
+
 /// Arguments for a headless run. The prompt is written to stdin, never passed as an argument.
 pub fn claude_args(req: &ClaudeRequest) -> Result<Vec<String>, InvalidModel> {
     let mut args: Vec<String> = ["-p", "--output-format", "stream-json", "--verbose"]
@@ -109,6 +157,34 @@ mod tests {
                 Err(InvalidModel)
             );
         }
+    }
+
+    #[test]
+    fn env_keeps_only_allowlisted_vars() {
+        let vars = [
+            ("Path", "C:\\bin"),
+            ("SystemRoot", "C:\\Windows"),
+            ("USERPROFILE", "C:\\Users\\me"),
+            ("ANTHROPIC_API_KEY", "sk"),
+            ("CLAUDE_CODE_GIT_BASH_PATH", "C:\\git\\bash.exe"),
+            ("https_proxy", "http://proxy"),
+            ("OPENAI_API_KEY", "leak"),
+            ("GITHUB_TOKEN", "leak"),
+            ("RUST_LOG", "debug"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let kept: Vec<_> = claude_env(vars).into_iter().map(|(k, _)| k).collect();
+        assert_eq!(
+            kept,
+            [
+                "Path",
+                "SystemRoot",
+                "USERPROFILE",
+                "ANTHROPIC_API_KEY",
+                "CLAUDE_CODE_GIT_BASH_PATH",
+                "https_proxy"
+            ]
+        );
     }
 
     #[test]
