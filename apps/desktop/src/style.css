@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+body.overlay {
+  background: transparent;
+  overflow: hidden;
+}

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/audio-asr"]
+members = ["crates/core", "crates/audio-asr", "apps/desktop/src-tauri"]
 
 [workspace.package]
 edition = "2024"

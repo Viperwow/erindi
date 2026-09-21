@@ -4,3 +4,4 @@ dist/
 /models/
 *.log
 .env
+/apps/desktop/src-tauri/gen/
