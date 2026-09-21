@@ -1,6 +1,7 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
@@ -9,7 +10,7 @@ use whispio_audio_asr::asr::Asr;
 use whispio_audio_asr::capture::{self, Capture};
 use whispio_audio_asr::dsp::{To16k, rms};
 use whispio_audio_asr::vad::{Endpoint, Endpointer};
-use whispio_core::claude::{ClaudeRequest, claude_args, claude_env};
+use whispio_core::claude::{ClaudeRequest, claude_args, claude_env, resume_in_terminal};
 use whispio_core::controller::{Controller, Effect, Msg};
 use whispio_core::prompt::{Dictionary, PromptTransformer};
 use whispio_core::run::{RunEnd, RunSpec, run};
@@ -29,12 +30,22 @@ pub type SharedSettings = Arc<RwLock<Settings>>;
 #[derive(Clone)]
 pub struct Runtime {
     tx: Sender<Msg>,
+    last_session: Arc<Mutex<Option<Session>>>,
+}
+
+/// The most recent Claude run, which the overlay can reopen in a terminal.
+#[derive(Clone)]
+struct Session {
+    op: OpId,
+    id: uuid::Uuid,
+    cwd: String,
 }
 
 impl Runtime {
     pub fn start(app: AppHandle, settings: SharedSettings) -> Self {
         let (tx, rx) = mpsc::channel();
         let asr = Arc::new(OnceLock::new());
+        let last_session = Arc::new(Mutex::new(None));
 
         let (load_tx, load_asr) = (tx.clone(), asr.clone());
         std::thread::spawn(move || match Asr::load(&models_dir()) {
@@ -54,6 +65,8 @@ impl Runtime {
             asr,
             capture: None,
             cancel: None,
+            last_session: last_session.clone(),
+            clickable_op: Arc::new(AtomicU64::new(0)),
         };
         std::thread::spawn(move || {
             let mut controller = Controller::new(Box::new(SettingsDictionary(settings)));
@@ -63,11 +76,24 @@ impl Runtime {
                 }
             }
         });
-        Self { tx }
+        Self { tx, last_session }
     }
 
     pub fn send(&self, msg: Msg) {
         let _ = self.tx.send(msg);
+    }
+
+    pub fn open_session(&self) -> Result<(), String> {
+        let session = self.last_session.lock().unwrap().clone();
+        let session = session.ok_or("No Claude session yet")?;
+        let args = resume_in_terminal(&session.cwd, session.id)
+            .map_err(|_| format!("Cannot open a terminal in {}", session.cwd))?;
+        std::process::Command::new("wt.exe")
+            .args(args)
+            .spawn()
+            .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
+        self.send(Msg::Dismiss { op: session.op });
+        Ok(())
     }
 }
 
@@ -94,6 +120,8 @@ struct Executor {
     asr: Arc<OnceLock<Asr>>,
     capture: Option<Capture>,
     cancel: Option<CancellationToken>,
+    last_session: Arc<Mutex<Option<Session>>>,
+    clickable_op: Arc<AtomicU64>,
 }
 
 impl Executor {
@@ -123,7 +151,14 @@ impl Executor {
                     AppState::Idle | AppState::LoadingModel => overlay::hide(&self.app),
                     _ => overlay::show(&self.app),
                 }
-                if matches!(view.state, AppState::Succeeded | AppState::Failed) {
+                let finished = matches!(view.state, AppState::Succeeded | AppState::Failed);
+                let clickable = finished && view.session_id.is_some();
+                self.clickable_op
+                    .store(if clickable { view.op } else { 0 }, Ordering::SeqCst);
+                if clickable {
+                    overlay::track_bubble_hover(&self.app, self.clickable_op.clone(), view.op);
+                }
+                if finished {
                     let tx = self.tx.clone();
                     std::thread::spawn(move || {
                         std::thread::sleep(DISMISS_AFTER);
@@ -227,11 +262,16 @@ impl Executor {
         let spec = RunSpec {
             program: "claude".into(),
             args,
-            cwd: settings.cwd.into(),
+            cwd: settings.cwd.clone().into(),
             env: claude_env(std::env::vars()),
             stdin: prompt,
             timeout: RUN_TIMEOUT,
         };
+        *self.last_session.lock().unwrap() = Some(Session {
+            op,
+            id: session_id,
+            cwd: settings.cwd.clone(),
+        });
         let token = CancellationToken::new();
         self.cancel = Some(token.clone());
         let tx = self.tx.clone();

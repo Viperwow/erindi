@@ -19,11 +19,13 @@ pub fn run() {
             show_settings(app)
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![open_session])
         .setup(|app| {
             overlay::create(app.handle())?;
             let settings = Arc::new(RwLock::new(Settings::default()));
             let runtime = Runtime::start(app.handle().clone(), settings.clone());
             register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime);
+            app.manage(runtime);
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             TrayIconBuilder::new()
@@ -49,6 +51,11 @@ pub fn run() {
                 api.prevent_exit();
             }
         });
+}
+
+#[tauri::command]
+fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
+    runtime.open_session()
 }
 
 fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) {
@@ -92,12 +99,16 @@ mod tests {
     }
 
     #[test]
-    fn overlay_can_only_listen_to_events() {
+    fn overlay_can_only_listen_and_open_the_session() {
         let cap = capability(include_str!("../capabilities/overlay.json"));
         assert_eq!(cap["windows"], json!(["overlay"]));
         assert_eq!(
             cap["permissions"],
-            json!(["core:event:allow-listen", "core:event:allow-unlisten"])
+            json!([
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
+                "allow-open-session"
+            ])
         );
     }
 

@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import "./style.css";
 
 type AppState =
@@ -59,15 +60,22 @@ function Overlay() {
   const intensity = listening ? Math.min(1, 0.6 + level * 8) : 0.8;
   const status = labels[view.state];
   const hasBubble = view.text || view.detail || status;
+  const canOpen =
+    view.sessionId && (view.state === "Succeeded" || view.state === "Failed");
 
   return (
     <div class="fixed inset-0 flex flex-col items-center justify-end select-none">
       {hasBubble && (
-        <div class="mb-3 max-w-2xl rounded-2xl bg-neutral-950/80 px-4 py-2 text-sm text-white shadow-lg backdrop-blur">
+        <div
+          class={`mb-3 max-w-2xl rounded-2xl bg-neutral-950/80 px-4 py-2 text-sm text-white shadow-lg backdrop-blur ${canOpen ? "cursor-pointer hover:bg-neutral-900/90" : ""}`}
+          onClick={canOpen ? () => invoke("open_session") : undefined}
+        >
           {view.text && <p class="leading-snug">{view.text}</p>}
           {(status || view.detail) && (
             <p class="mt-0.5 truncate text-xs text-white/60">
-              {[status, view.detail].filter(Boolean).join(" · ")}
+              {[status, view.detail, canOpen && "click to open in terminal"]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           )}
         </div>
