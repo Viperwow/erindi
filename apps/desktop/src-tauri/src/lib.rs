@@ -1,3 +1,4 @@
+mod history;
 mod overlay;
 mod runtime;
 mod settings;

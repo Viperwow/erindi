@@ -93,14 +93,12 @@ pub fn choose(
     recent: Duration,
     intent: Intent,
     active: Option<&Active>,
-    cwd: &str,
     now: Instant,
 ) -> Option<Uuid> {
     if intent == Intent::New {
         return None;
     }
-    // Claude stores sessions per project folder, so another folder always starts fresh.
-    let active = active.filter(|a| a.cwd == cwd)?;
+    let active = active?;
     let resume = match (intent, policy) {
         (Intent::Continue, _) | (_, SessionPolicy::Continue) => true,
         (_, SessionPolicy::AlwaysNew) => false,
@@ -176,40 +174,27 @@ mod tests {
         let now = Instant::now() + Duration::from_secs(3600);
         let recent = Duration::from_secs(600);
         let id = Some(Uuid::from_u128(7));
-        let fresh = active("C:\\p", Duration::from_secs(60), now);
-        let stale = active("C:\\p", Duration::from_secs(1200), now);
+        let fresh = active("C:/p", Duration::from_secs(60), now);
+        let stale = active("C:/p", Duration::from_secs(1200), now);
         use Intent as I;
         use SessionPolicy as P;
 
         let cases = [
-            (P::Continue, I::Unspecified, None, "C:\\p", None),
-            (P::Continue, I::Unspecified, Some(&stale), "C:\\p", id),
-            (P::Continue, I::New, Some(&fresh), "C:\\p", None),
-            (P::Continue, I::Unspecified, Some(&fresh), "C:\\other", None),
-            (P::AlwaysNew, I::Unspecified, Some(&fresh), "C:\\p", None),
-            (P::AlwaysNew, I::Continue, Some(&fresh), "C:\\p", id),
-            (
-                P::ContinueIfRecent,
-                I::Unspecified,
-                Some(&fresh),
-                "C:\\p",
-                id,
-            ),
-            (
-                P::ContinueIfRecent,
-                I::Unspecified,
-                Some(&stale),
-                "C:\\p",
-                None,
-            ),
-            (P::ContinueIfRecent, I::Continue, Some(&stale), "C:\\p", id),
-            (P::AlwaysNew, I::Continue, None, "C:\\p", None),
+            (P::Continue, I::Unspecified, None, None),
+            (P::Continue, I::Unspecified, Some(&stale), id),
+            (P::Continue, I::New, Some(&fresh), None),
+            (P::AlwaysNew, I::Unspecified, Some(&fresh), None),
+            (P::AlwaysNew, I::Continue, Some(&fresh), id),
+            (P::ContinueIfRecent, I::Unspecified, Some(&fresh), id),
+            (P::ContinueIfRecent, I::Unspecified, Some(&stale), None),
+            (P::ContinueIfRecent, I::Continue, Some(&stale), id),
+            (P::AlwaysNew, I::Continue, None, None),
         ];
-        for (policy, intent, active, cwd, expected) in cases {
+        for (policy, intent, active, expected) in cases {
             assert_eq!(
-                choose(policy, recent, intent, active, cwd, now),
+                choose(policy, recent, intent, active, now),
                 expected,
-                "{policy:?} {intent:?} {cwd}"
+                "{policy:?} {intent:?}"
             );
         }
     }

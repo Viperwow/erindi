@@ -64,6 +64,11 @@ pub enum Msg {
         recent: Duration,
         cwd: String,
     },
+    /// Makes a session from history the one the next utterance continues.
+    SetActive {
+        id: Uuid,
+        cwd: String,
+    },
     /// Microphone or recognizer failure for the current operation.
     Failed {
         op: OpId,
@@ -90,8 +95,11 @@ pub enum Effect {
         op: OpId,
         prompt: String,
         session: Session,
+        /// Resumed sessions run in their own project folder.
+        cwd: String,
     },
     CancelRun,
+    ActiveChanged(Option<Uuid>),
     Show(View),
 }
 
@@ -121,7 +129,7 @@ pub struct Controller {
     recent: Duration,
     cwd: String,
     active: Option<Active>,
-    running: Option<Session>,
+    running: Option<(Session, String)>,
 }
 
 impl Controller {
@@ -225,19 +233,13 @@ impl Controller {
                 let empty = prompt.is_empty();
                 match self.machine.apply(Event::Transcribed { op, empty }) {
                     Ok(Outcome::Changed(S::Running)) => {
-                        let resume = choose(
-                            self.policy,
-                            self.recent,
-                            intent,
-                            self.active.as_ref(),
-                            &self.cwd,
-                            now,
-                        );
-                        let session = match resume {
-                            Some(id) => Session::Resume(id),
-                            None => Session::New(Uuid::new_v4()),
+                        let resume =
+                            choose(self.policy, self.recent, intent, self.active.as_ref(), now);
+                        let (session, cwd) = match (resume, &self.active) {
+                            (Some(id), Some(active)) => (Session::Resume(id), active.cwd.clone()),
+                            _ => (Session::New(Uuid::new_v4()), self.cwd.clone()),
                         };
-                        self.running = Some(session);
+                        self.running = Some((session, cwd.clone()));
                         self.result = None;
                         self.view.text = prompt.clone();
                         self.view.session_id = Some(session_id(session));
@@ -248,6 +250,7 @@ impl Controller {
                                 op,
                                 prompt,
                                 session,
+                                cwd,
                             },
                             self.show(),
                         ]
@@ -273,15 +276,17 @@ impl Controller {
             Msg::RunExited { op, end, stderr } if current(op) => {
                 let result_ok = self.result.as_ref().is_none_or(|(ok, _)| *ok);
                 let ok = end == RunEnd::Exited { success: true } && result_ok;
-                if let Some(session) = self.running.take() {
-                    self.remember(session, &end, ok, now);
-                }
+                let mut fx = match self.running.take() {
+                    Some((session, cwd)) => self.remember(session, cwd, &end, ok, now),
+                    None => vec![],
+                };
                 self.view.detail = match (&self.result, &end) {
                     (Some((_, text)), _) if !text.is_empty() => text.clone(),
                     (_, RunEnd::TimedOut) => "Timed out".into(),
                     _ => stderr.trim().lines().last().unwrap_or_default().into(),
                 };
-                self.apply(Event::RunExited { op, ok })
+                fx.extend(self.apply(Event::RunExited { op, ok }));
+                fx
             }
             Msg::Dismiss { op } if current(op) => self.apply(Event::Dismiss),
             Msg::Settings {
@@ -289,14 +294,19 @@ impl Controller {
                 recent,
                 cwd,
             } => {
-                if cwd != self.cwd {
-                    self.active = None;
-                }
                 self.policy = policy;
                 self.recent = recent;
+                if cwd == self.cwd {
+                    return vec![];
+                }
                 self.cwd = cwd;
-                vec![]
+                self.set_active(None)
             }
+            Msg::SetActive { id, cwd } => self.set_active(Some(Active {
+                id,
+                cwd,
+                last_used: now,
+            })),
             Msg::Failed { op, error } if current(op) => {
                 self.view.detail = error;
                 let mut fx = match state {
@@ -312,18 +322,39 @@ impl Controller {
 
     /// Updates the active session after a run. A run that produced a result proves its session
     /// exists; a resume that failed without one most likely points at a session Claude no longer has.
-    fn remember(&mut self, session: Session, end: &RunEnd, ok: bool, now: Instant) {
+    fn remember(
+        &mut self,
+        session: Session,
+        cwd: String,
+        end: &RunEnd,
+        ok: bool,
+        now: Instant,
+    ) -> Vec<Effect> {
         if *end == RunEnd::Cancelled {
-            return;
+            return vec![];
         }
         if ok || self.result.is_some() {
-            self.active = Some(Active {
+            self.set_active(Some(Active {
                 id: session_id(session),
-                cwd: self.cwd.clone(),
+                cwd,
                 last_used: now,
-            });
+            }))
         } else if matches!(session, Session::Resume(_)) {
-            self.active = None;
+            self.set_active(None)
+        } else {
+            vec![]
+        }
+    }
+
+    /// Replaces the active session, announcing only a change of session.
+    fn set_active(&mut self, active: Option<Active>) -> Vec<Effect> {
+        let before = self.active.as_ref().map(|a| a.id);
+        let after = active.as_ref().map(|a| a.id);
+        self.active = active;
+        if before == after {
+            vec![]
+        } else {
+            vec![Effect::ActiveChanged(after)]
         }
     }
 
@@ -638,6 +669,7 @@ mod tests {
             op: rop,
             prompt,
             session: Session::New(session_id),
+            ..
         }) = fx.first()
         else {
             panic!("{fx:?}")
@@ -938,5 +970,76 @@ mod tests {
         });
         t.send(Msg::Dismiss { op });
         assert!(matches!(t.finish_saying("ещё раз"), Session::New(_)));
+    }
+
+    fn active_changes(effects: &[Effect]) -> Vec<Option<Uuid>> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::ActiveChanged(id) => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn announces_the_active_session() {
+        let mut t = T::new();
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "проверь diff".into(),
+        });
+        let Some(Effect::StartRun { session, .. }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        let session = *session;
+        let fx = t.send(Msg::RunExited {
+            op,
+            end: RunEnd::Exited { success: true },
+            stderr: String::new(),
+        });
+        assert_eq!(active_changes(&fx), [Some(id(session))]);
+        let fx = t.send(settings(SessionPolicy::Continue, "C:/other"));
+        assert_eq!(active_changes(&fx), [None]);
+    }
+
+    #[test]
+    fn picked_session_is_continued_in_its_own_folder() {
+        let mut t = T::new();
+        let picked = Uuid::from_u128(42);
+        let fx = t.send(Msg::SetActive {
+            id: picked,
+            cwd: "D:/elsewhere".into(),
+        });
+        assert_eq!(active_changes(&fx), [Some(picked)]);
+
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "продолжай".into(),
+        });
+        let Some(Effect::StartRun { session, cwd, .. }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        assert_eq!(*session, Session::Resume(picked));
+        assert_eq!(cwd, "D:/elsewhere");
+    }
+
+    #[test]
+    fn new_sessions_run_in_the_settings_folder() {
+        let mut t = T::new();
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "проверь diff".into(),
+        });
+        let Some(Effect::StartRun { cwd, .. }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        assert_eq!(cwd, "C:/p");
     }
 }
