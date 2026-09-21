@@ -20,13 +20,13 @@ fn main() {
             writeln!(out, "{report}").unwrap();
         }
         "tree" => {
-            let child = std::process::Command::new(std::env::current_exe().unwrap())
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
                 .arg("sleep")
                 .spawn()
                 .unwrap();
             writeln!(out, "{}", child.id()).unwrap();
             out.flush().unwrap();
-            std::thread::sleep(Duration::from_secs(60));
+            child.wait().unwrap();
         }
         "sleep" => std::thread::sleep(Duration::from_secs(60)),
         "flood" => {
