@@ -17,7 +17,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 ### Working with agents
 
-- [ ] **Continue the session.** A separate hotkey or checkbox sends the next utterance into the same Claude session, to add to a task or answer the agent.
+- [x] **Continue the session.** Utterances continue the active Claude session by default. A session setting (continue, continue if recent, always new), a "new session" hotkey and spoken commands such as "new session" or "same session" choose otherwise.
 - [ ] **Session history.** A "Recent" sidebar lists sessions started from Erindi with their transcript and session ID; clicking one opens it.
 - [ ] **Prompt cleanup model.** A fast intermediate LLM turns the raw transcript into clear, logical text before it reaches the agent.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
@@ -30,7 +30,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 ### Controls
 
-- [ ] **Hotkey recorder.** Click the field and press the combination, as in games. Mouse buttons are supported.
+- [x] **Hotkey recorder.** Click the field and press the combination, as in games.
+- [ ] **Mouse buttons as hotkeys.** Needs a low-level input hook; the current global shortcut plugin handles keyboard keys only.
 - [ ] **Startup behavior.** Choose between opening Settings on launch and starting minimized to the tray.
 
 ### UI and UX

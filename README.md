@@ -14,7 +14,7 @@ Hold a hotkey, speak a task, and Erindi transcribes it locally and runs it in Cl
 | End of speech | Silero VAD |
 | Agent run and cancel | `claude -p` stream-json, Windows Job Objects |
 
-Hotkeys: `Ctrl+Alt+Space` hold to talk, `Ctrl+Alt+Shift+Space` hands-free.
+Hotkeys: `Ctrl+Alt+Space` hold to talk, `Ctrl+Alt+Shift+Space` hands-free, `Ctrl+Alt+N` hands-free in a new session.
 
 ```powershell
 ./scripts/fetch-models.ps1
@@ -26,11 +26,11 @@ cd apps/desktop; pnpm install; pnpm tauri dev
 - [x] Speak a task with a hold or hands-free hotkey
 - [x] Local speech recognition with a live transcript
 - [x] Run Claude Code headless, cancel it, reopen the session
-- [ ] Continue the same session by voice
+- [x] Continue the same session by voice
 - [ ] Session history sidebar
 - [ ] Prompt cleanup with a fast LLM
 - [ ] Provider and model picker
-- [ ] Hotkey recorder with mouse buttons
+- [x] Hotkey recorder (mouse buttons next)
 - [ ] macOS build
 
 Full plan: [ROADMAP.md](ROADMAP.md). Building and contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Tests: `cargo test --workspace`.
