@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use erindi_core::claude::{ClaudeMode, ClaudeRequest, claude_args, claude_env};
+use erindi_core::claude::{ClaudeMode, ClaudeRequest, Session, claude_args, claude_env};
 use erindi_core::run::{RunSpec, run};
 use erindi_core::stream::parse_line;
 use tokio_util::sync::CancellationToken;
@@ -16,7 +16,7 @@ async fn main() {
     let req = ClaudeRequest {
         mode: ClaudeMode::Plan,
         model: Some("haiku".into()),
-        session_id,
+        session: Session::New(session_id),
     };
     let spec = RunSpec {
         program: "claude".into(),

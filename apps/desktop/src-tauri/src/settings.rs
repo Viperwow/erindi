@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use erindi_core::claude::{ClaudeMode, ClaudeRequest, claude_args, resume_in_terminal};
+use erindi_core::claude::{ClaudeMode, ClaudeRequest, Session, claude_args, resume_in_terminal};
 use serde::{Deserialize, Serialize};
 use tauri_plugin_global_shortcut::Shortcut;
 use uuid::Uuid;
@@ -69,7 +69,7 @@ impl Settings {
         let request = ClaudeRequest {
             mode: self.mode,
             model: (!self.model.is_empty()).then(|| self.model.clone()),
-            session_id: Uuid::nil(),
+            session: Session::New(Uuid::nil()),
         };
         claude_args(&request).map_err(|_| format!("Invalid model name: {}", self.model))?;
         if !(0.5..=10.0).contains(&self.silence_secs) {

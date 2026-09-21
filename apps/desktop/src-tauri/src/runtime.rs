@@ -8,7 +8,7 @@ use erindi_audio_asr::asr::Asr;
 use erindi_audio_asr::capture::{self, Capture};
 use erindi_audio_asr::dsp::{To16k, rms};
 use erindi_audio_asr::vad::{Endpoint, Endpointer};
-use erindi_core::claude::{ClaudeRequest, claude_args, claude_env, resume_in_terminal};
+use erindi_core::claude::{ClaudeRequest, Session, claude_args, claude_env, resume_in_terminal};
 use erindi_core::controller::{Controller, Effect, Msg};
 use erindi_core::prompt::{Dictionary, PromptTransformer};
 use erindi_core::run::{RunEnd, RunSpec, run};
@@ -30,12 +30,12 @@ pub type SharedSettings = Arc<RwLock<Settings>>;
 #[derive(Clone)]
 pub struct Runtime {
     tx: Sender<Msg>,
-    last_session: Arc<Mutex<Option<Session>>>,
+    last_session: Arc<Mutex<Option<LastRun>>>,
 }
 
 /// The most recent Claude run, which the overlay can reopen in a terminal.
 #[derive(Clone)]
-struct Session {
+struct LastRun {
     op: OpId,
     id: uuid::Uuid,
     cwd: String,
@@ -133,7 +133,7 @@ struct Executor {
     asr: Arc<OnceLock<Asr>>,
     capture: Option<Capture>,
     cancel: Option<CancellationToken>,
-    last_session: Arc<Mutex<Option<Session>>>,
+    last_session: Arc<Mutex<Option<LastRun>>>,
     clickable_op: Arc<AtomicU64>,
 }
 
@@ -262,7 +262,7 @@ impl Executor {
         let request = ClaudeRequest {
             mode: settings.mode,
             model: (!settings.model.is_empty()).then_some(settings.model),
-            session_id,
+            session: Session::New(session_id),
         };
         let Ok(args) = claude_args(&request) else {
             let _ = self.tx.send(Msg::RunExited {
@@ -280,7 +280,7 @@ impl Executor {
             stdin: prompt,
             timeout: RUN_TIMEOUT,
         };
-        *self.last_session.lock().unwrap() = Some(Session {
+        *self.last_session.lock().unwrap() = Some(LastRun {
             op,
             id: session_id,
             cwd: settings.cwd.clone(),

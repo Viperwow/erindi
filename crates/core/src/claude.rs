@@ -14,11 +14,18 @@ pub enum ClaudeMode {
     BypassPermissions,
 }
 
+/// Which Claude session a run writes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Session {
+    New(Uuid),
+    Resume(Uuid),
+}
+
 #[derive(Debug, Clone)]
 pub struct ClaudeRequest {
     pub mode: ClaudeMode,
     pub model: Option<String>,
-    pub session_id: Uuid,
+    pub session: Session,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -77,7 +84,10 @@ pub fn claude_args(req: &ClaudeRequest) -> Result<Vec<String>, InvalidModel> {
     let mut args: Vec<String> = ["-p", "--output-format", "stream-json", "--verbose"]
         .map(String::from)
         .into();
-    args.extend(["--session-id".into(), req.session_id.to_string()]);
+    args.extend(match req.session {
+        Session::New(id) => ["--session-id".into(), id.to_string()],
+        Session::Resume(id) => ["--resume".into(), id.to_string()],
+    });
 
     let mode = match req.mode {
         ClaudeMode::Default => None,
@@ -154,7 +164,7 @@ mod tests {
         ClaudeRequest {
             mode,
             model: model.map(str::to_string),
-            session_id: Uuid::nil(),
+            session: Session::New(Uuid::nil()),
         }
     }
 
@@ -166,6 +176,19 @@ mod tests {
         "--session-id",
         "00000000-0000-0000-0000-000000000000",
     ];
+
+    #[test]
+    fn resume_continues_an_existing_session() {
+        let mut r = req(ClaudeMode::Plan, None);
+        r.session = Session::Resume(Uuid::nil());
+        let args = claude_args(&r).unwrap();
+        assert_eq!(
+            args[4..6],
+            ["--resume", "00000000-0000-0000-0000-000000000000"]
+        );
+        assert!(!args.contains(&"--session-id".to_string()));
+        assert_eq!(args[6..], ["--permission-mode", "plan"]);
+    }
 
     #[test]
     fn default_mode_passes_no_permission_flag() {
