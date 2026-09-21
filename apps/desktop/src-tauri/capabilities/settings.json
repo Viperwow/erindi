@@ -6,6 +6,7 @@
     "core:default",
     "allow-get-settings",
     "allow-save-settings",
-    "allow-list-microphones"
+    "allow-list-microphones",
+    "allow-set-hotkeys-paused"
   ]
 }

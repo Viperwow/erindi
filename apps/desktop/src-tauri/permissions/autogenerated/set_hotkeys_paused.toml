@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-hotkeys-paused"
+description = "Enables the set_hotkeys_paused command without any pre-configured scope."
+commands.allow = ["set_hotkeys_paused"]
+
+[[permission]]
+identifier = "deny-set-hotkeys-paused"
+description = "Denies the set_hotkeys_paused command without any pre-configured scope."
+commands.deny = ["set_hotkeys_paused"]

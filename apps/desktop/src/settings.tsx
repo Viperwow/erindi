@@ -2,6 +2,7 @@ import { render } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { accelerator } from "./hotkey";
 import "./style.css";
 
 type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "bypassPermissions";
@@ -47,6 +48,44 @@ function Field(props: { label: string; hint?: string; children: ComponentChildre
       {props.children}
       {props.hint && <span class="block text-xs text-neutral-500">{props.hint}</span>}
     </label>
+  );
+}
+
+/** Click, then press the combination. Esc cancels. */
+function HotkeyInput(props: { value: string; label: string; onChange: (value: string) => void }) {
+  const [recording, setRecording] = useState(false);
+
+  useEffect(() => {
+    if (!recording) return;
+    invoke("set_hotkeys_paused", { paused: true });
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === "Escape") return setRecording(false);
+      const combo = accelerator(e);
+      if (combo) {
+        props.onChange(combo);
+        setRecording(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      invoke("set_hotkeys_paused", { paused: false });
+    };
+  }, [recording]);
+
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      aria-pressed={recording}
+      class={`${input} text-left font-mono ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
+      onClick={() => setRecording(!recording)}
+      onBlur={() => setRecording(false)}
+    >
+      {recording ? "Press keys… (Esc to cancel)" : props.value}
+    </button>
   );
 }
 
@@ -141,24 +180,24 @@ function App() {
 
       <div class="grid grid-cols-3 gap-3">
         <Field label="Hold to talk">
-          <input
-            class={input}
+          <HotkeyInput
+            label="Hold to talk"
             value={s.holdHotkey}
-            onInput={(e) => set({ holdHotkey: e.currentTarget.value })}
+            onChange={(holdHotkey) => set({ holdHotkey })}
           />
         </Field>
         <Field label="Toggle hands-free">
-          <input
-            class={input}
+          <HotkeyInput
+            label="Toggle hands-free"
             value={s.toggleHotkey}
-            onInput={(e) => set({ toggleHotkey: e.currentTarget.value })}
+            onChange={(toggleHotkey) => set({ toggleHotkey })}
           />
         </Field>
         <Field label="New session">
-          <input
-            class={input}
+          <HotkeyInput
+            label="New session"
             value={s.newSessionHotkey}
-            onInput={(e) => set({ newSessionHotkey: e.currentTarget.value })}
+            onChange={(newSessionHotkey) => set({ newSessionHotkey })}
           />
         </Field>
       </div>

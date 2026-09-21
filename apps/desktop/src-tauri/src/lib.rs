@@ -24,7 +24,8 @@ pub fn run() {
             open_session,
             get_settings,
             save_settings,
-            list_microphones
+            list_microphones,
+            set_hotkeys_paused
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
@@ -92,6 +93,24 @@ fn save_settings(
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
     runtime.send(settings.session_msg());
+    register_hotkeys(&app, &settings, &runtime)
+}
+
+/// Lets the settings window record a hotkey without triggering the registered ones.
+#[tauri::command]
+fn set_hotkeys_paused(
+    app: AppHandle,
+    store: tauri::State<SettingsStore>,
+    runtime: tauri::State<Runtime>,
+    paused: bool,
+) -> Result<(), String> {
+    if paused {
+        return app
+            .global_shortcut()
+            .unregister_all()
+            .map_err(|e| e.to_string());
+    }
+    let settings = store.shared.read().unwrap().clone();
     register_hotkeys(&app, &settings, &runtime)
 }
 

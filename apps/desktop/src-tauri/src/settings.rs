@@ -202,4 +202,18 @@ mod tests {
             assert!(s.validate().is_err(), "{s:?}");
         }
     }
+
+    #[test]
+    fn hotkeys_from_the_recorder_parse() {
+        for combo in [
+            "Ctrl+Alt+Shift+Space",
+            "Ctrl+Super+N",
+            "Ctrl+5",
+            "Alt+Backquote",
+            "F9",
+            "Shift+F13",
+        ] {
+            assert!(combo.parse::<Shortcut>().is_ok(), "{combo}");
+        }
+    }
 }

@@ -42,6 +42,7 @@ cd apps/desktop; pnpm build; cd ../..   # the Rust build embeds the frontend
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cd apps/desktop; pnpm test; cd ../..   # frontend unit tests
 ```
 
 Tests that need the models or a microphone are ignored by default:
