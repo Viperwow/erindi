@@ -27,7 +27,7 @@ cd apps/desktop; pnpm install; pnpm tauri dev
 - [x] Local speech recognition with a live transcript
 - [x] Run Claude Code headless, cancel it, reopen the session
 - [x] Continue the same session by voice
-- [ ] Session history sidebar
+- [x] Session history sidebar
 - [ ] Prompt cleanup with a fast LLM
 - [ ] Provider and model picker
 - [x] Hotkey recorder (mouse buttons next)

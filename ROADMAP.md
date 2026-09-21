@@ -18,7 +18,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 ### Working with agents
 
 - [x] **Continue the session.** Utterances continue the active Claude session by default. A session setting (continue, continue if recent, always new), a "new session" hotkey and spoken commands such as "new session" or "same session" choose otherwise.
-- [ ] **Session history.** A "Recent" sidebar lists sessions started from Erindi with their transcript and session ID; clicking one opens it.
+- [x] **Session history.** A Sessions page lists sessions started from Erindi with what was said, the folder and the session ID. Each one opens in a terminal or becomes the active session for the next utterance.
 - [ ] **Prompt cleanup model.** A fast intermediate LLM turns the raw transcript into clear, logical text before it reaches the agent.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
