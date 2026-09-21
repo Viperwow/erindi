@@ -1083,6 +1083,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "ella-audio-asr"
+version = "0.0.1"
+dependencies = [
+ "cpal",
+ "rubato",
+ "sherpa-onnx",
+]
+
+[[package]]
+name = "ella-core"
+version = "0.0.1"
+dependencies = [
+ "process-wrap",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "uuid",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "ella-desktop"
+version = "0.0.1"
+dependencies = [
+ "ella-audio-asr",
+ "ella-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-single-instance",
+ "tempfile",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
 name = "embed-resource"
 version = "3.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5048,46 +5088,6 @@ dependencies = [
  "thiserror 2.0.20",
  "windows 0.61.3",
  "windows-core 0.61.2",
-]
-
-[[package]]
-name = "whispio-audio-asr"
-version = "0.0.1"
-dependencies = [
- "cpal",
- "rubato",
- "sherpa-onnx",
-]
-
-[[package]]
-name = "whispio-core"
-version = "0.0.1"
-dependencies = [
- "process-wrap",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "uuid",
- "windows 0.62.2",
-]
-
-[[package]]
-name = "whispio-desktop"
-version = "0.0.1"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-single-instance",
- "tempfile",
- "tokio-util",
- "uuid",
- "whispio-audio-asr",
- "whispio-core",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 # Contributing
 
-Whispio is a work in progress. Today it targets Windows x64 and Claude Code only.
+Ella is a work in progress. Today it targets Windows x64 and Claude Code only.
 
 ## Prerequisites
 
@@ -17,8 +17,8 @@ Whispio is a work in progress. Today it targets Windows x64 and Claude Code only
 ## Set up
 
 ```powershell
-git clone <repo-url> whispio
-cd whispio
+git clone <repo-url> ella
+cd ella
 ./scripts/fetch-models.ps1          # ~490 MB into models/, SHA-256 verified
 cd apps/desktop
 pnpm install
@@ -56,10 +56,10 @@ cargo test --workspace -- --include-ignored
 cd apps/desktop
 pnpm tauri build --no-bundle
 cd ../..
-./scripts/package.ps1               # dist/whispio-<version>-windows-x64.zip
+./scripts/package.ps1               # dist/ella-<version>-windows-x64.zip
 ```
 
-The archive holds `whispio.exe`, the sherpa-onnx and onnxruntime DLLs it needs, and `scripts/fetch-models.ps1`. Users unpack it, run the script once, and start `whispio.exe`.
+The archive holds `ella.exe`, the sherpa-onnx and onnxruntime DLLs it needs, and `scripts/fetch-models.ps1`. Users unpack it, run the script once, and start `ella.exe`.
 
 Pushing a tag `vX.Y.Z` makes CI build the same archive and attach it to a GitHub pre-release. Bump the version in `Cargo.toml`, `apps/desktop/package.json` and `apps/desktop/src-tauri/tauri.conf.json` first.
 

@@ -2,10 +2,10 @@
 
 use std::time::Duration;
 
+use ella_core::claude::{ClaudeMode, ClaudeRequest, claude_args, claude_env};
+use ella_core::run::{RunSpec, run};
+use ella_core::stream::parse_line;
 use tokio_util::sync::CancellationToken;
-use whispio_core::claude::{ClaudeMode, ClaudeRequest, claude_args, claude_env};
-use whispio_core::run::{RunSpec, run};
-use whispio_core::stream::parse_line;
 
 #[tokio::main]
 async fn main() {

@@ -9,7 +9,7 @@ const HEIGHT: u32 = 200;
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
-        .title("Whispio Overlay")
+        .title("Ella Overlay")
         .transparent(true)
         .decorations(false)
         .shadow(false)

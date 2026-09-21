@@ -1,5 +1,5 @@
 [package]
-name = "whispio-core"
+name = "ella-core"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

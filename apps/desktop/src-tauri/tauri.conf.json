@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Whispio",
+  "productName": "Ella",
   "version": "0.0.1",
-  "identifier": "dev.whispio.app",
+  "identifier": "com.viperwow.ella",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",

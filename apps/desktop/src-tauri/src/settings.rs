@@ -1,9 +1,9 @@
 use std::path::Path;
 
+use ella_core::claude::{ClaudeMode, ClaudeRequest, claude_args, resume_in_terminal};
 use serde::{Deserialize, Serialize};
 use tauri_plugin_global_shortcut::Shortcut;
 use uuid::Uuid;
-use whispio_core::claude::{ClaudeMode, ClaudeRequest, claude_args, resume_in_terminal};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]

@@ -5,11 +5,11 @@ mod settings;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use ella_core::controller::{Key, Msg};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use whispio_core::controller::{Key, Msg};
 
 use crate::runtime::{Runtime, SharedSettings};
 use crate::settings::Settings;
@@ -43,7 +43,7 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().cloned().expect("bundled icon"))
-                .tooltip("Whispio")
+                .tooltip("Ella")
                 .menu(&Menu::with_items(app, &[&settings, &quit])?)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "settings" => show_settings(app),
@@ -54,7 +54,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Whispio")
+        .expect("failed to build Ella")
         .run(|_, event| {
             // Closing the settings window must not quit the tray app.
             if let RunEvent::ExitRequested {
@@ -96,7 +96,7 @@ fn save_settings(
 
 #[tauri::command]
 fn list_microphones() -> Vec<String> {
-    whispio_audio_asr::capture::input_devices()
+    ella_audio_asr::capture::input_devices()
 }
 
 fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> Result<(), String> {
@@ -132,7 +132,7 @@ fn show_settings(app: &AppHandle) {
         return;
     }
     let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html".into()))
-        .title("Whispio")
+        .title("Ella")
         .inner_size(520.0, 620.0)
         .build();
 }

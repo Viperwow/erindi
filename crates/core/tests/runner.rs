@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use ella_core::run::{RunEnd, RunSpec, run};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
-use whispio_core::run::{RunEnd, RunSpec, run};
 
 fn spec(mode: &str, cwd: PathBuf) -> RunSpec {
     RunSpec {
         program: env!("CARGO_BIN_EXE_fake-agent").into(),
         args: vec![mode.into()],
         cwd,
-        env: vec![("WHISPIO_ALLOWED".into(), "yes".into())],
+        env: vec![("ELLA_ALLOWED".into(), "yes".into())],
         stdin: String::new(),
         timeout: Duration::from_secs(20),
     }
@@ -65,7 +65,7 @@ async fn child_gets_only_given_env() {
     let (_, lines, _) = collect(spec("echo", dir.path().into()), CancellationToken::new()).await;
     let report: Value = serde_json::from_str(&lines[0]).unwrap();
     let env = report["env"].as_object().unwrap();
-    assert_eq!(env["WHISPIO_ALLOWED"], "yes");
+    assert_eq!(env["ELLA_ALLOWED"], "yes");
     assert!(!env.contains_key("PATH"), "inherited env leaked: {env:?}");
 }
 
@@ -113,7 +113,7 @@ async fn failure_keeps_stderr_tail() {
     let (end, _, stderr) = collect(spec("fail", dir.path().into()), CancellationToken::new()).await;
     assert_eq!(end, RunEnd::Exited { success: false });
     assert!(stderr.trim_end().ends_with("boom"));
-    assert!(stderr.len() <= whispio_core::run::STDERR_TAIL);
+    assert!(stderr.len() <= ella_core::run::STDERR_TAIL);
 }
 
 #[tokio::test]

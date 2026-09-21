@@ -1,5 +1,5 @@
 [package]
-name = "whispio-audio-asr"
+name = "ella-audio-asr"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
