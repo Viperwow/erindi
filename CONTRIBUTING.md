@@ -62,7 +62,7 @@ cd ../..
 
 The archive holds `erindi.exe`, the sherpa-onnx and onnxruntime DLLs it needs, and `scripts/fetch-models.ps1`. Users unpack it, run the script once, and start `erindi.exe`.
 
-Pushing a tag `vX.Y.Z` makes CI build the same archive and attach it to a GitHub pre-release. Bump the version in `Cargo.toml`, `apps/desktop/package.json` and `apps/desktop/src-tauri/tauri.conf.json` first.
+Pull requests into `main` run the checks only. Every merge into `main` makes CI build the same archive and publish it as the `latest` pre-release, replacing the previous one. Bump the version in `Cargo.toml`, `apps/desktop/package.json` and `apps/desktop/src-tauri/tauri.conf.json` when it changes.
 
 ## Project layout
 
