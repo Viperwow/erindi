@@ -28,7 +28,8 @@ impl History {
     pub fn load(path: &Path) -> Self {
         let entries = std::fs::read_to_string(path)
             .ok()
-            .and_then(|json| serde_json::from_str(&json).ok())
+            // Editors such as Notepad may add a byte order mark that serde_json rejects.
+            .and_then(|json| serde_json::from_str(json.trim_start_matches('\u{feff}')).ok())
             .unwrap_or_default();
         Self {
             path: path.to_path_buf(),
@@ -87,6 +88,18 @@ mod tests {
         assert!(History::load(&path).entries().is_empty());
         std::fs::write(&path, "[{").unwrap();
         assert!(History::load(&path).entries().is_empty());
+    }
+
+    #[test]
+    fn file_saved_with_a_byte_order_mark_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.json");
+        let json = format!(
+            "\u{feff}[{{\"id\":\"{}\",\"cwd\":\"C:/a\",\"prompts\":[\"x\"],\"createdMs\":1,\"updatedMs\":1}}]",
+            id(1)
+        );
+        std::fs::write(&path, json).unwrap();
+        assert_eq!(History::load(&path).entries().len(), 1);
     }
 
     #[test]

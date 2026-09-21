@@ -26,13 +26,17 @@ pub fn run() {
             get_settings,
             save_settings,
             list_microphones,
-            set_hotkeys_paused
+            set_hotkeys_paused,
+            list_sessions,
+            open_history_session,
+            continue_session
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
             let path = app.path().app_config_dir()?.join("settings.json");
+            let history_path = app.path().app_data_dir()?.join("sessions.json");
             let settings = Arc::new(RwLock::new(Settings::load(&path)));
-            let runtime = Runtime::start(app.handle().clone(), settings.clone());
+            let runtime = Runtime::start(app.handle().clone(), settings.clone(), &history_path);
             if let Err(e) = register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime) {
                 eprintln!("{e}");
             }
@@ -71,6 +75,29 @@ pub fn run() {
 #[tauri::command]
 fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
     runtime.open_session()
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Sessions {
+    entries: Vec<history::Entry>,
+    active: Option<uuid::Uuid>,
+}
+
+#[tauri::command]
+fn list_sessions(runtime: tauri::State<Runtime>) -> Sessions {
+    let (entries, active) = runtime.sessions();
+    Sessions { entries, active }
+}
+
+#[tauri::command]
+fn open_history_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<(), String> {
+    runtime.open_history_session(id)
+}
+
+#[tauri::command]
+fn continue_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<(), String> {
+    runtime.continue_session(id)
 }
 
 struct SettingsStore {
@@ -155,7 +182,7 @@ fn show_settings(app: &AppHandle) {
     }
     let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html".into()))
         .title("Erindi")
-        .inner_size(520.0, 620.0)
+        .inner_size(880.0, 680.0)
         .build();
 }
 

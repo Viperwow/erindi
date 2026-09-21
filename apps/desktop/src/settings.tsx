@@ -3,6 +3,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { accelerator, heldModifiers } from "./hotkey";
+import { SessionsView } from "./sessions";
 import "./style.css";
 
 type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "bypassPermissions";
@@ -96,7 +97,7 @@ function HotkeyInput(props: { value: string; label: string; onChange: (value: st
   );
 }
 
-function App() {
+function SettingsView() {
   const [s, setS] = useState<Settings | null>(null);
   const [mics, setMics] = useState<string[]>([]);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -129,9 +130,9 @@ function App() {
   return (
     <form
       onSubmit={save}
-      class="min-h-screen space-y-4 bg-neutral-50 p-6 text-sm text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100"
+      class="max-w-2xl space-y-4 p-6"
     >
-      <h1 class="text-lg font-semibold">Erindi</h1>
+      <h2 class="text-base font-semibold">Settings</h2>
 
       <Field label="Project folder" hint="Claude runs here.">
         <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
@@ -280,6 +281,37 @@ function App() {
         )}
       </div>
     </form>
+  );
+}
+
+const tabs = [
+  ["sessions", "Sessions"],
+  ["settings", "Settings"],
+] as const;
+
+function App() {
+  const [tab, setTab] = useState<(typeof tabs)[number][0]>("sessions");
+  return (
+    <div class="flex h-screen bg-neutral-50 text-sm text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <nav class="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-3 dark:border-neutral-800">
+        <div class="px-2 pb-3 font-semibold tracking-wide">Erindi</div>
+        {tabs.map(([id, label]) => (
+          <button
+            type="button"
+            aria-current={tab === id ? "page" : undefined}
+            class={`rounded-md px-2 py-1.5 text-left ${
+              tab === id
+                ? "bg-neutral-200 font-medium dark:bg-neutral-800"
+                : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900"
+            }`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      <main class="flex-1 overflow-y-auto">{tab === "sessions" ? <SessionsView /> : <SettingsView />}</main>
+    </div>
   );
 }
 

@@ -7,6 +7,9 @@
     "allow-get-settings",
     "allow-save-settings",
     "allow-list-microphones",
-    "allow-set-hotkeys-paused"
+    "allow-set-hotkeys-paused",
+    "allow-list-sessions",
+    "allow-open-history-session",
+    "allow-continue-session"
   ]
 }
