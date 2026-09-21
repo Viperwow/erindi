@@ -13,6 +13,32 @@ Voice launcher for AI coding agents: a global hotkey records speech, local ASR t
 
 Out of scope: other agents, LLM cleanup, wake word, macOS, CI, installers.
 
+## Run
+
+Requirements: Rust, Node with pnpm, the MSVC build tools, Windows Terminal, and a logged-in `claude` on `PATH`.
+
+```powershell
+./scripts/fetch-models.ps1        # ~490 MB into models/, SHA-256 verified
+cd apps/desktop
+pnpm install
+pnpm tauri dev
+```
+
+The app lives in the tray. Open **Settings** there to pick the project folder and permission mode.
+
+- `Ctrl+Alt+Space` — hold, speak, release to send.
+- `Ctrl+Alt+Shift+Space` — press, speak, and the prompt goes out after the configured silence (or press again).
+- Either hotkey during a run cancels it. Click the finished bubble to open the session in Windows Terminal.
+
+Models are read from `models/` in the repository; set `WHISPIO_MODELS` to use another folder.
+
+## Test
+
+```powershell
+cargo test --workspace                     # unit and fake-agent tests
+cargo test --workspace -- --include-ignored  # also microphone and model tests
+```
+
 ## Layout
 
 - `crates/core` — app state machine, prompt pipeline, Claude adapter, process runner.
