@@ -69,6 +69,10 @@ pub enum Msg {
         id: Uuid,
         cwd: String,
     },
+    /// The session was removed from history, so it can no longer be the active one.
+    Forget {
+        id: Uuid,
+    },
     /// Microphone or recognizer failure for the current operation.
     Failed {
         op: OpId,
@@ -300,6 +304,9 @@ impl Controller {
                     return vec![];
                 }
                 self.cwd = cwd;
+                self.set_active(None)
+            }
+            Msg::Forget { id } if self.active.as_ref().is_some_and(|a| a.id == id) => {
                 self.set_active(None)
             }
             Msg::SetActive { id, cwd } => self.set_active(Some(Active {
@@ -1041,5 +1048,24 @@ mod tests {
             panic!("{fx:?}")
         };
         assert_eq!(cwd, "C:/p");
+    }
+
+    #[test]
+    fn forgetting_the_active_session_clears_it() {
+        let mut t = T::new();
+        let picked = Uuid::from_u128(42);
+        t.send(Msg::SetActive {
+            id: picked,
+            cwd: "D:/elsewhere".into(),
+        });
+        assert_eq!(
+            t.send(Msg::Forget {
+                id: Uuid::from_u128(7)
+            }),
+            []
+        );
+        let fx = t.send(Msg::Forget { id: picked });
+        assert_eq!(active_changes(&fx), [None]);
+        assert!(matches!(t.finish_saying("ещё раз"), Session::New(_)));
     }
 }

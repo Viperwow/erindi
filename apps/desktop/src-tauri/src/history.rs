@@ -45,6 +45,12 @@ impl History {
         self.entries.iter().find(|e| e.id == id)
     }
 
+    /// Removes session `id` from the list and saves the file. Claude keeps the session itself.
+    pub fn remove(&mut self, id: Uuid) -> Result<(), String> {
+        self.entries.retain(|e| e.id != id);
+        self.save()
+    }
+
     /// Adds a prompt to session `id`, creating it if needed, and saves the file.
     pub fn record(&mut self, id: Uuid, cwd: &str, prompt: &str, now_ms: u64) -> Result<(), String> {
         let entry = match self.entries.iter().position(|e| e.id == id) {
@@ -64,7 +70,10 @@ impl History {
         };
         self.entries.insert(0, entry);
         self.entries.truncate(MAX_ENTRIES);
+        self.save()
+    }
 
+    fn save(&self) -> Result<(), String> {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
@@ -128,6 +137,25 @@ mod tests {
         assert_eq!(top.prompts, ["first task", "add tests"]);
         assert_eq!((top.created_ms, top.updated_ms), (10, 30));
         assert_eq!(h.entries().len(), 2);
+    }
+
+    #[test]
+    fn removed_sessions_are_gone_after_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.json");
+        let mut h = History::load(&path);
+        h.record(id(1), "C:/a", "first task", 10).unwrap();
+        h.record(id(2), "C:/b", "second task", 20).unwrap();
+
+        h.remove(id(1)).unwrap();
+        h.remove(id(99)).unwrap();
+
+        let ids: Vec<_> = History::load(&path)
+            .entries()
+            .iter()
+            .map(|e| e.id)
+            .collect();
+        assert_eq!(ids, [id(2)]);
     }
 
     #[test]

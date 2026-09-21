@@ -112,6 +112,12 @@ impl Runtime {
         Ok(())
     }
 
+    pub fn delete_session(&self, id: uuid::Uuid) -> Result<(), String> {
+        self.history.lock().unwrap().remove(id)?;
+        self.send(Msg::Forget { id });
+        Ok(())
+    }
+
     fn session_cwd(&self, id: uuid::Uuid) -> Result<String, String> {
         let history = self.history.lock().unwrap();
         let entry = history.get(id).ok_or("Session not found")?;

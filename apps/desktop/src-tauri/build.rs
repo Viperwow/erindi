@@ -10,6 +10,7 @@ fn main() {
         "list_sessions",
         "open_history_session",
         "continue_session",
+        "delete_session",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(commands))
         .expect("failed to run tauri-build");
