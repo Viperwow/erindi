@@ -33,5 +33,8 @@ async fn main() {
     })
     .await
     .unwrap();
-    println!("{:?} session={session_id}\n{}", outcome.end, outcome.stderr_tail);
+    println!(
+        "{:?} session={session_id}\n{}",
+        outcome.end, outcome.stderr_tail
+    );
 }
