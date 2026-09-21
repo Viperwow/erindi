@@ -102,9 +102,53 @@ pub fn claude_args(req: &ClaudeRequest) -> Result<Vec<String>, InvalidModel> {
     Ok(args)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct InvalidCwd;
+
+/// Windows Terminal arguments that reopen a headless session interactively.
+pub fn resume_in_terminal(cwd: &str, session_id: Uuid) -> Result<Vec<String>, InvalidCwd> {
+    if cwd.is_empty() || cwd.starts_with('-') || cwd.contains(';') {
+        return Err(InvalidCwd);
+    }
+    Ok(vec![
+        "-d".into(),
+        cwd.into(),
+        "claude".into(),
+        "--resume".into(),
+        session_id.to_string(),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_opens_session_in_cwd() {
+        let id = Uuid::nil();
+        assert_eq!(
+            resume_in_terminal("C:\\My Projects\\app", id).unwrap(),
+            [
+                "-d",
+                "C:\\My Projects\\app",
+                "claude",
+                "--resume",
+                "00000000-0000-0000-0000-000000000000"
+            ]
+        );
+    }
+
+    #[test]
+    fn resume_rejects_cwd_that_wt_would_split_or_parse() {
+        // `wt` treats `;` as a command separator even inside one argument.
+        for bad in ["C:\\a;calc", "", "-p evil"] {
+            assert_eq!(
+                resume_in_terminal(bad, Uuid::nil()),
+                Err(InvalidCwd),
+                "{bad}"
+            );
+        }
+    }
 
     fn req(mode: ClaudeMode, model: Option<&str>) -> ClaudeRequest {
         ClaudeRequest {
