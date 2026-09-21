@@ -2,7 +2,9 @@
 
 > **Work in progress.** Proof of concept: Windows only, Claude Code only.
 
-*Erindi* is Icelandic for an errand, a message and a speech. Hold a hotkey, speak a task, and Erindi transcribes it locally and runs it in Claude Code, without leaving the app you are in.
+Hold a hotkey, speak a task, and Erindi transcribes it locally and runs it in Claude Code, without leaving the app you are in.
+
+**The name.** *Erindi* (Icelandic, from Old Norse *erendi*) means an errand, a message and a speech. It shares its root with English *errand*, Danish *ærinde* and Swedish *ärende*. Pronounced *ER-in-dee*.
 
 | Part | Built with |
 |---|---|
