@@ -21,4 +21,4 @@ Hotkeys: `Ctrl+Alt+Space` hold to talk, `Ctrl+Alt+Shift+Space` hands-free.
 cd apps/desktop; pnpm install; pnpm tauri dev
 ```
 
-Tests: `cargo test --workspace`. Building and contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
+Tests: `cargo test --workspace`. Building and contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Plans: [ROADMAP.md](ROADMAP.md).
