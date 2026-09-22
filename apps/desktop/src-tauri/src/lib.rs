@@ -42,6 +42,9 @@ pub fn run() {
                 eprintln!("{e}");
             }
             app.manage(runtime);
+            if !erindi_core::models::SPEECH.installed(&runtime::models_dir()) {
+                show_settings(app.handle());
+            }
             app.manage(SettingsStore {
                 path,
                 shared: settings,
@@ -180,16 +183,21 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     }
 }
 
-fn show_settings(app: &AppHandle) {
+pub(crate) fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.eval("location.hash = 'settings'");
         let _ = window.show();
         let _ = window.set_focus();
         return;
     }
-    let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html".into()))
-        .title("Erindi")
-        .inner_size(880.0, 680.0)
-        .build();
+    let _ = WebviewWindowBuilder::new(
+        app,
+        "settings",
+        WebviewUrl::App("index.html#settings".into()),
+    )
+    .title("Erindi")
+    .inner_size(880.0, 680.0)
+    .build();
 }
 
 #[cfg(test)]

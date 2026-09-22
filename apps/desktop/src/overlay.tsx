@@ -6,6 +6,7 @@ import "./style.css";
 
 type AppState =
   | "LoadingModel"
+  | "NoModel"
   | "Idle"
   | "Listening"
   | "Transcribing"
@@ -25,6 +26,7 @@ type View = {
 
 const palette: Record<AppState, [string, string]> = {
   LoadingModel: ["#64748b", "#94a3b8"],
+  NoModel: ["#64748b", "#94a3b8"],
   Idle: ["#64748b", "#94a3b8"],
   Listening: ["#06b6d4", "#3b82f6"],
   Transcribing: ["#a855f7", "#6366f1"],

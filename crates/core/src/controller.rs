@@ -27,6 +27,7 @@ pub enum Key {
 pub enum Msg {
     ModelReady,
     ModelFailed(String),
+    ModelMissing,
     KeyDown(Key),
     KeyUp(Key),
     Audio {
@@ -103,6 +104,7 @@ pub enum Effect {
         cwd: String,
     },
     CancelRun,
+    OpenSettings,
     ActiveChanged(Option<Uuid>),
     Show(View),
 }
@@ -176,6 +178,8 @@ impl Controller {
                 self.view.detail = error;
                 self.apply(Event::ModelFailed)
             }
+            Msg::ModelMissing => self.apply(Event::ModelMissing),
+            Msg::KeyDown(_) if state == S::NoModel => vec![Effect::OpenSettings],
             Msg::KeyDown(key) => match state {
                 S::Idle => self.start_listening(key, now),
                 S::Listening if self.mode != Key::Hold => self.stop_listening(),
@@ -1067,5 +1071,19 @@ mod tests {
         let fx = t.send(Msg::Forget { id: picked });
         assert_eq!(active_changes(&fx), [None]);
         assert!(matches!(t.finish_saying("ещё раз"), Session::New(_)));
+    }
+
+    #[test]
+    fn hotkey_without_model_opens_settings() {
+        let mut c = Controller::new(Box::new(Dictionary::default()));
+        let now = Instant::now();
+        c.handle(Msg::ModelMissing, now);
+        assert_eq!(c.state(), AppState::NoModel);
+        assert_eq!(
+            c.handle(Msg::KeyDown(Key::Hold), now),
+            [Effect::OpenSettings]
+        );
+        c.handle(Msg::ModelReady, now);
+        assert_eq!(c.state(), AppState::Idle);
     }
 }

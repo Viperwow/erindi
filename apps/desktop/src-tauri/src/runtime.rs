@@ -31,6 +31,7 @@ pub type SharedSettings = Arc<RwLock<Settings>>;
 #[derive(Clone)]
 pub struct Runtime {
     tx: Sender<Msg>,
+    asr: Arc<OnceLock<Asr>>,
     last_session: Arc<Mutex<Option<LastRun>>>,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
@@ -52,22 +53,11 @@ impl Runtime {
         let history = Arc::new(Mutex::new(History::load(history_path)));
         let active = Arc::new(Mutex::new(None));
 
-        let (load_tx, load_asr) = (tx.clone(), asr.clone());
-        std::thread::spawn(move || match Asr::load(&models_dir()) {
-            Ok(model) => {
-                let _ = load_asr.set(model);
-                let _ = load_tx.send(Msg::ModelReady);
-            }
-            Err(e) => {
-                let _ = load_tx.send(Msg::ModelFailed(e));
-            }
-        });
-
         let mut executor = Executor {
             app,
             settings: settings.clone(),
             tx: tx.clone(),
-            asr,
+            asr: asr.clone(),
             capture: None,
             cancel: None,
             last_session: last_session.clone(),
@@ -87,12 +77,36 @@ impl Runtime {
                 }
             }
         });
-        Self {
+        let runtime = Self {
             tx,
+            asr,
             last_session,
             history,
             active,
-        }
+        };
+        runtime.load_speech();
+        runtime
+    }
+
+    /// Loads the speech model in the background, or reports that it is not downloaded yet.
+    pub fn load_speech(&self) {
+        let (tx, asr) = (self.tx.clone(), self.asr.clone());
+        std::thread::spawn(move || {
+            let dir = models_dir();
+            if !erindi_core::models::SPEECH.installed(&dir) {
+                let _ = tx.send(Msg::ModelMissing);
+                return;
+            }
+            match Asr::load(&dir) {
+                Ok(model) => {
+                    let _ = asr.set(model);
+                    let _ = tx.send(Msg::ModelReady);
+                }
+                Err(e) => {
+                    let _ = tx.send(Msg::ModelFailed(e));
+                }
+            }
+        });
     }
 
     /// Sessions newest first, with the one the next utterance continues.
@@ -151,19 +165,33 @@ pub fn models_dir() -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from));
-    pick_models_dir(std::env::var_os("ERINDI_MODELS"), exe_dir)
+    let data_dir = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Erindi"));
+    pick_models_dir(
+        std::env::var_os("ERINDI_MODELS"),
+        exe_dir,
+        data_dir,
+        cfg!(debug_assertions),
+    )
 }
 
-/// `ERINDI_MODELS` wins, then `models/` next to the executable (release archive),
-/// then `models/` in the repository (development builds).
-fn pick_models_dir(env: Option<std::ffi::OsString>, exe_dir: Option<PathBuf>) -> PathBuf {
+/// `ERINDI_MODELS` wins, then `models/` next to the executable. Development builds fall back to
+/// `models/` in the repository; release builds to a per-user folder, since the exe folder may be read-only.
+fn pick_models_dir(
+    env: Option<std::ffi::OsString>,
+    exe_dir: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+    debug: bool,
+) -> PathBuf {
     if let Some(env) = env {
         return env.into();
     }
-    exe_dir
-        .map(|dir| dir.join("models"))
-        .filter(|dir| dir.is_dir())
-        .unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../models")))
+    if let Some(dir) = exe_dir.map(|d| d.join("models")).filter(|d| d.is_dir()) {
+        return dir;
+    }
+    match data_dir {
+        Some(data) if !debug => data.join("models"),
+        _ => PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../models")),
+    }
 }
 
 /// Applies the dictionary as currently saved in settings.
@@ -210,6 +238,7 @@ impl Executor {
                 *self.active.lock().unwrap() = id;
                 let _ = self.app.emit_to("settings", "sessions-changed", ());
             }
+            Effect::OpenSettings => crate::show_settings(&self.app),
             Effect::CancelRun => {
                 if let Some(token) = self.cancel.take() {
                     token.cancel();
@@ -218,7 +247,9 @@ impl Executor {
             Effect::Show(view) => {
                 let _ = self.app.emit_to("overlay", "view", &view);
                 match view.state {
-                    AppState::Idle | AppState::LoadingModel => overlay::hide(&self.app),
+                    AppState::Idle | AppState::LoadingModel | AppState::NoModel => {
+                        overlay::hide(&self.app)
+                    }
                     _ => overlay::show(&self.app),
                 }
                 let finished = matches!(view.state, AppState::Succeeded | AppState::Failed);
@@ -393,7 +424,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("models")).unwrap();
         assert_eq!(
-            pick_models_dir(Some("X:\\m".into()), Some(dir.path().into())),
+            pick_models_dir(Some("X:\\m".into()), Some(dir.path().into()), None, false),
             PathBuf::from("X:\\m")
         );
     }
@@ -403,15 +434,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("models")).unwrap();
         assert_eq!(
-            pick_models_dir(None, Some(dir.path().into())),
+            pick_models_dir(None, Some(dir.path().into()), None, false),
             dir.path().join("models")
         );
     }
 
     #[test]
-    fn falls_back_to_repository_models() {
+    fn debug_falls_back_to_repository_models() {
         let dir = tempfile::tempdir().unwrap();
-        let picked = pick_models_dir(None, Some(dir.path().into()));
+        let picked = pick_models_dir(None, Some(dir.path().into()), Some(r"D:\data".into()), true);
         assert!(picked.ends_with("models") && picked.starts_with(env!("CARGO_MANIFEST_DIR")));
+    }
+
+    #[test]
+    fn release_uses_data_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let picked = pick_models_dir(
+            None,
+            Some(dir.path().into()),
+            Some(r"D:\data".into()),
+            false,
+        );
+        assert_eq!(picked, PathBuf::from(r"D:\data\models"));
     }
 }

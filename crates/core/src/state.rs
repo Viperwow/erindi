@@ -5,6 +5,8 @@ pub type OpId = u64;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum AppState {
     LoadingModel,
+    /// The speech model is not downloaded yet.
+    NoModel,
     Idle,
     Listening,
     Transcribing,
@@ -18,6 +20,7 @@ pub enum AppState {
 pub enum Event {
     ModelReady,
     ModelFailed,
+    ModelMissing,
     StartListening,
     StopListening,
     CancelListening,
@@ -76,6 +79,8 @@ impl Machine {
         let next = match (self.state, event) {
             (S::LoadingModel, E::ModelReady) => S::Idle,
             (S::LoadingModel, E::ModelFailed) => S::Failed,
+            (S::LoadingModel, E::ModelMissing) => S::NoModel,
+            (S::NoModel, E::ModelReady) => S::Idle,
             (S::Idle, E::StartListening) => {
                 self.op += 1;
                 S::Listening
@@ -251,5 +256,13 @@ mod tests {
             assert_eq!(m.apply(event), Err(InvalidTransition { from, event }));
             assert_eq!(m.state(), from, "state must not change on {event:?}");
         }
+    }
+
+    #[test]
+    fn missing_model_waits_for_download() {
+        let mut m = Machine::new();
+        assert_eq!(m.apply(ModelMissing), Ok(Outcome::Changed(NoModel)));
+        assert!(m.apply(StartListening).is_err());
+        assert_eq!(m.apply(ModelReady), Ok(Outcome::Changed(Idle)));
     }
 }
