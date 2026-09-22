@@ -13,6 +13,7 @@
     "allow-continue-session",
     "allow-delete-session",
     "allow-model-status",
-    "allow-download-model"
+    "allow-download-model",
+    "allow-test-command"
   ]
 }

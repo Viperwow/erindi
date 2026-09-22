@@ -32,7 +32,8 @@ pub fn run() {
             continue_session,
             delete_session,
             model_status,
-            download_model
+            download_model,
+            test_command
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
@@ -43,7 +44,7 @@ pub fn run() {
             if let Err(e) = register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime) {
                 eprintln!("{e}");
             }
-            runtime.set_cleanup(settings.read().unwrap().cleanup);
+            runtime.set_cleanup(settings.read().unwrap().model_commands);
             app.manage(runtime);
             if !erindi_core::models::SPEECH.installed(&runtime::models_dir()) {
                 show_settings(app.handle());
@@ -180,6 +181,22 @@ fn download_model(
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct TestResult {
+    command: Option<erindi_core::commands::Command>,
+    rest: String,
+}
+
+/// What the parser makes of `text` with the patterns on screen, saved or not.
+#[tauri::command]
+fn test_command(
+    patterns: erindi_core::commands::Patterns,
+    text: String,
+) -> Result<TestResult, String> {
+    let (command, rest) = erindi_core::commands::Parser::new(&patterns)?.parse(&text);
+    Ok(TestResult { command, rest })
+}
+
 struct SettingsStore {
     path: PathBuf,
     shared: SharedSettings,
@@ -198,13 +215,13 @@ fn save_settings(
     settings: Settings,
 ) -> Result<(), String> {
     settings.validate()?;
-    if settings.cleanup && !erindi_core::models::CLEANUP.installed(&runtime::models_dir()) {
+    if settings.model_commands && !erindi_core::models::CLEANUP.installed(&runtime::models_dir()) {
         return Err("Download the cleanup model first".into());
     }
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
     runtime.send(settings.session_msg());
-    runtime.set_cleanup(settings.cleanup);
+    runtime.set_cleanup(settings.model_commands);
     register_hotkeys(&app, &settings, &runtime)
 }
 
@@ -236,8 +253,9 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     let _ = shortcuts.unregister_all();
     let mut errors = vec![];
     for (combo, key) in [
-        (&settings.hold_hotkey, Key::Talk),
+        (&settings.talk_hotkey, Key::Talk),
         (&settings.new_session_hotkey, Key::NewSession),
+        (&settings.terminal_hotkey, Key::Terminal),
     ] {
         let runtime = runtime.clone();
         let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {
@@ -306,7 +324,11 @@ mod tests {
     fn settings_window_can_manage_models() {
         let cap = capability(include_str!("../capabilities/settings.json"));
         let perms = cap["permissions"].as_array().unwrap();
-        for p in ["allow-model-status", "allow-download-model"] {
+        for p in [
+            "allow-model-status",
+            "allow-download-model",
+            "allow-test-command",
+        ] {
             assert!(perms.contains(&json!(p)), "{p}");
         }
     }

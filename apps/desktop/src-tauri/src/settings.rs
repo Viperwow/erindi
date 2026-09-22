@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use erindi_core::claude::{ClaudeMode, ClaudeRequest, Session, claude_args, resume_in_terminal};
+use erindi_core::commands::{Parser, Patterns};
 use erindi_core::controller::Msg;
 use erindi_core::session::SessionPolicy;
 use serde::{Deserialize, Serialize};
@@ -10,9 +11,11 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
-    pub hold_hotkey: String,
-    pub toggle_hotkey: String,
+    #[serde(alias = "holdHotkey")]
+    pub talk_hotkey: String,
     pub new_session_hotkey: String,
+    pub terminal_hotkey: String,
+    pub patterns: Patterns,
     pub cwd: String,
     pub mode: ClaudeMode,
     /// Empty means the default model of Claude Code.
@@ -24,16 +27,18 @@ pub struct Settings {
     /// Used by `SessionPolicy::ContinueIfRecent`.
     pub recent_minutes: u32,
     pub dictionary: Vec<(String, String)>,
-    /// Refine each utterance with the local cleanup model.
-    pub cleanup: bool,
+    /// Ask the local model for commands the patterns miss.
+    #[serde(alias = "cleanup")]
+    pub model_commands: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            hold_hotkey: "Ctrl+Alt+Space".into(),
-            toggle_hotkey: "Ctrl+Alt+Shift+Space".into(),
+            talk_hotkey: "Ctrl+Alt+Space".into(),
             new_session_hotkey: "Ctrl+Alt+N".into(),
+            terminal_hotkey: "Ctrl+Alt+T".into(),
+            patterns: Patterns::default(),
             cwd: std::env::var("USERPROFILE").unwrap_or_default(),
             mode: ClaudeMode::Default,
             model: String::new(),
@@ -42,7 +47,7 @@ impl Default for Settings {
             session_policy: SessionPolicy::Continue,
             recent_minutes: 30,
             dictionary: vec![],
-            cleanup: false,
+            model_commands: false,
         }
     }
 }
@@ -70,16 +75,16 @@ impl Settings {
             policy: self.session_policy,
             recent: std::time::Duration::from_secs(u64::from(self.recent_minutes) * 60),
             cwd: self.cwd.clone(),
-            patterns: Default::default(),
-            model_commands: self.cleanup,
+            patterns: self.patterns.clone(),
+            model_commands: self.model_commands,
         }
     }
 
     pub fn validate(&self) -> Result<(), String> {
         let hotkeys = [
-            &self.hold_hotkey,
-            &self.toggle_hotkey,
+            &self.talk_hotkey,
             &self.new_session_hotkey,
+            &self.terminal_hotkey,
         ];
         for combo in hotkeys {
             combo
@@ -91,6 +96,7 @@ impl Settings {
                 return Err(format!("Hotkey {a} is used twice"));
             }
         }
+        Parser::new(&self.patterns)?;
         if !Path::new(&self.cwd).is_dir() {
             return Err(format!("Folder does not exist: {}", self.cwd));
         }
@@ -122,6 +128,7 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use erindi_core::commands::Patterns;
 
     #[test]
     fn roundtrip() {
@@ -152,7 +159,7 @@ mod tests {
         std::fs::write(&path, r#"{"mode":"plan"}"#).unwrap();
         let loaded = Settings::load(&path);
         assert_eq!(loaded.mode, ClaudeMode::Plan);
-        assert_eq!(loaded.hold_hotkey, Settings::default().hold_hotkey);
+        assert_eq!(loaded.talk_hotkey, Settings::default().talk_hotkey);
         assert_eq!(loaded.session_policy, SessionPolicy::Continue);
     }
 
@@ -175,11 +182,18 @@ mod tests {
                 ..ok.clone()
             },
             Settings {
-                hold_hotkey: ok.toggle_hotkey.clone(),
+                talk_hotkey: ok.terminal_hotkey.clone(),
                 ..ok.clone()
             },
             Settings {
-                toggle_hotkey: String::new(),
+                terminal_hotkey: String::new(),
+                ..ok.clone()
+            },
+            Settings {
+                patterns: Patterns {
+                    cancel: vec!["(".into()],
+                    ..Patterns::default()
+                },
                 ..ok.clone()
             },
             Settings {
@@ -191,7 +205,7 @@ mod tests {
                 ..ok.clone()
             },
             Settings {
-                new_session_hotkey: ok.hold_hotkey.clone(),
+                new_session_hotkey: ok.talk_hotkey.clone(),
                 ..ok.clone()
             },
             Settings {
@@ -223,11 +237,11 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_is_off_by_default_and_reaches_the_controller() {
+    fn model_commands_are_off_by_default_and_reach_the_controller() {
         let s = Settings::default();
-        assert!(!s.cleanup);
+        assert!(!s.model_commands);
         let on = Settings {
-            cleanup: true,
+            model_commands: true,
             ..Settings::default()
         };
         assert!(matches!(
@@ -237,5 +251,14 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn old_settings_keys_still_load() {
+        let json = r#"{"holdHotkey":"F9","toggleHotkey":"F10","cleanup":true}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.talk_hotkey, "F9");
+        assert!(s.model_commands);
+        assert_eq!(s.patterns, Patterns::default());
     }
 }
