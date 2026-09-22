@@ -25,12 +25,26 @@ pub enum Event {
     StartListening,
     StopListening,
     CancelListening,
-    Transcribed { op: OpId, empty: bool },
-    Refine { op: OpId },
-    Refined { op: OpId },
+    /// A single press while the transcript or command is still being worked out.
+    Abandon,
+    Transcribed {
+        op: OpId,
+        empty: bool,
+    },
+    Refine {
+        op: OpId,
+    },
+    Refined {
+        op: OpId,
+    },
     Cancel,
-    RunExited { op: OpId, ok: bool },
-    StepFailed { op: OpId },
+    RunExited {
+        op: OpId,
+        ok: bool,
+    },
+    StepFailed {
+        op: OpId,
+    },
     Dismiss,
 }
 
@@ -94,6 +108,7 @@ impl Machine {
             }
             (S::Listening, E::StopListening) => S::Transcribing,
             (S::Listening, E::CancelListening) => S::Idle,
+            (S::Transcribing | S::Refining, E::Abandon) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: true, .. }) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: false, .. }) => S::Running,
             (S::Transcribing, E::Refine { .. }) => S::Refining,

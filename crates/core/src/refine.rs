@@ -1,7 +1,13 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::session::Intent;
+/// A session request the model read from the utterance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intent {
+    Unspecified,
+    New,
+    Continue,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Refined {

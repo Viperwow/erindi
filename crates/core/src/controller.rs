@@ -4,10 +4,11 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::claude::Session;
+use crate::commands::{Command, Parser, Patterns};
 use crate::prompt::PromptTransformer;
 use crate::refine::{Refined, accept};
 use crate::run::RunEnd;
-use crate::session::{Active, Intent, SessionPolicy, choose, parse_intent};
+use crate::session::{Active, SessionPolicy, choose};
 use crate::state::{AppState, Event, Machine, OpId, Outcome};
 use crate::stream::RunEvent;
 
@@ -15,13 +16,18 @@ use crate::stream::RunEvent;
 pub const LIVE_INTERVAL: Duration = Duration::from_millis(700);
 /// Recordings stop on their own at this length (16 kHz samples).
 pub const MAX_RECORDING: usize = 16_000 * 300;
+/// A press shorter than this is a tap; longer is a hold.
+pub const HOLD: Duration = Duration::from_millis(300);
+/// A second tap within this time makes a double-press.
+pub const DOUBLE: Duration = Duration::from_millis(300);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
-    Hold,
-    Toggle,
-    /// Hands-free recording that always goes to a new session.
+    Talk,
+    /// Talks into a new session.
     NewSession,
+    /// Opens the active session in a terminal.
+    Terminal,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,7 +76,12 @@ pub enum Msg {
         policy: SessionPolicy,
         recent: Duration,
         cwd: String,
+        patterns: Patterns,
         refine: bool,
+    },
+    /// `DOUBLE` has passed since the tap numbered `seq`.
+    GestureTimeout {
+        seq: u64,
     },
     /// Makes a session from history the one the next utterance continues.
     SetActive {
@@ -92,7 +103,14 @@ pub enum Msg {
 pub enum Effect {
     StartCapture {
         op: OpId,
-        endpointing: bool,
+    },
+    /// Send `GestureTimeout { seq }` after `DOUBLE`.
+    GestureTimer {
+        seq: u64,
+    },
+    OpenTerminal {
+        id: Uuid,
+        cwd: String,
     },
     StopCapture,
     LiveDecode {
@@ -150,8 +168,17 @@ pub struct Controller {
     active: Option<Active>,
     running: Option<(Session, String)>,
     refine: bool,
-    /// The parser's intent and text while the refiner works on them.
-    pending: Option<(Intent, String)>,
+    /// Whether the run starts a new session, and its text, while the refiner works on it.
+    pending: Option<(bool, String)>,
+    parser: Parser,
+    /// The key being held and when it went down.
+    held: Option<(Key, Instant)>,
+    /// A tap that may still become a double-press.
+    tap: Option<(Key, u64)>,
+    seq: u64,
+    hands_free: bool,
+    /// The release that ends a double-press is not a tap of its own.
+    swallow_up: bool,
 }
 
 impl Controller {
@@ -159,7 +186,7 @@ impl Controller {
         Self {
             machine: Machine::new(),
             transformer,
-            mode: Key::Hold,
+            mode: Key::Talk,
             buffer: Vec::new(),
             last_live: None,
             live_in_flight: false,
@@ -179,6 +206,12 @@ impl Controller {
             running: None,
             refine: false,
             pending: None,
+            parser: Parser::new(&Patterns::default()).expect("default patterns compile"),
+            held: None,
+            tap: None,
+            seq: 0,
+            hands_free: false,
+            swallow_up: false,
         }
     }
 
@@ -198,24 +231,52 @@ impl Controller {
             }
             Msg::ModelMissing => self.apply(Event::ModelMissing),
             Msg::KeyDown(_) if state == S::NoModel => vec![Effect::OpenSettings],
-            Msg::KeyDown(key) => match state {
-                S::Idle => self.start_listening(key, now),
-                S::Listening if self.mode != Key::Hold => self.stop_listening(),
-                S::Running => {
-                    let mut fx = vec![Effect::CancelRun];
-                    fx.extend(self.apply(Event::Cancel));
-                    fx
+            Msg::KeyDown(key) => {
+                // Auto-repeat while held.
+                if self.held.is_some_and(|(k, _)| k == key) {
+                    return vec![];
                 }
-                S::Succeeded | S::Failed => {
-                    self.apply(Event::Dismiss);
-                    self.start_listening(key, now)
+                self.held = Some((key, now));
+                if key == Key::Terminal {
+                    return self.open_terminal();
                 }
-                _ => vec![],
-            },
-            Msg::KeyUp(Key::Hold) if state == S::Listening && self.mode == Key::Hold => {
-                self.stop_listening()
+                if self.tap.is_some_and(|(k, _)| k == key) {
+                    self.tap = None;
+                    self.swallow_up = true;
+                    return self.double_press();
+                }
+                self.tap = None;
+                match state {
+                    S::Idle => self.start_listening(key, now),
+                    S::Succeeded | S::Failed => {
+                        self.apply(Event::Dismiss);
+                        self.start_listening(key, now)
+                    }
+                    _ => vec![],
+                }
             }
-            Msg::KeyUp(_) => vec![],
+            Msg::KeyUp(key) => {
+                let Some((held, down)) = self.held.filter(|(k, _)| *k == key) else {
+                    return vec![];
+                };
+                self.held = None;
+                if held == Key::Terminal || std::mem::take(&mut self.swallow_up) {
+                    return vec![];
+                }
+                if now.duration_since(down) >= HOLD {
+                    if state == S::Listening && !self.hands_free && self.mode == key {
+                        return self.stop_listening();
+                    }
+                    return vec![];
+                }
+                self.seq += 1;
+                self.tap = Some((key, self.seq));
+                vec![Effect::GestureTimer { seq: self.seq }]
+            }
+            Msg::GestureTimeout { seq } if self.tap.is_some_and(|(_, s)| s == seq) => {
+                self.tap = None;
+                self.single_press()
+            }
             Msg::Audio { op, samples } if current(op) && state == S::Listening => {
                 self.buffer.extend_from_slice(&samples);
                 if self.buffer.len() >= MAX_RECORDING {
@@ -234,10 +295,10 @@ impl Controller {
                     samples: self.buffer.clone(),
                 }]
             }
-            Msg::SpeechEnded { op } if current(op) && state == S::Listening => {
+            Msg::SpeechEnded { op } if current(op) && state == S::Listening && self.hands_free => {
                 self.stop_listening()
             }
-            Msg::NoSpeech { op } if current(op) && state == S::Listening => {
+            Msg::NoSpeech { op } if current(op) && state == S::Listening && self.hands_free => {
                 let mut fx = vec![Effect::StopCapture];
                 fx.extend(self.apply(Event::CancelListening));
                 fx
@@ -250,38 +311,46 @@ impl Controller {
                 vec![self.show()]
             }
             Msg::Transcribed { op, text } => {
-                let (intent, spoken) = parse_intent(&text);
-                let intent = match self.mode {
-                    Key::NewSession => Intent::New,
-                    _ => intent,
+                if !current(op) || state != S::Transcribing {
+                    return vec![];
+                }
+                let text = self.transformer.transform(&text);
+                let (command, rest) = self.parser.parse(&text);
+                let new = command == Some(Command::NewSession) || self.mode == Key::NewSession;
+                let mut fx = vec![];
+                let prompt = match command {
+                    Some(Command::Cancel) => String::new(),
+                    Some(Command::OpenTerminal) if rest.trim().is_empty() => {
+                        fx.extend(self.open_terminal());
+                        String::new()
+                    }
+                    _ => rest.trim().to_string(),
                 };
-                let prompt = self.transformer.transform(&spoken);
                 if self.refine && !prompt.is_empty() {
                     if let Ok(Outcome::Changed(_)) = self.machine.apply(Event::Refine { op }) {
-                        self.pending = Some((intent, prompt.clone()));
+                        self.pending = Some((new, prompt.clone()));
                         self.view.text = prompt.clone();
                         return vec![Effect::Refine { op, text: prompt }, self.show()];
                     }
                     return vec![];
                 }
                 let empty = prompt.is_empty();
-                match self.machine.apply(Event::Transcribed { op, empty }) {
-                    Ok(Outcome::Changed(S::Running)) => {
-                        self.start_run(op, intent, prompt, None, now)
-                    }
+                fx.extend(match self.machine.apply(Event::Transcribed { op, empty }) {
+                    Ok(Outcome::Changed(S::Running)) => self.start_run(op, new, prompt, None, now),
                     Ok(Outcome::Changed(_)) => vec![self.show()],
                     _ => vec![],
-                }
+                });
+                fx
             }
             Msg::Refined { op, refined } if current(op) && state == S::Refining => {
-                let Some((intent, input)) = self.pending.take() else {
+                let Some((new, input)) = self.pending.take() else {
                     return vec![];
                 };
                 // ponytail: the model's intent is ignored until the benchmark shows it beats the parser.
                 let text = accept(&input, refined).map_or_else(|| input.clone(), |r| r.text);
                 let raw = (text != input).then_some(input);
                 match self.machine.apply(Event::Refined { op }) {
-                    Ok(Outcome::Changed(S::Running)) => self.start_run(op, intent, text, raw, now),
+                    Ok(Outcome::Changed(S::Running)) => self.start_run(op, new, text, raw, now),
                     _ => vec![],
                 }
             }
@@ -319,8 +388,12 @@ impl Controller {
                 policy,
                 recent,
                 cwd,
+                patterns,
                 refine,
             } => {
+                if let Ok(parser) = Parser::new(&patterns) {
+                    self.parser = parser;
+                }
                 self.refine = refine;
                 self.policy = policy;
                 self.recent = recent;
@@ -392,12 +465,12 @@ impl Controller {
     fn start_run(
         &mut self,
         op: OpId,
-        intent: Intent,
+        new: bool,
         prompt: String,
         raw: Option<String>,
         now: Instant,
     ) -> Vec<Effect> {
-        let resume = choose(self.policy, self.recent, intent, self.active.as_ref(), now);
+        let resume = choose(self.policy, self.recent, new, self.active.as_ref(), now);
         let (session, cwd) = match (resume, &self.active) {
             (Some(id), Some(active)) => (Session::Resume(id), active.cwd.clone()),
             _ => (Session::New(Uuid::new_v4()), self.cwd.clone()),
@@ -420,6 +493,48 @@ impl Controller {
         ]
     }
 
+    fn open_terminal(&self) -> Vec<Effect> {
+        match &self.active {
+            Some(active) => vec![Effect::OpenTerminal {
+                id: active.id,
+                cwd: active.cwd.clone(),
+            }],
+            None => vec![],
+        }
+    }
+
+    /// One press of the key cancels whatever is in progress.
+    fn single_press(&mut self) -> Vec<Effect> {
+        use AppState as S;
+        match self.machine.state() {
+            S::Listening => {
+                self.hands_free = false;
+                let mut fx = vec![Effect::StopCapture];
+                fx.extend(self.apply(Event::CancelListening));
+                fx
+            }
+            S::Transcribing | S::Refining => self.apply(Event::Abandon),
+            S::Running => {
+                let mut fx = vec![Effect::CancelRun];
+                fx.extend(self.apply(Event::Cancel));
+                fx
+            }
+            _ => vec![],
+        }
+    }
+
+    /// The first double-press goes hands-free; the next one sends without waiting for a pause.
+    fn double_press(&mut self) -> Vec<Effect> {
+        match self.machine.state() {
+            AppState::Listening if !self.hands_free => {
+                self.hands_free = true;
+                vec![]
+            }
+            AppState::Listening => self.stop_listening(),
+            _ => vec![],
+        }
+    }
+
     fn apply(&mut self, event: Event) -> Vec<Effect> {
         match self.machine.apply(event) {
             Ok(Outcome::Changed(_)) => vec![self.show()],
@@ -438,6 +553,7 @@ impl Controller {
             return vec![];
         }
         self.mode = key;
+        self.hands_free = false;
         self.buffer.clear();
         self.last_live = Some(now);
         self.live_in_flight = false;
@@ -448,7 +564,6 @@ impl Controller {
         vec![
             Effect::StartCapture {
                 op: self.machine.op(),
-                endpointing: key != Key::Hold,
             },
             self.show(),
         ]
@@ -458,6 +573,7 @@ impl Controller {
         if self.machine.apply(Event::StopListening).is_err() {
             return vec![];
         }
+        self.hands_free = false;
         vec![
             Effect::StopCapture,
             Effect::Transcribe {
@@ -511,14 +627,55 @@ mod tests {
             self.op()
         }
 
+        /// Ends a hold that has lasted long enough to count as one.
+        fn release(&mut self, key: Key) -> Vec<Effect> {
+            self.now += HOLD;
+            self.send(Msg::KeyUp(key))
+        }
+
+        fn quick(&mut self, key: Key) -> Vec<Effect> {
+            let mut fx = self.send(Msg::KeyDown(key));
+            self.now += Duration::from_millis(50);
+            fx.extend(self.send(Msg::KeyUp(key)));
+            self.now += Duration::from_millis(50);
+            fx
+        }
+
+        /// A single press, confirmed once `DOUBLE` has passed.
+        fn tap(&mut self, key: Key) -> Vec<Effect> {
+            let mut fx = self.quick(key);
+            let seq = fx
+                .iter()
+                .find_map(|e| match e {
+                    Effect::GestureTimer { seq } => Some(*seq),
+                    _ => None,
+                })
+                .expect("a tap starts the gesture timer");
+            self.now += DOUBLE;
+            fx.extend(self.send(Msg::GestureTimeout { seq }));
+            fx
+        }
+
+        fn double(&mut self, key: Key) -> Vec<Effect> {
+            let mut fx = self.quick(key);
+            fx.extend(self.quick(key));
+            fx
+        }
+
+        /// Starts a hands-free recording.
+        fn hands_free(&mut self, key: Key) -> OpId {
+            self.double(key);
+            self.op()
+        }
+
         fn run(&mut self) -> OpId {
             self.run_saying("клод, проверь diff")
         }
 
         /// Runs `text` to completion and returns the session it used.
         fn finish_saying(&mut self, text: &str) -> Session {
-            let op = self.listen(Key::Hold);
-            self.send(Msg::KeyUp(Key::Hold));
+            let op = self.listen(Key::Talk);
+            self.release(Key::Talk);
             let mut fx = self.send(Msg::Transcribed {
                 op,
                 text: text.into(),
@@ -547,12 +704,12 @@ mod tests {
         }
 
         fn run_saying(&mut self, text: &str) -> OpId {
-            let op = self.listen(Key::Hold);
+            let op = self.listen(Key::Talk);
             self.send(Msg::Audio {
                 op,
                 samples: vec![0.1; 160],
             });
-            self.send(Msg::KeyUp(Key::Hold));
+            self.release(Key::Talk);
             self.send(Msg::Transcribed {
                 op,
                 text: text.into(),
@@ -566,6 +723,7 @@ mod tests {
             policy,
             recent: Duration::from_secs(600),
             cwd: cwd.into(),
+            patterns: Patterns::default(),
             refine: false,
         }
     }
@@ -586,7 +744,7 @@ mod tests {
     #[test]
     fn keys_before_model_ready_are_ignored() {
         let mut c = Controller::new(Box::new(Dictionary::default()));
-        assert_eq!(c.handle(Msg::KeyDown(Key::Hold), Instant::now()), []);
+        assert_eq!(c.handle(Msg::KeyDown(Key::Talk), Instant::now()), []);
     }
 
     #[test]
@@ -601,15 +759,9 @@ mod tests {
     #[test]
     fn hold_records_until_release_then_transcribes() {
         let mut t = T::new();
-        let fx = t.send(Msg::KeyDown(Key::Hold));
+        let fx = t.send(Msg::KeyDown(Key::Talk));
         let op = t.op();
-        assert_eq!(
-            fx[0],
-            Effect::StartCapture {
-                op,
-                endpointing: false
-            }
-        );
+        assert_eq!(fx[0], Effect::StartCapture { op });
         assert_eq!(shown(&fx).unwrap().state, AppState::Listening);
 
         t.send(Msg::Audio {
@@ -620,7 +772,7 @@ mod tests {
             op,
             samples: vec![0.2; 50],
         });
-        let fx = t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.release(Key::Talk);
 
         assert_eq!(fx[0], Effect::StopCapture);
         let Effect::Transcribe { op: top, samples } = &fx[1] else {
@@ -631,27 +783,152 @@ mod tests {
     }
 
     #[test]
-    fn toggle_uses_endpointing_and_stops_on_second_press() {
+    fn quick_tap_from_idle_drops_the_recording() {
         let mut t = T::new();
-        let fx = t.send(Msg::KeyDown(Key::Toggle));
-        let op = t.op();
+        let fx = t.tap(Key::Talk);
+        assert!(fx.contains(&Effect::StopCapture));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
+        assert_eq!(t.c.state(), AppState::Idle);
+    }
+
+    #[test]
+    fn double_press_goes_hands_free() {
+        let mut t = T::new();
+        let fx = t.double(Key::Talk);
+        assert!(!fx.contains(&Effect::StopCapture));
+        assert_eq!(t.c.state(), AppState::Listening);
+        t.now += Duration::from_secs(2);
+        t.send(Msg::GestureTimeout { seq: 1 });
         assert_eq!(
-            fx[0],
-            Effect::StartCapture {
-                op,
-                endpointing: true
-            }
+            t.c.state(),
+            AppState::Listening,
+            "the first tap's timer is spent"
         );
-        assert_eq!(t.send(Msg::KeyUp(Key::Toggle)), []);
-        let fx = t.send(Msg::KeyDown(Key::Toggle));
-        assert_eq!(fx[0], Effect::StopCapture);
+    }
+
+    #[test]
+    fn double_press_while_hands_free_sends_now() {
+        let mut t = T::new();
+        t.hands_free(Key::Talk);
+        t.now += Duration::from_secs(1);
+        let fx = t.double(Key::Talk);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
         assert_eq!(t.c.state(), AppState::Transcribing);
+    }
+
+    #[test]
+    fn single_press_while_hands_free_cancels() {
+        let mut t = T::new();
+        t.hands_free(Key::Talk);
+        t.now += Duration::from_secs(1);
+        let fx = t.tap(Key::Talk);
+        assert!(fx.contains(&Effect::StopCapture));
+        assert_eq!(t.c.state(), AppState::Idle);
+    }
+
+    #[test]
+    fn hold_ignores_the_pause_detector() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        assert_eq!(t.send(Msg::SpeechEnded { op }), []);
+        assert_eq!(t.c.state(), AppState::Listening);
+    }
+
+    #[test]
+    fn auto_repeat_is_not_a_double_press() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        for _ in 0..3 {
+            t.now += Duration::from_millis(30);
+            assert_eq!(t.send(Msg::KeyDown(Key::Talk)), []);
+        }
+        t.send(Msg::Audio {
+            op,
+            samples: vec![0.1; 10],
+        });
+        let fx = t.release(Key::Talk);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
+    }
+
+    #[test]
+    fn press_during_transcription_cancels() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
+        t.tap(Key::Talk);
+        assert_eq!(t.c.state(), AppState::Idle);
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "проверь diff".into(),
+        });
+        assert_eq!(fx, []);
+    }
+
+    #[test]
+    fn double_press_while_running_does_nothing() {
+        let mut t = T::new();
+        t.run();
+        let fx = t.double(Key::Talk);
+        assert!(!fx.contains(&Effect::CancelRun));
+        assert_eq!(t.c.state(), AppState::Running);
+    }
+
+    #[test]
+    fn terminal_key_opens_the_active_session() {
+        let mut t = T::new();
+        let session = t.finish_saying("проверь diff");
+        let fx = t.send(Msg::KeyDown(Key::Terminal));
+        assert_eq!(
+            fx,
+            [Effect::OpenTerminal {
+                id: id(session),
+                cwd: "C:/p".into()
+            }]
+        );
+        assert_eq!(t.send(Msg::KeyUp(Key::Terminal)), []);
+    }
+
+    #[test]
+    fn terminal_without_active_session_does_nothing() {
+        let mut t = T::new();
+        assert_eq!(t.send(Msg::KeyDown(Key::Terminal)), []);
+    }
+
+    #[test]
+    fn spoken_cancel_sends_nothing() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "проверь diff, отмена".into(),
+        });
+        assert!(!fx.iter().any(|e| matches!(e, Effect::StartRun { .. })));
+        assert_eq!(t.c.state(), AppState::Idle);
+    }
+
+    #[test]
+    fn spoken_terminal_alone_opens_terminal_and_sends_nothing() {
+        let mut t = T::new();
+        let session = t.finish_saying("проверь diff");
+        t.now += Duration::from_secs(1);
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "Открой в терминале.".into(),
+        });
+        assert!(fx.contains(&Effect::OpenTerminal {
+            id: id(session),
+            cwd: "C:/p".into()
+        }));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::StartRun { .. })));
     }
 
     #[test]
     fn toggle_stops_on_speech_end() {
         let mut t = T::new();
-        let op = t.listen(Key::Toggle);
+        let op = t.hands_free(Key::Talk);
         let fx = t.send(Msg::SpeechEnded { op });
         assert_eq!(fx[0], Effect::StopCapture);
         assert_eq!(t.c.state(), AppState::Transcribing);
@@ -660,7 +937,7 @@ mod tests {
     #[test]
     fn no_speech_cancels_recording() {
         let mut t = T::new();
-        let op = t.listen(Key::Toggle);
+        let op = t.hands_free(Key::Talk);
         let fx = t.send(Msg::NoSpeech { op });
         assert_eq!(fx[0], Effect::StopCapture);
         assert_eq!(shown(&fx).unwrap().state, AppState::Idle);
@@ -669,7 +946,7 @@ mod tests {
     #[test]
     fn live_decode_is_throttled_and_never_overlaps() {
         let mut t = T::new();
-        let op = t.listen(Key::Hold);
+        let op = t.listen(Key::Talk);
         let live = |fx: &[Effect]| fx.iter().any(|e| matches!(e, Effect::LiveDecode { .. }));
 
         assert!(!live(&t.send(Msg::Audio {
@@ -704,7 +981,7 @@ mod tests {
     #[test]
     fn long_recording_stops_itself() {
         let mut t = T::new();
-        let op = t.listen(Key::Hold);
+        let op = t.listen(Key::Talk);
         let fx = t.send(Msg::Audio {
             op,
             samples: vec![0.0; MAX_RECORDING],
@@ -727,8 +1004,8 @@ mod tests {
     #[test]
     fn start_run_effect_carries_prompt_and_session() {
         let mut t = T::new();
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
             text: " клод  go ".into(),
@@ -750,8 +1027,8 @@ mod tests {
     #[test]
     fn empty_transcript_returns_to_idle() {
         let mut t = T::new();
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
             text: "  ".into(),
@@ -850,8 +1127,8 @@ mod tests {
     fn key_during_run_cancels() {
         let mut t = T::new();
         let op = t.run();
-        let fx = t.send(Msg::KeyDown(Key::Toggle));
-        assert_eq!(fx[0], Effect::CancelRun);
+        let fx = t.tap(Key::Talk);
+        assert!(fx.contains(&Effect::CancelRun));
         assert_eq!(t.c.state(), AppState::Cancelling);
         let fx = t.send(Msg::RunExited {
             op,
@@ -870,7 +1147,7 @@ mod tests {
             end: RunEnd::Exited { success: true },
             stderr: String::new(),
         });
-        let fx = t.send(Msg::KeyDown(Key::Hold));
+        let fx = t.send(Msg::KeyDown(Key::Talk));
         assert!(matches!(fx[0], Effect::StartCapture { .. }));
         assert_ne!(t.op(), op);
         assert_eq!(t.send(Msg::Dismiss { op }), [], "stale dismiss");
@@ -879,13 +1156,13 @@ mod tests {
     #[test]
     fn stale_messages_are_ignored() {
         let mut t = T::new();
-        let old = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let old = t.listen(Key::Talk);
+        t.release(Key::Talk);
         t.send(Msg::Transcribed {
             op: old,
             text: String::new(),
         });
-        t.listen(Key::Hold);
+        t.listen(Key::Talk);
         for msg in [
             Msg::Audio {
                 op: old,
@@ -907,18 +1184,9 @@ mod tests {
     }
 
     #[test]
-    fn keys_while_transcribing_are_ignored() {
-        let mut t = T::new();
-        t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
-        assert_eq!(t.send(Msg::KeyDown(Key::Hold)), []);
-        assert_eq!(t.send(Msg::KeyUp(Key::Hold)), []);
-    }
-
-    #[test]
     fn microphone_failure_stops_capture_and_shows_error() {
         let mut t = T::new();
-        let op = t.listen(Key::Toggle);
+        let op = t.listen(Key::Talk);
         let fx = t.send(Msg::Failed {
             op,
             error: "no microphone".into(),
@@ -954,8 +1222,8 @@ mod tests {
     fn spoken_command_starts_a_new_session_and_is_removed() {
         let mut t = T::new();
         let first = t.finish_saying("проверь diff");
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
             text: "в новой сессии клод, найди баг".into(),
@@ -971,18 +1239,11 @@ mod tests {
     }
 
     #[test]
-    fn new_session_key_records_hands_free_into_a_new_session() {
+    fn new_session_key_talks_into_a_new_session() {
         let mut t = T::new();
         t.finish_saying("проверь diff");
-        let fx = t.send(Msg::KeyDown(Key::NewSession));
-        let op = t.op();
-        assert_eq!(
-            fx[0],
-            Effect::StartCapture {
-                op,
-                endpointing: true
-            }
-        );
+        t.now += Duration::from_secs(1);
+        let op = t.hands_free(Key::NewSession);
         t.send(Msg::SpeechEnded { op });
         let fx = t.send(Msg::Transcribed {
             op,
@@ -1011,10 +1272,6 @@ mod tests {
         t.send(settings(SessionPolicy::AlwaysNew, "C:/p"));
         t.finish_saying("проверь diff");
         assert!(matches!(t.finish_saying("ещё раз"), Session::New(_)));
-        assert!(matches!(
-            t.finish_saying("в этой же сессии ещё раз"),
-            Session::Resume(_)
-        ));
     }
 
     #[test]
@@ -1053,8 +1310,8 @@ mod tests {
     #[test]
     fn announces_the_active_session() {
         let mut t = T::new();
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
             text: "проверь diff".into(),
@@ -1083,8 +1340,8 @@ mod tests {
         });
         assert_eq!(active_changes(&fx), [Some(picked)]);
 
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
             text: "продолжай".into(),
@@ -1099,8 +1356,8 @@ mod tests {
     #[test]
     fn new_sessions_run_in_the_settings_folder() {
         let mut t = T::new();
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
             text: "проверь diff".into(),
@@ -1137,7 +1394,7 @@ mod tests {
         c.handle(Msg::ModelMissing, now);
         assert_eq!(c.state(), AppState::NoModel);
         assert_eq!(
-            c.handle(Msg::KeyDown(Key::Hold), now),
+            c.handle(Msg::KeyDown(Key::Talk), now),
             [Effect::OpenSettings]
         );
         c.handle(Msg::ModelReady, now);
@@ -1150,6 +1407,7 @@ mod tests {
             policy: SessionPolicy::Continue,
             recent: Duration::from_secs(600),
             cwd: "C:/p".into(),
+            patterns: Patterns::default(),
             refine: true,
         });
         t
@@ -1158,8 +1416,8 @@ mod tests {
     #[test]
     fn refine_runs_the_cleaned_text_and_keeps_the_raw() {
         let mut t = refining();
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
             text: "эээ клод проверь diff".into(),
@@ -1175,7 +1433,7 @@ mod tests {
         let fx = t.send(Msg::Refined {
             op,
             refined: Some(Refined {
-                intent: Intent::Unspecified,
+                intent: crate::refine::Intent::Unspecified,
                 text: "Claude, проверь diff.".into(),
             }),
         });
@@ -1189,8 +1447,8 @@ mod tests {
     #[test]
     fn failed_refine_runs_the_parser_text() {
         let mut t = refining();
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         t.send(Msg::Transcribed {
             op,
             text: "в новой сессии проверь diff".into(),
@@ -1213,8 +1471,8 @@ mod tests {
     fn parser_intent_wins_over_the_model() {
         let mut t = refining();
         t.finish_saying("проверь diff");
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         t.send(Msg::Transcribed {
             op,
             text: "добавь тесты".into(),
@@ -1222,7 +1480,7 @@ mod tests {
         let fx = t.send(Msg::Refined {
             op,
             refined: Some(Refined {
-                intent: Intent::New,
+                intent: crate::refine::Intent::New,
                 text: "Добавь тесты.".into(),
             }),
         });
@@ -1235,8 +1493,8 @@ mod tests {
     #[test]
     fn empty_transcript_skips_refining() {
         let mut t = refining();
-        let op = t.listen(Key::Hold);
-        t.send(Msg::KeyUp(Key::Hold));
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
             text: " ".into(),

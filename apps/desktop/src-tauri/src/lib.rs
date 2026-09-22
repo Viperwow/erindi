@@ -236,8 +236,7 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     let _ = shortcuts.unregister_all();
     let mut errors = vec![];
     for (combo, key) in [
-        (&settings.hold_hotkey, Key::Hold),
-        (&settings.toggle_hotkey, Key::Toggle),
+        (&settings.hold_hotkey, Key::Talk),
         (&settings.new_session_hotkey, Key::NewSession),
     ] {
         let runtime = runtime.clone();

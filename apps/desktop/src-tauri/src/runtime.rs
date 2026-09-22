@@ -297,7 +297,19 @@ struct Executor {
 impl Executor {
     fn execute(&mut self, effect: Effect) {
         match effect {
-            Effect::StartCapture { op, endpointing } => self.start_capture(op, endpointing),
+            Effect::StartCapture { op } => self.start_capture(op, true),
+            Effect::GestureTimer { seq } => {
+                let tx = self.tx.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(erindi_core::controller::DOUBLE);
+                    let _ = tx.send(Msg::GestureTimeout { seq });
+                });
+            }
+            Effect::OpenTerminal { id, cwd } => {
+                if let Err(e) = open_terminal(&cwd, id) {
+                    eprintln!("{e}");
+                }
+            }
             Effect::StopCapture => self.capture = None,
             Effect::LiveDecode { op, samples } => {
                 self.decode(op, samples, |op, text| Msg::Live { op, text })
