@@ -14,6 +14,7 @@ fn main() {
         "model_status",
         "download_model",
         "test_command",
+        "default_patterns",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(commands))
         .expect("failed to run tauri-build");

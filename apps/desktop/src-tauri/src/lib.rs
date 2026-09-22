@@ -33,7 +33,8 @@ pub fn run() {
             delete_session,
             model_status,
             download_model,
-            test_command
+            test_command,
+            default_patterns
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
@@ -197,6 +198,11 @@ fn test_command(
     Ok(TestResult { command, rest })
 }
 
+#[tauri::command]
+fn default_patterns() -> erindi_core::commands::Patterns {
+    erindi_core::commands::Patterns::default()
+}
+
 struct SettingsStore {
     path: PathBuf,
     shared: SharedSettings,
@@ -328,6 +334,7 @@ mod tests {
             "allow-model-status",
             "allow-download-model",
             "allow-test-command",
+            "allow-default-patterns",
         ] {
             assert!(perms.contains(&json!(p)), "{p}");
         }

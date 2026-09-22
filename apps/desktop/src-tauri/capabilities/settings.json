@@ -14,6 +14,7 @@
     "allow-delete-session",
     "allow-model-status",
     "allow-download-model",
-    "allow-test-command"
+    "allow-test-command",
+    "allow-default-patterns"
   ]
 }
