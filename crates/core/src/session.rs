@@ -35,17 +35,31 @@ pub fn parse_intent(text: &str) -> (Intent, String) {
     let words: Vec<&str> = text.split_whitespace().collect();
     let plain: Vec<String> = words.iter().map(|w| bare(w)).collect();
 
-    let mut start = 0;
-    while start < plain.len() && FILLERS.contains(&plain[start].as_str()) {
-        start += 1;
-    }
+    let skippable = |w: &String| FILLERS.contains(&w.as_str()) || CONNECTORS.contains(&w.as_str());
+    let start = plain
+        .iter()
+        .take_while(|w| FILLERS.contains(&w.as_str()))
+        .count();
     for (intent, phrase) in PHRASES {
         let n = phrase.len();
         if plain.len() >= start + n && matches(&plain[start..start + n], phrase) {
-            return (*intent, words[start + n..].join(" "));
+            let from = start
+                + n
+                + plain[start + n..]
+                    .iter()
+                    .take_while(|w| skippable(w))
+                    .count();
+            return (*intent, words[from..].join(" "));
         }
         if plain.len() >= n && matches(&plain[plain.len() - n..], phrase) {
-            let rest = words[..words.len() - n].join(" ");
+            let end = plain.len() - n;
+            let end = end
+                - plain[..end]
+                    .iter()
+                    .rev()
+                    .take_while(|w| skippable(w))
+                    .count();
+            let rest = words[..end].join(" ");
             let rest = rest.trim_end_matches([',', ';', ':', '-', ' ']);
             return (*intent, rest.to_string());
         }
@@ -64,7 +78,19 @@ fn bare(word: &str) -> String {
 }
 
 /// Leading words skipped before a command, as in "open in a new session".
-const FILLERS: &[&str] = &["открой", "мне", "начни", "запусти", "open", "start"];
+const FILLERS: &[&str] = &[
+    "открой",
+    "мне",
+    "начни",
+    "запусти",
+    "создай",
+    "open",
+    "start",
+    "create",
+];
+
+/// Words that join a command to the task, as in "create a new session and fix the tests".
+const CONNECTORS: &[&str] = &["и", "потом", "затем", "and", "then"];
 
 /// Longest phrases first, so "in a new session" wins over "new session".
 const PHRASES: &[(Intent, &[&str])] = &[
@@ -125,6 +151,10 @@ mod tests {
             ("New session, fix the tests", "fix the tests"),
             ("fix the tests in a new session", "fix the tests"),
             ("исправь сборку, в новой сессии.", "исправь сборку"),
+            ("Создай новую сессию и проверь diff", "проверь diff"),
+            ("Create a new session, then fix the tests", "fix the tests"),
+            ("Проверь diff и создай новую сессию.", "Проверь diff"),
+            ("fix the tests and start a new session", "fix the tests"),
         ];
         for (input, prompt) in cases {
             assert_eq!(
