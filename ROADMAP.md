@@ -62,6 +62,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] HTTP providers: OpenAI-compatible APIs, Ollama, OpenRouter.
 - [ ] API keys stored in the OS keychain.
 - [ ] Wake word activation.
+- [ ] MSI installer for Windows through the Tauri bundler, with `llama/` as a bundled resource.
 - [ ] Signed installers and macOS notarization.
 - [ ] Auto-update channel.
 - [ ] Modifier-only hotkeys.
