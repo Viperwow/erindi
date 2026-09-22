@@ -14,16 +14,17 @@ Hold a hotkey, speak a task, and Erindi transcribes it locally and runs it in Cl
 | Audio capture and resampling | cpal, rubato |
 | Speech recognition (RU/EN) | sherpa-onnx, Parakeet TDT 0.6B v3 |
 | End of speech | Silero VAD |
+| Prompt cleanup | llama.cpp (Vulkan), Qwen2.5-3B-Instruct |
 | Agent run and cancel | `claude -p` stream-json, Windows Job Objects |
 
 Hotkeys: `Ctrl+Alt+Space` hold to talk, `Ctrl+Alt+Shift+Space` hands-free, `Ctrl+Alt+N` hands-free in a new session. Say "new session" or "same session" to pick where a task goes; the Sessions page lists past sessions.
 
-**Download:** the [latest build](https://github.com/Viperwow/erindi/releases/tag/latest) is rebuilt on every merge into `main`. Unpack it, run `scripts/fetch-models.ps1` once, then start `erindi.exe`.
+**Download:** the [latest build](https://github.com/Viperwow/erindi/releases/tag/latest) is rebuilt on every merge into `main`. Unpack it and start `erindi.exe`; Settings downloads the speech model on first launch.
 
 **From source:**
 
 ```powershell
-./scripts/fetch-models.ps1
+./scripts/fetch-models.ps1 -Refiner   # development models; drop -Refiner to skip prompt cleanup
 cd apps/desktop; pnpm install; pnpm tauri dev
 ```
 
@@ -34,7 +35,7 @@ cd apps/desktop; pnpm install; pnpm tauri dev
 - [x] Run Claude Code headless, cancel it, reopen the session
 - [x] Continue the same session by voice
 - [x] Session history sidebar
-- [ ] Prompt cleanup with a fast LLM
+- [x] Prompt cleanup with a local LLM
 - [ ] Provider and model picker
 - [x] Hotkey recorder (mouse buttons next)
 - [ ] macOS build

@@ -19,20 +19,26 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 - [x] **Continue the session.** Utterances continue the active Claude session by default. A session setting (continue, continue if recent, always new), a "new session" hotkey and spoken commands such as "new session" or "same session" choose otherwise.
 - [x] **Session history.** A Sessions page lists sessions started from Erindi with what was said, the folder and the session ID. Each one opens in a terminal, becomes the active session for the next utterance, or is deleted from the list.
-- [ ] **Prompt cleanup model.** A fast intermediate LLM turns the raw transcript into clear, logical text before it reaches the agent.
+- [x] **Prompt cleanup model.** A local model (Qwen2.5-3B on llama.cpp Vulkan) removes slips and spoken commands before the agent sees the text; on or off in Settings.
+- [ ] **Unload the cleanup model** after idle time, for machines short on memory.
+- [ ] **Refiner device.** Auto, GPU or CPU; a CUDA build if Vulkan is not fast enough.
+- [ ] **Refiner endpoints.** Cloud, Ollama and LM Studio by address and API key.
+- [ ] **Streaming cleanup** into the bubble.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
 - [ ] **Computer control (later).** An "Allow computer control" checkbox lets agents click and type in other apps. A short warning hint appears under it; the same hint appears when `bypassPermissions` is selected.
 
 ### Voice and models
 
-- [ ] **Speech model picker.** A small catalog of speech-to-text models, downloaded from Hugging Face only after the user confirms. Downloaded models look bright, others dimmed but still selectable.
+- [x] **Model downloads.** Speech and cleanup models install from Settings with progress and hash checks.
+- [ ] **Model picker.** Choose among several speech and cleanup models, with Hugging Face search.
 
 ### Controls
 
 - [x] **Hotkey recorder.** Click the field and press the combination, as in games.
 - [ ] **Mouse buttons as hotkeys.** Needs a low-level input hook; the current global shortcut plugin handles keyboard keys only.
 - [ ] **Startup behavior.** Choose between opening Settings on launch and starting minimized to the tray.
+- [ ] **First-run setup.** Detect GPU, VRAM and CPU, pick models and device, warn when cleanup would be slow; re-run when the hardware changes.
 - [ ] **Tray click.** Clicking or double-clicking the tray icon opens the window.
 
 ### UI and UX
