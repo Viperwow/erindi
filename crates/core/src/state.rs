@@ -10,7 +10,8 @@ pub enum AppState {
     Idle,
     Listening,
     Transcribing,
-    Refining,
+    /// The local model looks for a command said in the user's own words.
+    Classifying,
     Running,
     Cancelling,
     Succeeded,
@@ -31,11 +32,12 @@ pub enum Event {
         op: OpId,
         empty: bool,
     },
-    Refine {
+    Classify {
         op: OpId,
     },
-    Refined {
+    Classified {
         op: OpId,
+        empty: bool,
     },
     Cancel,
     RunExited {
@@ -88,8 +90,8 @@ impl Machine {
         use Event as E;
 
         if let E::Transcribed { op, .. }
-        | E::Refine { op }
-        | E::Refined { op }
+        | E::Classify { op }
+        | E::Classified { op, .. }
         | E::RunExited { op, .. }
         | E::StepFailed { op } = event
             && op != self.op
@@ -108,14 +110,16 @@ impl Machine {
             }
             (S::Listening, E::StopListening) => S::Transcribing,
             (S::Listening, E::CancelListening) => S::Idle,
-            (S::Transcribing | S::Refining, E::Abandon) => S::Idle,
+            (S::Transcribing | S::Classifying, E::Abandon) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: true, .. }) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: false, .. }) => S::Running,
-            (S::Transcribing, E::Refine { .. }) => S::Refining,
-            (S::Refining, E::Refined { .. }) => S::Running,
-            (S::Listening | S::Transcribing | S::Refining | S::Running, E::StepFailed { .. }) => {
-                S::Failed
-            }
+            (S::Transcribing, E::Classify { .. }) => S::Classifying,
+            (S::Classifying, E::Classified { empty: true, .. }) => S::Idle,
+            (S::Classifying, E::Classified { empty: false, .. }) => S::Running,
+            (
+                S::Listening | S::Transcribing | S::Classifying | S::Running,
+                E::StepFailed { .. },
+            ) => S::Failed,
             (S::Running, E::Cancel) => S::Cancelling,
             (S::Running, E::RunExited { ok: true, .. }) => S::Succeeded,
             (S::Running, E::RunExited { ok: false, .. }) => S::Failed,
@@ -293,11 +297,18 @@ mod tests {
     }
 
     #[test]
-    fn refining_sits_between_transcribing_and_running() {
+    fn classifying_sits_between_transcribing_and_running() {
         let mut m = at(Transcribing);
         let op = m.op();
-        assert_eq!(m.apply(Refine { op }), Ok(Outcome::Changed(Refining)));
-        assert_eq!(m.apply(Refined { op: op + 1 }), Ok(Outcome::Stale));
-        assert_eq!(m.apply(Refined { op }), Ok(Outcome::Changed(Running)));
+        assert_eq!(m.apply(Classify { op }), Ok(Outcome::Changed(Classifying)));
+        let stale = Classified {
+            op: op + 1,
+            empty: false,
+        };
+        assert_eq!(m.apply(stale), Ok(Outcome::Stale));
+        assert_eq!(
+            m.apply(Classified { op, empty: false }),
+            Ok(Outcome::Changed(Running))
+        );
     }
 }

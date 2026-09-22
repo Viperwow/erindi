@@ -71,7 +71,7 @@ impl Settings {
             recent: std::time::Duration::from_secs(u64::from(self.recent_minutes) * 60),
             cwd: self.cwd.clone(),
             patterns: Default::default(),
-            refine: self.cleanup,
+            model_commands: self.cleanup,
         }
     }
 
@@ -232,7 +232,10 @@ mod tests {
         };
         assert!(matches!(
             on.session_msg(),
-            Msg::Settings { refine: true, .. }
+            Msg::Settings {
+                model_commands: true,
+                ..
+            }
         ));
     }
 }

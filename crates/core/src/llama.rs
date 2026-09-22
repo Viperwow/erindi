@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 use process_wrap::std::*;
 use serde_json::Value;
 
-use crate::refine::{Refined, parse_response, request};
+use crate::classify::{parse_response, request};
+use crate::commands::Command;
 
 /// Loading a 2 GB model from a slow disk can take this long.
 const START_TIMEOUT: Duration = Duration::from_secs(120);
@@ -74,8 +75,8 @@ impl LlamaServer {
         Err("llama-server did not start in time".into())
     }
 
-    /// `Ok(None)` means the server answered with something that is not a refined prompt.
-    pub fn refine(&self, text: &str) -> Result<Option<Refined>, String> {
+    /// `Ok(None)` means the server answered with something that is not a command answer.
+    pub fn classify(&self, text: &str) -> Result<Option<(Option<Command>, String)>, String> {
         let body: Value = self
             .agent
             .post(format!("{}/v1/chat/completions", self.url))
@@ -109,14 +110,14 @@ mod tests {
     /// `ERINDI_LLAMA=<llama-server.exe>;<model.gguf> cargo test -p erindi-core llama -- --ignored`
     #[test]
     #[ignore = "needs llama-server and the cleanup model"]
-    fn refines_with_a_live_server() {
+    fn classifies_with_a_live_server() {
         let var = std::env::var("ERINDI_LLAMA").unwrap();
         let (exe, model) = var.split_once(';').unwrap();
         let server = LlamaServer::start(Path::new(exe), Path::new(model)).unwrap();
-        let r = server
-            .refine("эээ ну проверь diff в модуле auth")
+        let (command, _) = server
+            .classify("давай с чистого листа, напиши README")
             .unwrap()
             .unwrap();
-        assert!(r.text.contains("diff"), "{r:?}");
+        assert_eq!(command, Some(Command::NewSession));
     }
 }

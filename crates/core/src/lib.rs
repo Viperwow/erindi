@@ -1,10 +1,10 @@
+pub mod classify;
 pub mod claude;
 pub mod commands;
 pub mod controller;
 pub mod llama;
 pub mod models;
 pub mod prompt;
-pub mod refine;
 pub mod run;
 pub mod session;
 pub mod state;

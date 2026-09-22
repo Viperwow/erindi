@@ -9,10 +9,10 @@ use erindi_audio_asr::capture::{self, Capture};
 use erindi_audio_asr::dsp::{To16k, rms};
 use erindi_audio_asr::vad::{Endpoint, Endpointer};
 use erindi_core::claude::{ClaudeRequest, Session, claude_args, claude_env, resume_in_terminal};
+use erindi_core::commands::Command;
 use erindi_core::controller::{Controller, Effect, Msg};
 use erindi_core::llama::LlamaServer;
 use erindi_core::prompt::{Dictionary, PromptTransformer};
-use erindi_core::refine::Refined;
 use erindi_core::run::{RunEnd, RunSpec, run};
 use erindi_core::state::{AppState, OpId};
 use erindi_core::stream::parse_line;
@@ -224,17 +224,20 @@ impl Refiner {
         });
     }
 
-    /// Waits for a starting server, so an utterance right after launch is still refined.
-    fn refine(&self, text: &str) -> Option<Refined> {
+    /// Waits for a starting server, so an utterance right after launch is still checked.
+    fn classify(&self, text: &str) -> Option<(Option<Command>, String)> {
         let mut server = self.0.lock().unwrap();
         if server.is_none() {
             *server = start_llama();
         }
         let started = Instant::now();
-        let result = server.as_ref()?.refine(text);
+        let result = server.as_ref()?.classify(text);
         let took = started.elapsed();
         if took > REFINE_BUDGET {
-            eprintln!("refine took {took:?} for {} chars", text.chars().count());
+            eprintln!(
+                "command check took {took:?} for {} chars",
+                text.chars().count()
+            );
         }
         result.unwrap_or_else(|e| {
             eprintln!("{e}");
@@ -250,7 +253,7 @@ fn start_llama() -> Option<LlamaServer> {
     let server = LlamaServer::start(&llama_server_exe(), &model)
         .map_err(|e| eprintln!("{e}"))
         .ok()?;
-    let _ = server.refine(erindi_core::refine::WARM_UP);
+    let _ = server.classify(erindi_core::classify::WARM_UP);
     eprintln!("llama-server ready and warm in {:?}", started.elapsed());
     Some(server)
 }
@@ -320,15 +323,14 @@ impl Executor {
             Effect::StartRun {
                 op,
                 prompt,
-                raw,
                 session,
                 cwd,
-            } => self.start_run(op, prompt, raw, session, cwd),
-            Effect::Refine { op, text } => {
+            } => self.start_run(op, prompt, session, cwd),
+            Effect::Classify { op, text } => {
                 let (refiner, tx) = (self.refiner.clone(), self.tx.clone());
                 std::thread::spawn(move || {
-                    let refined = refiner.refine(&text);
-                    let _ = tx.send(Msg::Refined { op, refined });
+                    let answer = refiner.classify(&text);
+                    let _ = tx.send(Msg::Classified { op, answer });
                 });
             }
             Effect::ActiveChanged(id) => {
@@ -442,14 +444,7 @@ impl Executor {
         });
     }
 
-    fn start_run(
-        &mut self,
-        op: OpId,
-        prompt: String,
-        raw: Option<String>,
-        session: Session,
-        cwd: String,
-    ) {
+    fn start_run(&mut self, op: OpId, prompt: String, session: Session, cwd: String) {
         let settings = self.settings.read().unwrap().clone();
         let request = ClaudeRequest {
             mode: settings.mode,
@@ -483,13 +478,7 @@ impl Executor {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
-        let entry = match raw {
-            Some(raw) => Prompt::Refined {
-                text: prompt.clone(),
-                raw,
-            },
-            None => Prompt::Plain(prompt.clone()),
-        };
+        let entry = Prompt::Plain(prompt.clone());
         if let Err(e) = self.history.lock().unwrap().record(id, &cwd, entry, now_ms) {
             eprintln!("cannot save session history: {e}");
         }
