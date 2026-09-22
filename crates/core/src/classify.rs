@@ -74,30 +74,36 @@ pub fn parse_response(body: &Value) -> Option<(Option<Command>, String)> {
 pub fn accept(text: &str, answer: Option<(Option<Command>, String)>) -> Option<(Command, String)> {
     let (command, rest) = answer?;
     let command = command?;
-    // Punctuation-only tokens such as a dash carry no words to compare.
-    let words: Vec<&str> = text
-        .split_whitespace()
-        .filter(|w| !bare(w).is_empty())
-        .collect();
-    let plain: Vec<String> = words.iter().map(|w| bare(w)).collect();
+    // Words with their byte spans; punctuation-only tokens such as "--" carry nothing to compare
+    // but stay in the text that is cut.
+    let mut spans = vec![];
+    let mut at = 0;
+    for token in text.split_whitespace() {
+        let start = at + text[at..].find(token).unwrap_or(0);
+        at = start + token.len();
+        let word = bare(token);
+        if !word.is_empty() {
+            spans.push((word, start, at));
+        }
+    }
     let kept: Vec<String> = rest
         .split_whitespace()
         .map(bare)
         .filter(|w| !w.is_empty())
         .collect();
-    if kept.len() >= plain.len() {
+    if kept.len() >= spans.len() {
         return None;
     }
-    let cut = plain.len() - kept.len();
-    if command != Command::Cancel && plain[cut..] == kept[..] {
-        return Some((command, words[cut..].join(" ")));
+    let same = |words: &[(String, usize, usize)]| words.iter().map(|w| &w.0).eq(kept.iter());
+    let cut = spans.len() - kept.len();
+    if command != Command::Cancel && same(&spans[cut..]) {
+        let from = spans.get(cut).map_or(text.len(), |w| w.1);
+        return Some((command, text[from..].to_string()));
     }
-    if plain[..kept.len()] == kept[..] {
-        let rest = words[..kept.len()].join(" ");
-        return Some((
-            command,
-            rest.trim_end_matches([',', ';', ':', '-', ' ']).to_string(),
-        ));
+    if same(&spans[..kept.len()]) {
+        let to = kept.len().checked_sub(1).map_or(0, |i| spans[i].2);
+        let rest = text[..to].trim_end_matches([',', ';', ':', '-', ' ']);
+        return Some((command, rest.to_string()));
     }
     None
 }
@@ -221,6 +227,26 @@ mod tests {
         assert_eq!(
             accept(text, answer(Some(Command::Cancel), "проверь diff")),
             Some((Command::Cancel, "проверь diff".into()))
+        );
+    }
+
+    #[test]
+    fn rest_keeps_the_transcript_exactly() {
+        let text = "let's start fresh, run cargo -- --ignored";
+        assert_eq!(
+            accept(
+                text,
+                answer(Some(Command::NewSession), "run cargo -- --ignored")
+            ),
+            Some((Command::NewSession, "run cargo -- --ignored".into()))
+        );
+        let text = "run cargo  --  --ignored, never mind";
+        assert_eq!(
+            accept(
+                text,
+                answer(Some(Command::Cancel), "run cargo -- --ignored")
+            ),
+            Some((Command::Cancel, "run cargo  --  --ignored".into()))
         );
     }
 }
