@@ -233,7 +233,9 @@ impl Executor {
                 prompt,
                 session,
                 cwd,
+                ..
             } => self.start_run(op, prompt, session, cwd),
+            Effect::Refine { .. } => {}
             Effect::ActiveChanged(id) => {
                 *self.active.lock().unwrap() = id;
                 let _ = self.app.emit_to("settings", "sessions-changed", ());

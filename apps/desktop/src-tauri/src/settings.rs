@@ -67,6 +67,7 @@ impl Settings {
             policy: self.session_policy,
             recent: std::time::Duration::from_secs(u64::from(self.recent_minutes) * 60),
             cwd: self.cwd.clone(),
+            refine: false,
         }
     }
 

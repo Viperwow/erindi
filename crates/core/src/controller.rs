@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::claude::Session;
 use crate::prompt::PromptTransformer;
+use crate::refine::{Refined, accept};
 use crate::run::RunEnd;
 use crate::session::{Active, Intent, SessionPolicy, choose, parse_intent};
 use crate::state::{AppState, Event, Machine, OpId, Outcome};
@@ -48,6 +49,11 @@ pub enum Msg {
         op: OpId,
         text: String,
     },
+    /// `None` when the refiner failed or is unavailable.
+    Refined {
+        op: OpId,
+        refined: Option<Refined>,
+    },
     Run {
         op: OpId,
         event: RunEvent,
@@ -64,6 +70,7 @@ pub enum Msg {
         policy: SessionPolicy,
         recent: Duration,
         cwd: String,
+        refine: bool,
     },
     /// Makes a session from history the one the next utterance continues.
     SetActive {
@@ -96,9 +103,15 @@ pub enum Effect {
         op: OpId,
         samples: Vec<f32>,
     },
+    Refine {
+        op: OpId,
+        text: String,
+    },
     StartRun {
         op: OpId,
         prompt: String,
+        /// What the user said, when the refiner changed it.
+        raw: Option<String>,
         session: Session,
         /// Resumed sessions run in their own project folder.
         cwd: String,
@@ -136,6 +149,9 @@ pub struct Controller {
     cwd: String,
     active: Option<Active>,
     running: Option<(Session, String)>,
+    refine: bool,
+    /// The parser's intent and text while the refiner works on them.
+    pending: Option<(Intent, String)>,
 }
 
 impl Controller {
@@ -161,6 +177,8 @@ impl Controller {
             cwd: String::new(),
             active: None,
             running: None,
+            refine: false,
+            pending: None,
         }
     }
 
@@ -238,32 +256,32 @@ impl Controller {
                     _ => intent,
                 };
                 let prompt = self.transformer.transform(&spoken);
+                if self.refine && !prompt.is_empty() {
+                    if let Ok(Outcome::Changed(_)) = self.machine.apply(Event::Refine { op }) {
+                        self.pending = Some((intent, prompt.clone()));
+                        self.view.text = prompt.clone();
+                        return vec![Effect::Refine { op, text: prompt }, self.show()];
+                    }
+                    return vec![];
+                }
                 let empty = prompt.is_empty();
                 match self.machine.apply(Event::Transcribed { op, empty }) {
                     Ok(Outcome::Changed(S::Running)) => {
-                        let resume =
-                            choose(self.policy, self.recent, intent, self.active.as_ref(), now);
-                        let (session, cwd) = match (resume, &self.active) {
-                            (Some(id), Some(active)) => (Session::Resume(id), active.cwd.clone()),
-                            _ => (Session::New(Uuid::new_v4()), self.cwd.clone()),
-                        };
-                        self.running = Some((session, cwd.clone()));
-                        self.result = None;
-                        self.view.text = prompt.clone();
-                        self.view.session_id = Some(session_id(session));
-                        self.view.continued = resume.is_some();
-                        self.view.detail.clear();
-                        vec![
-                            Effect::StartRun {
-                                op,
-                                prompt,
-                                session,
-                                cwd,
-                            },
-                            self.show(),
-                        ]
+                        self.start_run(op, intent, prompt, None, now)
                     }
                     Ok(Outcome::Changed(_)) => vec![self.show()],
+                    _ => vec![],
+                }
+            }
+            Msg::Refined { op, refined } if current(op) && state == S::Refining => {
+                let Some((intent, input)) = self.pending.take() else {
+                    return vec![];
+                };
+                // ponytail: the model's intent is ignored until the benchmark shows it beats the parser.
+                let text = accept(&input, refined).map_or_else(|| input.clone(), |r| r.text);
+                let raw = (text != input).then_some(input);
+                match self.machine.apply(Event::Refined { op }) {
+                    Ok(Outcome::Changed(S::Running)) => self.start_run(op, intent, text, raw, now),
                     _ => vec![],
                 }
             }
@@ -301,7 +319,9 @@ impl Controller {
                 policy,
                 recent,
                 cwd,
+                refine,
             } => {
+                self.refine = refine;
                 self.policy = policy;
                 self.recent = recent;
                 if cwd == self.cwd {
@@ -369,6 +389,37 @@ impl Controller {
         }
     }
 
+    fn start_run(
+        &mut self,
+        op: OpId,
+        intent: Intent,
+        prompt: String,
+        raw: Option<String>,
+        now: Instant,
+    ) -> Vec<Effect> {
+        let resume = choose(self.policy, self.recent, intent, self.active.as_ref(), now);
+        let (session, cwd) = match (resume, &self.active) {
+            (Some(id), Some(active)) => (Session::Resume(id), active.cwd.clone()),
+            _ => (Session::New(Uuid::new_v4()), self.cwd.clone()),
+        };
+        self.running = Some((session, cwd.clone()));
+        self.result = None;
+        self.view.text = prompt.clone();
+        self.view.session_id = Some(session_id(session));
+        self.view.continued = resume.is_some();
+        self.view.detail.clear();
+        vec![
+            Effect::StartRun {
+                op,
+                prompt,
+                raw,
+                session,
+                cwd,
+            },
+            self.show(),
+        ]
+    }
+
     fn apply(&mut self, event: Event) -> Vec<Effect> {
         match self.machine.apply(event) {
             Ok(Outcome::Changed(_)) => vec![self.show()],
@@ -428,6 +479,7 @@ fn session_id(session: Session) -> Uuid {
 mod tests {
     use super::*;
     use crate::prompt::Dictionary;
+    use crate::refine::Refined;
 
     struct T {
         c: Controller,
@@ -467,10 +519,14 @@ mod tests {
         fn finish_saying(&mut self, text: &str) -> Session {
             let op = self.listen(Key::Hold);
             self.send(Msg::KeyUp(Key::Hold));
-            let fx = self.send(Msg::Transcribed {
+            let mut fx = self.send(Msg::Transcribed {
                 op,
                 text: text.into(),
             });
+            if let Some(Effect::Refine { op, .. }) = fx.first() {
+                let op = *op;
+                fx = self.send(Msg::Refined { op, refined: None });
+            }
             let Some(Effect::StartRun { session, .. }) = fx.first() else {
                 panic!("{fx:?}")
             };
@@ -510,6 +566,7 @@ mod tests {
             policy,
             recent: Duration::from_secs(600),
             cwd: cwd.into(),
+            refine: false,
         }
     }
 
@@ -1085,5 +1142,106 @@ mod tests {
         );
         c.handle(Msg::ModelReady, now);
         assert_eq!(c.state(), AppState::Idle);
+    }
+
+    fn refining() -> T {
+        let mut t = T::new();
+        t.send(Msg::Settings {
+            policy: SessionPolicy::Continue,
+            recent: Duration::from_secs(600),
+            cwd: "C:/p".into(),
+            refine: true,
+        });
+        t
+    }
+
+    #[test]
+    fn refine_runs_the_cleaned_text_and_keeps_the_raw() {
+        let mut t = refining();
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: "эээ клод проверь diff".into(),
+        });
+        assert_eq!(
+            fx[0],
+            Effect::Refine {
+                op,
+                text: "эээ Claude проверь diff".into()
+            }
+        );
+        assert_eq!(shown(&fx).unwrap().state, AppState::Refining);
+        let fx = t.send(Msg::Refined {
+            op,
+            refined: Some(Refined {
+                intent: Intent::Unspecified,
+                text: "Claude, проверь diff.".into(),
+            }),
+        });
+        let Some(Effect::StartRun { prompt, raw, .. }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        assert_eq!(prompt, "Claude, проверь diff.");
+        assert_eq!(raw.as_deref(), Some("эээ Claude проверь diff"));
+    }
+
+    #[test]
+    fn failed_refine_runs_the_parser_text() {
+        let mut t = refining();
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        t.send(Msg::Transcribed {
+            op,
+            text: "в новой сессии проверь diff".into(),
+        });
+        let fx = t.send(Msg::Refined { op, refined: None });
+        let Some(Effect::StartRun {
+            prompt,
+            raw,
+            session,
+            ..
+        }) = fx.first()
+        else {
+            panic!("{fx:?}")
+        };
+        assert_eq!((prompt.as_str(), raw), ("проверь diff", &None));
+        assert!(matches!(session, Session::New(_)));
+    }
+
+    #[test]
+    fn parser_intent_wins_over_the_model() {
+        let mut t = refining();
+        t.finish_saying("проверь diff");
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        t.send(Msg::Transcribed {
+            op,
+            text: "добавь тесты".into(),
+        });
+        let fx = t.send(Msg::Refined {
+            op,
+            refined: Some(Refined {
+                intent: Intent::New,
+                text: "Добавь тесты.".into(),
+            }),
+        });
+        let Some(Effect::StartRun { session, .. }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        assert!(matches!(session, Session::Resume(_)));
+    }
+
+    #[test]
+    fn empty_transcript_skips_refining() {
+        let mut t = refining();
+        let op = t.listen(Key::Hold);
+        t.send(Msg::KeyUp(Key::Hold));
+        let fx = t.send(Msg::Transcribed {
+            op,
+            text: " ".into(),
+        });
+        assert!(!fx.iter().any(|e| matches!(e, Effect::Refine { .. })));
+        assert_eq!(t.c.state(), AppState::Idle);
     }
 }

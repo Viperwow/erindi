@@ -10,6 +10,7 @@ pub enum AppState {
     Idle,
     Listening,
     Transcribing,
+    Refining,
     Running,
     Cancelling,
     Succeeded,
@@ -25,6 +26,8 @@ pub enum Event {
     StopListening,
     CancelListening,
     Transcribed { op: OpId, empty: bool },
+    Refine { op: OpId },
+    Refined { op: OpId },
     Cancel,
     RunExited { op: OpId, ok: bool },
     StepFailed { op: OpId },
@@ -70,7 +73,11 @@ impl Machine {
         use AppState as S;
         use Event as E;
 
-        if let E::Transcribed { op, .. } | E::RunExited { op, .. } | E::StepFailed { op } = event
+        if let E::Transcribed { op, .. }
+        | E::Refine { op }
+        | E::Refined { op }
+        | E::RunExited { op, .. }
+        | E::StepFailed { op } = event
             && op != self.op
         {
             return Ok(Outcome::Stale);
@@ -89,7 +96,11 @@ impl Machine {
             (S::Listening, E::CancelListening) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: true, .. }) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: false, .. }) => S::Running,
-            (S::Listening | S::Transcribing | S::Running, E::StepFailed { .. }) => S::Failed,
+            (S::Transcribing, E::Refine { .. }) => S::Refining,
+            (S::Refining, E::Refined { .. }) => S::Running,
+            (S::Listening | S::Transcribing | S::Refining | S::Running, E::StepFailed { .. }) => {
+                S::Failed
+            }
             (S::Running, E::Cancel) => S::Cancelling,
             (S::Running, E::RunExited { ok: true, .. }) => S::Succeeded,
             (S::Running, E::RunExited { ok: false, .. }) => S::Failed,
@@ -264,5 +275,14 @@ mod tests {
         assert_eq!(m.apply(ModelMissing), Ok(Outcome::Changed(NoModel)));
         assert!(m.apply(StartListening).is_err());
         assert_eq!(m.apply(ModelReady), Ok(Outcome::Changed(Idle)));
+    }
+
+    #[test]
+    fn refining_sits_between_transcribing_and_running() {
+        let mut m = at(Transcribing);
+        let op = m.op();
+        assert_eq!(m.apply(Refine { op }), Ok(Outcome::Changed(Refining)));
+        assert_eq!(m.apply(Refined { op: op + 1 }), Ok(Outcome::Stale));
+        assert_eq!(m.apply(Refined { op }), Ok(Outcome::Changed(Running)));
     }
 }
