@@ -52,7 +52,7 @@ The Settings page is split into blocks. Each block has a title and a one-line de
 
 ### Speech model (Voice block)
 
-- A disabled select with one value: "Parakeet TDT 0.6B v3 (~640 MB)".
+- A disabled select with one value: "Parakeet TDT 0.6B v3 (~670 MB)".
 - Next to it: "Downloaded", or a Download button. While downloading, the button becomes a progress bar with a percentage.
 - A failed download shows the reason and the Download button again.
 
@@ -68,7 +68,7 @@ When the speech model is missing, Erindi opens Settings at launch instead of sta
 
 ### Bubble
 
-- Hotkey without a speech model: the bubble shows "Speech model is not installed. Open Settings to download it." Clicking the bubble opens Settings.
+- Hotkey without a speech model: Settings opens at the Voice block, which says "Speech model is not installed. Download it to start dictating."
 - While the refiner works: the bubble shows the raw text with the status "Refining". The cleaned text replaces it when the agent starts.
 
 ### Sessions page
@@ -113,7 +113,7 @@ Each utterance keeps the cleaned text, which the agent received, and the raw tex
 
 ### Downloads
 
-- Files come from Hugging Face at a pinned revision and are checked against a SHA-256 recorded in the code.
+- Model files come from Hugging Face at a pinned revision (Silero VAD from the sherpa-onnx GitHub release) and are checked against a SHA-256 recorded in the code.
 - The speech model is downloaded as separate files: encoder, decoder, joiner, `tokens.txt`, plus `silero_vad.onnx`. No archive is unpacked.
 - Each file downloads to `<name>.partial` and is renamed after the hash matches. An interrupted download never leaves a broken model.
 - Progress reaches Settings as events.
@@ -124,7 +124,7 @@ Each utterance keeps the cleaned text, which the agent received, and the raw tex
 
 - `crates/core/src/refine.rs`: the system prompt, the JSON Schema, parsing the response, merging with the parser, rejecting suspicious output. Pure functions with unit tests and no network.
 - `crates/core/src/llama.rs`: starting and stopping `llama-server`, the health check, the HTTP request. HTTP client: `ureq`, blocking and small, fitting the existing threads.
-- `crates/core/src/download.rs`: download with progress, `.partial` files, SHA-256 check.
+- `crates/core/src/models.rs`: the model catalog, the installed check, download with progress, `.partial` files, SHA-256 check.
 - `crates/core/src/controller.rs`: `Transcribed` emits `Effect::Refine` when cleanup is on; `Msg::Refined` starts the run.
 - `apps/desktop/src-tauri`: settings field `cleanup: bool`, commands for model status and download, progress events, opening Settings on first launch.
 - `apps/desktop/src/settings.tsx`: the blocks, the model rows, the Download control.
