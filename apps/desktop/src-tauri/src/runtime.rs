@@ -10,7 +10,9 @@ use erindi_audio_asr::dsp::{To16k, rms};
 use erindi_audio_asr::vad::{Endpoint, Endpointer};
 use erindi_core::claude::{ClaudeRequest, Session, claude_args, claude_env, resume_in_terminal};
 use erindi_core::controller::{Controller, Effect, Msg};
+use erindi_core::llama::LlamaServer;
 use erindi_core::prompt::{Dictionary, PromptTransformer};
+use erindi_core::refine::Refined;
 use erindi_core::run::{RunEnd, RunSpec, run};
 use erindi_core::state::{AppState, OpId};
 use erindi_core::stream::parse_line;
@@ -24,6 +26,7 @@ use crate::settings::Settings;
 const RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const DISMISS_AFTER: Duration = Duration::from_secs(8);
 const LEVEL_INTERVAL: Duration = Duration::from_millis(33);
+const REFINE_BUDGET: Duration = Duration::from_millis(1500);
 
 pub type SharedSettings = Arc<RwLock<Settings>>;
 
@@ -32,6 +35,7 @@ pub type SharedSettings = Arc<RwLock<Settings>>;
 pub struct Runtime {
     tx: Sender<Msg>,
     asr: Arc<OnceLock<Asr>>,
+    refiner: Refiner,
     last_session: Arc<Mutex<Option<LastRun>>>,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
@@ -52,6 +56,7 @@ impl Runtime {
         let last_session = Arc::new(Mutex::new(None));
         let history = Arc::new(Mutex::new(History::load(history_path)));
         let active = Arc::new(Mutex::new(None));
+        let refiner = Refiner::default();
 
         let mut executor = Executor {
             app,
@@ -64,6 +69,7 @@ impl Runtime {
             clickable_op: Arc::new(AtomicU64::new(0)),
             history: history.clone(),
             active: active.clone(),
+            refiner: refiner.clone(),
         };
         std::thread::spawn(move || {
             let mut controller = Controller::new(Box::new(SettingsDictionary(settings.clone())));
@@ -80,6 +86,7 @@ impl Runtime {
         let runtime = Self {
             tx,
             asr,
+            refiner,
             last_session,
             history,
             active,
@@ -138,6 +145,10 @@ impl Runtime {
         Ok(entry.cwd.clone())
     }
 
+    pub fn set_cleanup(&self, on: bool) {
+        self.refiner.set_enabled(on);
+    }
+
     pub fn send(&self, msg: Msg) {
         let _ = self.tx.send(msg);
     }
@@ -194,6 +205,71 @@ fn pick_models_dir(
     }
 }
 
+/// The cleanup model server. It starts when cleanup is turned on and stays loaded.
+#[derive(Clone, Default)]
+struct Refiner(Arc<Mutex<Option<LlamaServer>>>);
+
+impl Refiner {
+    fn set_enabled(&self, on: bool) {
+        if !on {
+            self.0.lock().unwrap().take();
+            return;
+        }
+        let this = self.clone();
+        std::thread::spawn(move || {
+            let mut server = this.0.lock().unwrap();
+            if server.is_none() {
+                *server = start_llama();
+            }
+        });
+    }
+
+    /// Waits for a starting server, so an utterance right after launch is still refined.
+    fn refine(&self, text: &str) -> Option<Refined> {
+        let mut server = self.0.lock().unwrap();
+        if server.is_none() {
+            *server = start_llama();
+        }
+        let started = Instant::now();
+        let result = server.as_ref()?.refine(text);
+        let took = started.elapsed();
+        if took > REFINE_BUDGET {
+            eprintln!("refine took {took:?} for {} chars", text.chars().count());
+        }
+        result.unwrap_or_else(|e| {
+            eprintln!("{e}");
+            server.take();
+            None
+        })
+    }
+}
+
+fn start_llama() -> Option<LlamaServer> {
+    let model = models_dir().join(erindi_core::models::CLEANUP_GGUF);
+    let started = Instant::now();
+    let server = LlamaServer::start(&llama_server_exe(), &model)
+        .map_err(|e| eprintln!("{e}"))
+        .ok()?;
+    let _ = server.refine(erindi_core::refine::WARM_UP);
+    eprintln!("llama-server ready and warm in {:?}", started.elapsed());
+    Some(server)
+}
+
+pub fn llama_server_exe() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(PathBuf::from));
+    pick_llama_server(exe_dir, &models_dir())
+}
+
+/// The release zip ships `llama/` next to the exe; development builds use `models/llama/`.
+fn pick_llama_server(exe_dir: Option<PathBuf>, models: &Path) -> PathBuf {
+    exe_dir
+        .map(|d| d.join("llama/llama-server.exe"))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| models.join("llama/llama-server.exe"))
+}
+
 /// Applies the dictionary as currently saved in settings.
 struct SettingsDictionary(SharedSettings);
 
@@ -215,6 +291,7 @@ struct Executor {
     clickable_op: Arc<AtomicU64>,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
+    refiner: Refiner,
 }
 
 impl Executor {
@@ -235,7 +312,13 @@ impl Executor {
                 session,
                 cwd,
             } => self.start_run(op, prompt, raw, session, cwd),
-            Effect::Refine { .. } => {}
+            Effect::Refine { op, text } => {
+                let (refiner, tx) = (self.refiner.clone(), self.tx.clone());
+                std::thread::spawn(move || {
+                    let refined = refiner.refine(&text);
+                    let _ = tx.send(Msg::Refined { op, refined });
+                });
+            }
             Effect::ActiveChanged(id) => {
                 *self.active.lock().unwrap() = id;
                 let _ = self.app.emit_to("settings", "sessions-changed", ());
@@ -467,5 +550,20 @@ mod tests {
             false,
         );
         assert_eq!(picked, PathBuf::from(r"D:\data\models"));
+    }
+
+    #[test]
+    fn bundled_llama_server_beats_models_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("llama")).unwrap();
+        std::fs::write(dir.path().join("llama/llama-server.exe"), "").unwrap();
+        assert_eq!(
+            pick_llama_server(Some(dir.path().into()), Path::new("M:/models")),
+            dir.path().join("llama/llama-server.exe")
+        );
+        assert_eq!(
+            pick_llama_server(None, Path::new("M:/models")),
+            Path::new("M:/models").join("llama/llama-server.exe")
+        );
     }
 }

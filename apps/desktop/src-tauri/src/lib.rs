@@ -41,6 +41,7 @@ pub fn run() {
             if let Err(e) = register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime) {
                 eprintln!("{e}");
             }
+            runtime.set_cleanup(settings.read().unwrap().cleanup);
             app.manage(runtime);
             if !erindi_core::models::SPEECH.installed(&runtime::models_dir()) {
                 show_settings(app.handle());
@@ -127,9 +128,13 @@ fn save_settings(
     settings: Settings,
 ) -> Result<(), String> {
     settings.validate()?;
+    if settings.cleanup && !erindi_core::models::CLEANUP.installed(&runtime::models_dir()) {
+        return Err("Download the cleanup model first".into());
+    }
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
     runtime.send(settings.session_msg());
+    runtime.set_cleanup(settings.cleanup);
     register_hotkeys(&app, &settings, &runtime)
 }
 

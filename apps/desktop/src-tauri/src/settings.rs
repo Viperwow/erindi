@@ -24,6 +24,8 @@ pub struct Settings {
     /// Used by `SessionPolicy::ContinueIfRecent`.
     pub recent_minutes: u32,
     pub dictionary: Vec<(String, String)>,
+    /// Refine each utterance with the local cleanup model.
+    pub cleanup: bool,
 }
 
 impl Default for Settings {
@@ -40,6 +42,7 @@ impl Default for Settings {
             session_policy: SessionPolicy::Continue,
             recent_minutes: 30,
             dictionary: vec![],
+            cleanup: false,
         }
     }
 }
@@ -67,7 +70,7 @@ impl Settings {
             policy: self.session_policy,
             recent: std::time::Duration::from_secs(u64::from(self.recent_minutes) * 60),
             cwd: self.cwd.clone(),
-            refine: false,
+            refine: self.cleanup,
         }
     }
 
@@ -216,5 +219,19 @@ mod tests {
         ] {
             assert!(combo.parse::<Shortcut>().is_ok(), "{combo}");
         }
+    }
+
+    #[test]
+    fn cleanup_is_off_by_default_and_reaches_the_controller() {
+        let s = Settings::default();
+        assert!(!s.cleanup);
+        let on = Settings {
+            cleanup: true,
+            ..Settings::default()
+        };
+        assert!(matches!(
+            on.session_msg(),
+            Msg::Settings { refine: true, .. }
+        ));
     }
 }
