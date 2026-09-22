@@ -42,6 +42,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Dictionary tab.** Move the dictionary to its own tab; the main page keeps only what matters most.
 - [x] **Branding.** The name shows once, in the window title and the sidebar header.
 - [x] **Logo.** Three normal-distribution peaks in the aurora stage colors: green, orange and blue with lilac joins.
+- [ ] **Logo order.** Blue on the left as the start, orange in the middle, green on the right as the result.
 - [x] **Form saving.** One Save button for the whole form (keep it).
 - [ ] **Localization.** English interface by default, with infrastructure for more interface and speech languages.
 
