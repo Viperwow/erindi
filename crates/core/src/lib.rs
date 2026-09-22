@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod controller;
+pub mod llama;
 pub mod models;
 pub mod prompt;
 pub mod refine;
