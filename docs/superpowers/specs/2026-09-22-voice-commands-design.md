@@ -23,6 +23,7 @@ The local model no longer rewrites dictation. The benchmark showed it translates
 | Spoken commands | Recognised only at the start or end of a phrase. The middle is always part of the task. Settings says so. |
 | Command list | New session, open in terminal, cancel. Project switching is deferred. |
 | Model role | Maps a phrase edge to one command from the list, or to none. It never rewrites text. |
+| Trigger phrases | Stored in settings, shown as editable chips per command, with a default set and a reset. What is listed is exactly what the parser matches. |
 | Wake word | Deferred; stays in `ROADMAP.md`. |
 
 ## Gestures
@@ -50,10 +51,26 @@ A single press is only known once `DOUBLE` has passed without a second press, so
 
 Cancel is only spoken inside the phrase it cancels. Work that is already running is cancelled by the key.
 
+### Trigger phrases
+
+Each command has a list of trigger phrases in `settings.json`. The parser matches exactly these phrases, compared on lowercase words without punctuation. Nothing else is hidden except one rule: the joining words "и", "потом", "затем", "and", "then" and punctuation between a command and the task are skipped, so "new session and check the diff" works when "new session" is listed.
+
+Default phrases:
+
+| Command | Russian | English |
+|---------|---------|---------|
+| New session | новая сессия, новую сессию, в новой сессии, с новой сессии, создай новую сессию, открой в новой сессии, начни новую сессию | new session, a new session, in a new session, in new session, start a new session, create a new session |
+| Open in terminal | открой в терминале, открой терминал | open in terminal, open terminal |
+| Cancel | отмена, отмени | cancel, scratch that |
+
+Longer phrases are tried first, so "в новой сессии" wins over "новой сессии". Cancel phrases only count at the end of a phrase.
+
+Validation on save: a phrase has 1 to 6 words, and one phrase cannot belong to two commands.
+
 ### Recognition
 
-1. The parser looks for a known command phrase at the start or end of the transcript, after the dictionary. This is today's `parse_intent`, extended with the new commands.
-2. If the parser finds nothing and "Understand commands in my own words" is on, the model gets the transcript and returns `{"command": "new_session" | "open_terminal" | "cancel" | "none", "rest": "..."}` under a JSON Schema.
+1. The parser looks for a trigger phrase at the start or end of the transcript, after the dictionary. This replaces today's hard-coded `parse_intent` lists.
+2. If the parser finds nothing and "Understand commands in my own words" is on, the model gets the transcript and the trigger phrases as examples, and returns `{"command": "new_session" | "open_terminal" | "cancel" | "none", "rest": "..."}` under a JSON Schema.
 3. The model's answer is accepted only when `rest` equals the transcript with a leading or trailing run of words removed, compared on lowercase words without punctuation. Anything else is treated as `none`, and the whole transcript goes to Claude. This enforces "start or end only" and forbids rewriting.
 
 ## User interface
@@ -79,7 +96,9 @@ Replaces the "Prompt cleanup" block.
 
 "Say a command at the start or end of a phrase. In the middle it counts as part of the task."
 
-- A list of the three commands with one example each, such as *"new session, check the diff"*.
+- One row per command: its name, its hotkey, and its trigger phrases as chips. Each chip has a remove button; an input at the end of the row adds a phrase on Enter. One example per command, such as *"new session, check the diff"*.
+- A "Reset to defaults" button restores the default phrases of every command.
+- A hint: "Words like "and" or "then" between a command and the task are skipped."
 - Checkbox **Understand commands in my own words**, off by default, with the cleanup model's row (label, Download, progress) under it. The checkbox is disabled until the model is downloaded. Hint: "A local model recognises commands such as "let's start fresh". Adds about 0.1 s."
 
 ### Bubble
@@ -102,7 +121,8 @@ In-app model downloads, Settings blocks, running without a speech model, `llama-
 ## Testing
 
 - Gesture recognition as a pure function of key events and time: hold, tap, double-press, and each row of the gesture table, including cancel during transcription and during a run.
-- Parser: the new command phrases at the start and end, and the same words in the middle left alone.
+- Parser: phrases from settings at the start and end, joining words skipped, the same words in the middle left alone, longest phrase first, cancel only at the end.
+- Settings validation: empty and over-long phrases, a phrase listed under two commands.
 - Model acceptance: an answer whose `rest` is an edge cut is accepted; a rewritten `rest`, a cut from the middle, and an unknown command are rejected.
 - Controller: open-in-terminal alone sends nothing; cancel at the end sends nothing; new session with a task starts a new session.
 - Benchmark: the labeled set changes to commands. It reports parser accuracy, model accuracy on phrases the parser misses, false commands on plain tasks, and latency.
