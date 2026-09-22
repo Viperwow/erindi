@@ -23,7 +23,8 @@ The local model no longer rewrites dictation. The benchmark showed it translates
 | Spoken commands | Recognised only at the start or end of a phrase. The middle is always part of the task. Settings says so. |
 | Command list | New session, open in terminal, cancel. Project switching is deferred. |
 | Model role | Maps a phrase edge to one command from the list, or to none. It never rewrites text. |
-| Trigger phrases | Stored in settings, shown as editable chips per command, with a default set and a reset. What is listed is exactly what the parser matches. |
+| Trigger patterns | Regular expressions, stored in settings, shown as editable chips per command on a Commands tab, with a default set and a reset. What is listed is exactly what the parser matches. |
+| Tabs | Sessions, Commands, Settings. Command hotkeys live with their command on the Commands tab; the talk hotkey stays in Settings. |
 | Wake word | Deferred; stays in `ROADMAP.md`. |
 
 ## Gestures
@@ -51,26 +52,28 @@ A single press is only known once `DOUBLE` has passed without a second press, so
 
 Cancel is only spoken inside the phrase it cancels. Work that is already running is cancelled by the key.
 
-### Trigger phrases
+### Trigger patterns
 
-Each command has a list of trigger phrases in `settings.json`. The parser matches exactly these phrases, compared on lowercase words without punctuation. Nothing else is hidden except one rule: the joining words "и", "потом", "затем", "and", "then" and punctuation between a command and the task are skipped, so "new session and check the diff" works when "new session" is listed.
+Each command has a list of patterns in `settings.json`. A pattern is a regular expression in the syntax of the Rust `regex` crate, which runs in linear time. Matching ignores case. Erindi anchors each pattern itself: it must match whole words at the start of the phrase (after leading punctuation) or at its end (before trailing punctuation). Users do not write `^`, `$` or ``.
 
-Default phrases:
+The joining words "и", "потом", "затем", "and", "then" and punctuation between a command and the task are skipped, so "new session and check the diff" works.
 
-| Command | Russian | English |
-|---------|---------|---------|
-| New session | новая сессия, новую сессию, в новой сессии, с новой сессии, создай новую сессию, открой в новой сессии, начни новую сессию | new session, a new session, in a new session, in new session, start a new session, create a new session |
-| Open in terminal | открой в терминале, открой терминал | open in terminal, open terminal |
-| Cancel | отмена, отмени | cancel, scratch that |
+Default patterns:
 
-Longer phrases are tried first, so "в новой сессии" wins over "новой сессии". Cancel phrases only count at the end of a phrase.
+| Command | Patterns |
+|---------|----------|
+| New session | `((создай\|открой\|начни) )?((в\|с) )?нов\w* сесси\w*`, `((start\|create\|in) )?(a )?new session` |
+| Open in terminal | `открой (в )?термина\w*`, `open (in )?terminal` |
+| Cancel | `отмен\w*`, `cancel`, `scratch that` |
 
-Validation on save: a phrase has 1 to 6 words, and one phrase cannot belong to two commands.
+Order of checks: cancel at the end, then any command at the start, then new session or open in terminal at the end. Among patterns of one position the longest match wins. Cancel only counts at the end.
+
+Validation on save: a pattern must compile and must not match an empty string. The error shows under the chip.
 
 ### Recognition
 
-1. The parser looks for a trigger phrase at the start or end of the transcript, after the dictionary. This replaces today's hard-coded `parse_intent` lists.
-2. If the parser finds nothing and "Understand commands in my own words" is on, the model gets the transcript and the trigger phrases as examples, and returns `{"command": "new_session" | "open_terminal" | "cancel" | "none", "rest": "..."}` under a JSON Schema.
+1. The parser looks for a pattern at the start or end of the transcript, after the dictionary. This replaces today's hard-coded `parse_intent` lists and the "same session" phrases.
+2. If the parser finds nothing and "Understand commands in my own words" is on, the model gets the transcript, and returns `{"command": "new_session" | "open_terminal" | "cancel" | "none", "rest": "..."}` under a JSON Schema.
 3. The model's answer is accepted only when `rest` equals the transcript with a leading or trailing run of words removed, compared on lowercase words without punctuation. Anything else is treated as `none`, and the whole transcript goes to Claude. This enforces "start or end only" and forbids rewriting.
 
 ## User interface
@@ -80,30 +83,29 @@ Validation on save: a phrase has 1 to 6 words, and one phrase cannot belong to t
 "How you start, send and cancel a recording."
 
 - **Talk**: `Ctrl+Alt+Space`.
-- **Talk into a new session**: `Ctrl+Alt+N`.
-- **Open active session in terminal**: `Ctrl+Alt+T`.
 
-Hint under the fields:
+Hint under the field:
 
 - Hold: talk while holding, release to send.
 - Double-press: hands-free; sends after a pause.
 - Double-press while recording hands-free: send now.
 - Press once while recording or while Claude works: cancel.
 
-### Settings, Voice commands block
+The Prompt cleanup block is removed from Settings.
 
-Replaces the "Prompt cleanup" block.
+### Commands tab
 
-"Say a command at the start or end of a phrase. In the middle it counts as part of the task."
+Header: "Say a command at the start or end of a phrase. In the middle it counts as part of the task." Under it: "Patterns are regular expressions. `\w*` matches any word ending, `(a|b)` matches either word, `?` makes the previous part optional."
 
-- One row per command: its name, its hotkey, and its trigger phrases as chips. Each chip has a remove button; an input at the end of the row adds a phrase on Enter. One example per command, such as *"new session, check the diff"*.
-- A "Reset to defaults" button restores the default phrases of every command.
-- A hint: "Words like "and" or "then" between a command and the task are skipped."
-- Checkbox **Understand commands in my own words**, off by default, with the cleanup model's row (label, Download, progress) under it. The checkbox is disabled until the model is downloaded. Hint: "A local model recognises commands such as "let's start fresh". Adds about 0.1 s."
+- **Try a phrase**: a text field. Under it, live: the matched command and the text that would go to Claude, or "No command; the whole phrase goes to Claude". It uses the same parser as dictation, with the patterns currently on screen.
+- One row per command: name, hotkey field (New session `Ctrl+Alt+N`, Open in terminal `Ctrl+Alt+T`; Cancel shows "press the talk key once"), and its patterns as chips. Each chip has a remove button; an input at the end of the row adds a pattern on Enter. One example per command, such as *"new session, check the diff"*.
+- "Reset to defaults" restores the default patterns.
+- Checkbox **Understand commands in my own words**, off by default, with the cleanup model's row (label, Download, progress) under it. Disabled until the model is downloaded. Hint: "A local model recognises commands such as "let's start fresh". Adds about 0.1 s."
+- A Save button, as in Settings.
 
 ### Bubble
 
-- Cancel shows "Cancelled" briefly, then hides.
+- Cancel hides the bubble.
 - A command recognised from speech shows in the status line, as "+ new session" does today.
 
 ## Removed
@@ -121,8 +123,8 @@ In-app model downloads, Settings blocks, running without a speech model, `llama-
 ## Testing
 
 - Gesture recognition as a pure function of key events and time: hold, tap, double-press, and each row of the gesture table, including cancel during transcription and during a run.
-- Parser: phrases from settings at the start and end, joining words skipped, the same words in the middle left alone, longest phrase first, cancel only at the end.
-- Settings validation: empty and over-long phrases, a phrase listed under two commands.
+- Parser: default patterns at the start and end, joining words skipped, the same words in the middle left alone, longest match first, cancel only at the end, cancel winning over a command at the start.
+- Settings validation: a pattern that does not compile, a pattern that matches an empty string.
 - Model acceptance: an answer whose `rest` is an edge cut is accepted; a rewritten `rest`, a cut from the middle, and an unknown command are rejected.
 - Controller: open-in-terminal alone sends nothing; cancel at the end sends nothing; new session with a task starts a new session.
 - Benchmark: the labeled set changes to commands. It reports parser accuracy, model accuracy on phrases the parser misses, false commands on plain tasks, and latency.
