@@ -1,4 +1,5 @@
 pub mod claude;
+pub mod commands;
 pub mod controller;
 pub mod llama;
 pub mod models;
