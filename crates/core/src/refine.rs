@@ -89,16 +89,38 @@ pub fn parse_response(body: &Value) -> Option<Refined> {
     })
 }
 
-/// Rejects output that is empty or far from the input's length, which is how an answer
-/// or a lost sentence usually looks.
+/// Rejects output that is empty, far from the input's length, or written in another script.
+/// A length jump is how an answer or a lost sentence usually looks; a script change is a translation.
 pub fn accept(input: &str, refined: Option<Refined>) -> Option<Refined> {
     let refined = refined?;
+    if (cyrillic_share(input) - cyrillic_share(&refined.text)).abs() > 0.5 {
+        return None;
+    }
     let (inp, out) = (
         input.chars().count() as f64,
         refined.text.chars().count() as f64,
     );
     (out > 0.0 && out >= inp * 0.3 && out <= inp * 1.5).then_some(refined)
 }
+
+/// Share of Cyrillic among the letters of `text`.
+fn cyrillic_share(text: &str) -> f64 {
+    let (cyrillic, letters) =
+        text.chars()
+            .filter(|c| c.is_alphabetic())
+            .fold((0, 0), |(cyr, all), c| {
+                (
+                    cyr + usize::from(('\u{400}'..='\u{4ff}').contains(&c)),
+                    all + 1,
+                )
+            });
+    if letters == 0 {
+        0.0
+    } else {
+        cyrillic as f64 / letters as f64
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +194,21 @@ mod tests {
         };
         assert_eq!(accept(input, Some(empty)), None);
         assert_eq!(accept(input, None), None);
+    }
+
+    #[test]
+    fn translations_are_rejected() {
+        let input = "add a test for the empty transcript";
+        let translated = Refined {
+            intent: Intent::Unspecified,
+            text: "Добавь тест для пустого транскрипта.".into(),
+        };
+        assert_eq!(accept(input, Some(translated)), None);
+        let mixed = "добавь тест для empty transcript в controller.rs";
+        let kept = Refined {
+            intent: Intent::Unspecified,
+            text: "Добавь тест для empty transcript в controller.rs.".into(),
+        };
+        assert_eq!(accept(mixed, Some(kept.clone())), Some(kept));
     }
 }
