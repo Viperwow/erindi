@@ -5,7 +5,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
-process-wrap = { version = "10.0.0", features = ["tokio1", "job-object", "process-group", "kill-on-drop", "creation-flags", "std"] }
+process-wrap = { version = "10.0.0", features = ["tokio1", "job-object", "process-group", "kill-on-drop", "creation-flags"] }
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -16,7 +16,7 @@ ureq = { version = "3.4.2", features = ["json"] }
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 
 [target."cfg(windows)".dependencies]
-windows = { version = "0.62", features = ["Win32_System_Threading"] }
+windows = { version = "0.62", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_Security"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -1,9 +1,8 @@
 use std::net::TcpListener;
 use std::path::Path;
-use std::process::Stdio;
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
-use process_wrap::std::*;
 use serde_json::Value;
 
 use crate::classify::{parse_response, request};
@@ -14,7 +13,9 @@ const START_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// A local `llama-server` that lives as long as this value.
 pub struct LlamaServer {
-    child: Box<dyn ChildWrapper>,
+    child: Child,
+    #[cfg(windows)]
+    _job: crate::job::KillOnClose,
     url: String,
     agent: ureq::Agent,
 }
@@ -34,21 +35,32 @@ impl LlamaServer {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        let mut wrap = CommandWrap::from(command);
         #[cfg(windows)]
         {
+            use std::os::windows::process::CommandExt;
             use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-            wrap.wrap(CreationFlags(CREATE_NO_WINDOW)).wrap(JobObject);
+            command.creation_flags(CREATE_NO_WINDOW.0);
         }
-        let child = wrap
+        let mut child = command
             .spawn()
             .map_err(|e| format!("Cannot start llama-server: {e}"))?;
+        // process-wrap's std job does not kill on close, so a quit without destructors would leave
+        // the server running; this job dies with Erindi however it exits.
+        #[cfg(windows)]
+        let job = crate::job::KillOnClose::new()
+            .and_then(|job| job.assign(&child).map(|()| job))
+            .map_err(|e| {
+                let _ = child.kill();
+                format!("Cannot tie llama-server to Erindi: {e}")
+            })?;
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(300)))
             .build()
             .into();
         let mut server = Self {
             child,
+            #[cfg(windows)]
+            _job: job,
             url: format!("http://127.0.0.1:{port}"),
             agent,
         };
@@ -91,7 +103,7 @@ impl LlamaServer {
 
 impl Drop for LlamaServer {
     fn drop(&mut self) {
-        let _ = self.child.start_kill();
+        let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
