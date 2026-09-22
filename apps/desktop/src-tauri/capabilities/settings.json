@@ -11,6 +11,8 @@
     "allow-list-sessions",
     "allow-open-history-session",
     "allow-continue-session",
-    "allow-delete-session"
+    "allow-delete-session",
+    "allow-model-status",
+    "allow-download-model"
   ]
 }

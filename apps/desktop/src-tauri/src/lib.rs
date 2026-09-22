@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock};
 use erindi_core::controller::{Key, Msg};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::runtime::{Runtime, SharedSettings};
@@ -30,7 +30,9 @@ pub fn run() {
             list_sessions,
             open_history_session,
             continue_session,
-            delete_session
+            delete_session,
+            model_status,
+            download_model
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
@@ -108,6 +110,74 @@ fn continue_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<()
 #[tauri::command]
 fn delete_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<(), String> {
     runtime.delete_session(id)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelStatus {
+    id: &'static str,
+    label: &'static str,
+    installed: bool,
+}
+
+#[tauri::command]
+fn model_status() -> Vec<ModelStatus> {
+    let dir = runtime::models_dir();
+    [&erindi_core::models::SPEECH, &erindi_core::models::CLEANUP]
+        .into_iter()
+        .map(|m| ModelStatus {
+            id: m.id,
+            label: m.label,
+            installed: m.installed(&dir),
+        })
+        .collect()
+}
+
+#[derive(Clone, serde::Serialize)]
+struct Progress {
+    id: &'static str,
+    done: u64,
+    total: u64,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct Done {
+    id: &'static str,
+    error: Option<String>,
+}
+
+// ponytail: no guard against two downloads of one model; the button is disabled while one runs.
+#[tauri::command]
+fn download_model(
+    app: AppHandle,
+    runtime: tauri::State<Runtime>,
+    id: String,
+) -> Result<(), String> {
+    let model = erindi_core::models::by_id(&id).ok_or("Unknown model")?;
+    let runtime = runtime.inner().clone();
+    std::thread::spawn(move || {
+        let mut last = std::time::Instant::now();
+        let result = erindi_core::models::download(model, &runtime::models_dir(), |done, total| {
+            if last.elapsed() >= std::time::Duration::from_millis(100) || done == total {
+                last = std::time::Instant::now();
+                let progress = Progress {
+                    id: model.id,
+                    done,
+                    total,
+                };
+                let _ = app.emit_to("settings", "model-progress", progress);
+            }
+        });
+        if result.is_ok() && model.id == "speech" {
+            runtime.load_speech();
+        }
+        let done = Done {
+            id: model.id,
+            error: result.err(),
+        };
+        let _ = app.emit_to("settings", "model-done", done);
+    });
+    Ok(())
 }
 
 struct SettingsStore {
@@ -231,5 +301,14 @@ mod tests {
     fn settings_capability_is_scoped_to_settings_window() {
         let cap = capability(include_str!("../capabilities/settings.json"));
         assert_eq!(cap["windows"], json!(["settings"]));
+    }
+
+    #[test]
+    fn settings_window_can_manage_models() {
+        let cap = capability(include_str!("../capabilities/settings.json"));
+        let perms = cap["permissions"].as_array().unwrap();
+        for p in ["allow-model-status", "allow-download-model"] {
+            assert!(perms.contains(&json!(p)), "{p}");
+        }
     }
 }
