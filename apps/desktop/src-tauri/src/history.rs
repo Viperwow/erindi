@@ -6,13 +6,21 @@ use uuid::Uuid;
 /// Oldest sessions beyond this count are dropped.
 pub const MAX_ENTRIES: usize = 200;
 
+/// One utterance. Plain prompts serialize as bare strings, as history files always had them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Prompt {
+    Plain(String),
+    Refined { text: String, raw: String },
+}
+
 /// A Claude session started from Erindi, with everything the user said in it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
     pub id: Uuid,
     pub cwd: String,
-    pub prompts: Vec<String>,
+    pub prompts: Vec<Prompt>,
     pub created_ms: u64,
     pub updated_ms: u64,
 }
@@ -52,18 +60,24 @@ impl History {
     }
 
     /// Adds a prompt to session `id`, creating it if needed, and saves the file.
-    pub fn record(&mut self, id: Uuid, cwd: &str, prompt: &str, now_ms: u64) -> Result<(), String> {
+    pub fn record(
+        &mut self,
+        id: Uuid,
+        cwd: &str,
+        prompt: Prompt,
+        now_ms: u64,
+    ) -> Result<(), String> {
         let entry = match self.entries.iter().position(|e| e.id == id) {
             Some(i) => {
                 let mut entry = self.entries.remove(i);
-                entry.prompts.push(prompt.into());
+                entry.prompts.push(prompt);
                 entry.updated_ms = now_ms;
                 entry
             }
             None => Entry {
                 id,
                 cwd: cwd.into(),
-                prompts: vec![prompt.into()],
+                prompts: vec![prompt],
                 created_ms: now_ms,
                 updated_ms: now_ms,
             },
@@ -88,6 +102,29 @@ mod tests {
 
     fn id(n: u128) -> Uuid {
         Uuid::from_u128(n)
+    }
+
+    fn plain(text: &str) -> Prompt {
+        Prompt::Plain(text.into())
+    }
+
+    #[test]
+    fn refined_prompts_keep_the_raw_text_and_old_files_still_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.json");
+        let old = format!(
+            r#"[{{"id":"{}","cwd":"C:/a","prompts":["old"],"createdMs":1,"updatedMs":1}}]"#,
+            id(1)
+        );
+        std::fs::write(&path, old).unwrap();
+        let mut h = History::load(&path);
+        let refined = Prompt::Refined {
+            text: "Fix it.".into(),
+            raw: "um fix it".into(),
+        };
+        h.record(id(1), "C:/a", refined.clone(), 2).unwrap();
+        let h = History::load(&path);
+        assert_eq!(h.get(id(1)).unwrap().prompts, [plain("old"), refined]);
     }
 
     #[test]
@@ -116,8 +153,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested/sessions.json");
         let mut h = History::load(&path);
-        h.record(id(1), "C:/a", "first task", 10).unwrap();
-        h.record(id(2), "C:/b", "second task", 20).unwrap();
+        h.record(id(1), "C:/a", plain("first task"), 10).unwrap();
+        h.record(id(2), "C:/b", plain("second task"), 20).unwrap();
 
         let ids: Vec<_> = h.entries().iter().map(|e| e.id).collect();
         assert_eq!(ids, [id(2), id(1)]);
@@ -128,13 +165,13 @@ mod tests {
     fn continuing_a_session_appends_and_moves_it_to_the_top() {
         let dir = tempfile::tempdir().unwrap();
         let mut h = History::load(&dir.path().join("sessions.json"));
-        h.record(id(1), "C:/a", "first task", 10).unwrap();
-        h.record(id(2), "C:/b", "second task", 20).unwrap();
-        h.record(id(1), "C:/a", "add tests", 30).unwrap();
+        h.record(id(1), "C:/a", plain("first task"), 10).unwrap();
+        h.record(id(2), "C:/b", plain("second task"), 20).unwrap();
+        h.record(id(1), "C:/a", plain("add tests"), 30).unwrap();
 
         let top = &h.entries()[0];
         assert_eq!(top.id, id(1));
-        assert_eq!(top.prompts, ["first task", "add tests"]);
+        assert_eq!(top.prompts, [plain("first task"), plain("add tests")]);
         assert_eq!((top.created_ms, top.updated_ms), (10, 30));
         assert_eq!(h.entries().len(), 2);
     }
@@ -144,8 +181,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.json");
         let mut h = History::load(&path);
-        h.record(id(1), "C:/a", "first task", 10).unwrap();
-        h.record(id(2), "C:/b", "second task", 20).unwrap();
+        h.record(id(1), "C:/a", plain("first task"), 10).unwrap();
+        h.record(id(2), "C:/b", plain("second task"), 20).unwrap();
 
         h.remove(id(1)).unwrap();
         h.remove(id(99)).unwrap();
@@ -163,7 +200,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut h = History::load(&dir.path().join("sessions.json"));
         for n in 0..=MAX_ENTRIES as u128 {
-            h.record(id(n), "C:/a", "task", n as u64).unwrap();
+            h.record(id(n), "C:/a", plain("task"), n as u64).unwrap();
         }
         assert_eq!(h.entries().len(), MAX_ENTRIES);
         assert!(h.get(id(0)).is_none());

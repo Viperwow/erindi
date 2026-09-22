@@ -17,7 +17,7 @@ use erindi_core::stream::parse_line;
 use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
-use crate::history::{Entry, History};
+use crate::history::{Entry, History, Prompt};
 use crate::overlay;
 use crate::settings::Settings;
 
@@ -231,10 +231,10 @@ impl Executor {
             Effect::StartRun {
                 op,
                 prompt,
+                raw,
                 session,
                 cwd,
-                ..
-            } => self.start_run(op, prompt, session, cwd),
+            } => self.start_run(op, prompt, raw, session, cwd),
             Effect::Refine { .. } => {}
             Effect::ActiveChanged(id) => {
                 *self.active.lock().unwrap() = id;
@@ -347,7 +347,14 @@ impl Executor {
         });
     }
 
-    fn start_run(&mut self, op: OpId, prompt: String, session: Session, cwd: String) {
+    fn start_run(
+        &mut self,
+        op: OpId,
+        prompt: String,
+        raw: Option<String>,
+        session: Session,
+        cwd: String,
+    ) {
         let settings = self.settings.read().unwrap().clone();
         let request = ClaudeRequest {
             mode: settings.mode,
@@ -381,12 +388,14 @@ impl Executor {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
-        if let Err(e) = self
-            .history
-            .lock()
-            .unwrap()
-            .record(id, &cwd, &prompt, now_ms)
-        {
+        let entry = match raw {
+            Some(raw) => Prompt::Refined {
+                text: prompt.clone(),
+                raw,
+            },
+            None => Prompt::Plain(prompt.clone()),
+        };
+        if let Err(e) = self.history.lock().unwrap().record(id, &cwd, entry, now_ms) {
             eprintln!("cannot save session history: {e}");
         }
         let _ = self.app.emit_to("settings", "sessions-changed", ());
