@@ -45,7 +45,7 @@ const policies: [SessionPolicy, string][] = [
 ];
 
 const input =
-  "w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900";
+  "w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-500 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-400";
 
 function Field(props: { label: string; hint?: string; children: ComponentChildren }) {
   return (
@@ -405,7 +405,7 @@ function App() {
   const initial = location.hash === "#settings" ? "settings" : "sessions";
   const [tab, setTab] = useState<(typeof tabs)[number][0]>(initial);
   useEffect(() => {
-    const onHash = () => location.hash === "#settings" && setTab("settings");
+    const onHash = () => setTab(location.hash === "#settings" ? "settings" : "sessions");
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -425,7 +425,7 @@ function App() {
                 ? "bg-neutral-200 font-medium dark:bg-neutral-800"
                 : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900"
             }`}
-            onClick={() => setTab(id)}
+            onClick={() => (location.hash = id)}
           >
             {label}
           </button>

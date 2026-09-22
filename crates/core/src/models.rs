@@ -205,4 +205,13 @@ mod tests {
         assert!(by_id("other").is_none());
         assert!(SPEECH.size() > 600_000_000);
     }
+
+    #[test]
+    fn replaces_a_broken_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hello.bin");
+        std::fs::write(&path, b"broken").unwrap();
+        save(Cursor::new(b"hello"), &path, HELLO_SHA, |_| {}).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"hello");
+    }
 }
