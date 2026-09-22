@@ -184,7 +184,7 @@ fn download_model(
 
 #[derive(serde::Serialize)]
 struct TestResult {
-    command: Option<erindi_core::commands::Command>,
+    commands: Vec<erindi_core::commands::Command>,
     rest: String,
 }
 
@@ -194,8 +194,8 @@ fn test_command(
     patterns: erindi_core::commands::Patterns,
     text: String,
 ) -> Result<TestResult, String> {
-    let (command, rest) = erindi_core::commands::Parser::new(&patterns)?.parse(&text);
-    Ok(TestResult { command, rest })
+    let (commands, rest) = erindi_core::commands::Parser::new(&patterns)?.parse(&text);
+    Ok(TestResult { commands, rest })
 }
 
 #[tauri::command]

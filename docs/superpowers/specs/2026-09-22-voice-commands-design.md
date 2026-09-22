@@ -22,6 +22,7 @@ The local model no longer rewrites dictation. The benchmark showed it translates
 | Cancel | A single press of the same key, everywhere. |
 | Spoken commands | Recognised only at the start or end of a phrase. The middle is always part of the task. Settings says so. |
 | Command list | New session, open in terminal, cancel. Project switching is deferred. |
+| Several commands | Commands are independent flags of one send: where (new or active session) and how (background or terminal). Several can be said at both edges in any order. Cancel overrides the rest. Chains of separate actions are not supported. |
 | Model role | Maps a phrase edge to one command from the list, or to none. It never rewrites text. |
 | Trigger patterns | Regular expressions, stored in settings, shown as editable chips per command on a Commands tab, with a default set and a reset. What is listed is exactly what the parser matches. |
 | Tabs | Sessions, Commands, Settings. Command hotkeys live with their command on the Commands tab; the talk hotkey stays in Settings. |
@@ -47,7 +48,7 @@ A single press is only known once `DOUBLE` has passed without a second press, so
 | Command | Spoken (start or end of a phrase) | Hotkey | Effect |
 |---------|-----------------------------------|--------|--------|
 | New session | "new session", "в новой сессии", "новая сессия", "создай новую сессию" and the other phrases the parser knows | `Ctrl+Alt+N` with gestures | The rest of the phrase starts a new session. |
-| Open in terminal | "open in terminal", "открой в терминале" | `Ctrl+Alt+T`, single press | Opens the active session with `claude --resume` in Windows Terminal. Said alone, nothing goes to Claude. With a task, the task runs as usual and the bubble offers the terminal when it finishes. |
+| Open in terminal | "open in terminal", "открой в терминале" | `Ctrl+Alt+T`, single press | Said alone, opens the active session with `claude --resume` in Windows Terminal. With a task, or with "new session", starts an interactive `claude` in Windows Terminal with the task as its first message instead of a background run; that session becomes the active one. |
 | Cancel | "cancel", "scratch that", "отмена" at the end of a phrase | the talk key, single press | Nothing is sent. |
 
 Cancel is only spoken inside the phrase it cancels. Work that is already running is cancelled by the key.

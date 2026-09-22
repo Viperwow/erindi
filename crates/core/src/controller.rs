@@ -113,6 +113,12 @@ pub enum Effect {
         id: Uuid,
         cwd: String,
     },
+    /// Starts an interactive Claude in a terminal, with `prompt` as its first message when not empty.
+    RunInTerminal {
+        session: Session,
+        cwd: String,
+        prompt: String,
+    },
     StopCapture,
     LiveDecode {
         op: OpId,
@@ -314,14 +320,14 @@ impl Controller {
                     return vec![];
                 }
                 let text = self.transformer.transform(&text);
-                let (command, rest) = self.parser.parse(&text);
-                if command.is_none() && self.model_commands && !rest.trim().is_empty() {
+                let (commands, rest) = self.parser.parse(&text);
+                if commands.is_empty() && self.model_commands && !rest.trim().is_empty() {
                     self.machine.apply(Event::Classify { op }).ok();
                     self.pending = Some(text.clone());
                     self.view.text = text.clone();
                     return vec![Effect::Classify { op, text }, self.show()];
                 }
-                self.act(op, command, rest, now, |op, empty| Event::Transcribed {
+                self.act(op, &commands, rest, now, |op, empty| Event::Transcribed {
                     op,
                     empty,
                 })
@@ -330,11 +336,11 @@ impl Controller {
                 let Some(text) = self.pending.take() else {
                     return vec![];
                 };
-                let (command, rest) = match accept(&text, answer) {
-                    Some((command, rest)) => (Some(command), rest),
-                    None => (None, text),
+                let (commands, rest) = match accept(&text, answer) {
+                    Some((command, rest)) => (vec![command], rest),
+                    None => (vec![], text),
                 };
-                self.act(op, command, rest, now, |op, empty| Event::Classified {
+                self.act(op, &commands, rest, now, |op, empty| Event::Classified {
                     op,
                     empty,
                 })
@@ -448,16 +454,12 @@ impl Controller {
     }
 
     fn start_run(&mut self, op: OpId, new: bool, prompt: String, now: Instant) -> Vec<Effect> {
-        let resume = choose(self.policy, self.recent, new, self.active.as_ref(), now);
-        let (session, cwd) = match (resume, &self.active) {
-            (Some(id), Some(active)) => (Session::Resume(id), active.cwd.clone()),
-            _ => (Session::New(Uuid::new_v4()), self.cwd.clone()),
-        };
+        let (session, cwd, continued) = self.target(new, now);
         self.running = Some((session, cwd.clone()));
         self.result = None;
         self.view.text = prompt.clone();
         self.view.session_id = Some(session_id(session));
-        self.view.continued = resume.is_some();
+        self.view.continued = continued;
         self.view.detail.clear();
         vec![
             Effect::StartRun {
@@ -470,25 +472,42 @@ impl Controller {
         ]
     }
 
-    /// Carries out `command` and sends the rest of the phrase, if any, to Claude.
+    /// Carries out `commands` and sends the rest of the phrase, if any, to Claude: in the
+    /// background, or in a terminal when "open in terminal" is among them.
     fn act(
         &mut self,
         op: OpId,
-        command: Option<Command>,
+        commands: &[Command],
         rest: String,
         now: Instant,
         done: fn(OpId, bool) -> Event,
     ) -> Vec<Effect> {
-        let new = command == Some(Command::NewSession) || self.mode == Key::NewSession;
-        let mut fx = vec![];
-        let prompt = match command {
-            Some(Command::Cancel) => String::new(),
-            Some(Command::OpenTerminal) if rest.trim().is_empty() => {
-                fx.extend(self.open_terminal());
-                String::new()
-            }
-            _ => rest.trim().to_string(),
+        let has = |c: Command| commands.contains(&c);
+        let new = has(Command::NewSession) || self.mode == Key::NewSession;
+        let prompt = if has(Command::Cancel) {
+            String::new()
+        } else {
+            rest.trim().to_string()
         };
+        let mut fx = vec![];
+        let terminal = has(Command::OpenTerminal) && !has(Command::Cancel);
+        if terminal && prompt.is_empty() && !new {
+            fx.extend(self.open_terminal());
+        } else if terminal {
+            let (session, cwd, _) = self.target(new, now);
+            fx.push(Effect::RunInTerminal {
+                session,
+                cwd: cwd.clone(),
+                prompt,
+            });
+            fx.extend(self.set_active(Some(Active {
+                id: session_id(session),
+                cwd,
+                last_used: now,
+            })));
+            fx.extend(self.apply(done(op, true)));
+            return fx;
+        }
         let empty = prompt.is_empty();
         fx.extend(match self.machine.apply(done(op, empty)) {
             Ok(Outcome::Changed(AppState::Running)) => self.start_run(op, new, prompt, now),
@@ -496,6 +515,15 @@ impl Controller {
             _ => vec![],
         });
         fx
+    }
+
+    /// The session a phrase goes to, its folder, and whether it continues an earlier one.
+    fn target(&self, new: bool, now: Instant) -> (Session, String, bool) {
+        let resume = choose(self.policy, self.recent, new, self.active.as_ref(), now);
+        match (resume, &self.active) {
+            (Some(id), Some(active)) => (Session::Resume(id), active.cwd.clone(), true),
+            _ => (Session::New(Uuid::new_v4()), self.cwd.clone(), false),
+        }
     }
 
     fn open_terminal(&self) -> Vec<Effect> {
@@ -1494,5 +1522,58 @@ mod tests {
         });
         assert!(!fx.iter().any(|e| matches!(e, Effect::Classify { .. })));
         assert_eq!(t.c.state(), AppState::Idle);
+    }
+
+    fn run_in_terminal(fx: &[Effect]) -> Option<(Session, String, String)> {
+        fx.iter().find_map(|e| match e {
+            Effect::RunInTerminal {
+                session,
+                cwd,
+                prompt,
+            } => Some((*session, cwd.clone(), prompt.clone())),
+            _ => None,
+        })
+    }
+
+    fn say(t: &mut T, text: &str) -> Vec<Effect> {
+        t.now += Duration::from_secs(1);
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
+        t.send(Msg::Transcribed {
+            op,
+            text: text.into(),
+        })
+    }
+
+    #[test]
+    fn terminal_and_new_session_run_the_task_in_a_terminal() {
+        let mut t = T::new();
+        let first = t.finish_saying("проверь diff");
+        let fx = say(&mut t, "Открой в терминале в новой сессии, найди баг");
+        let (session, cwd, prompt) = run_in_terminal(&fx).expect("runs in a terminal");
+        assert!(matches!(session, Session::New(new) if new != id(first)));
+        assert_eq!((cwd.as_str(), prompt.as_str()), ("C:/p", "найди баг"));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::StartRun { .. })));
+        assert_eq!(active_changes(&fx), [Some(id(session))]);
+        assert_eq!(t.c.state(), AppState::Idle);
+    }
+
+    #[test]
+    fn terminal_with_a_task_continues_the_active_session() {
+        let mut t = T::new();
+        let first = t.finish_saying("проверь diff");
+        let fx = say(&mut t, "найди баг и открой в терминале");
+        let (session, _, prompt) = run_in_terminal(&fx).expect("runs in a terminal");
+        assert_eq!(session, Session::Resume(id(first)));
+        assert_eq!(prompt, "найди баг");
+    }
+
+    #[test]
+    fn terminal_and_new_session_alone_open_an_empty_session() {
+        let mut t = T::new();
+        let fx = say(&mut t, "в новой сессии открой в терминале");
+        let (session, _, prompt) = run_in_terminal(&fx).expect("runs in a terminal");
+        assert!(matches!(session, Session::New(_)));
+        assert_eq!(prompt, "");
     }
 }

@@ -84,6 +84,13 @@ pub fn claude_args(req: &ClaudeRequest) -> Result<Vec<String>, InvalidModel> {
     let mut args: Vec<String> = ["-p", "--output-format", "stream-json", "--verbose"]
         .map(String::from)
         .into();
+    args.extend(options(req)?);
+    Ok(args)
+}
+
+/// Session, permission mode and model flags, shared by headless and terminal runs.
+fn options(req: &ClaudeRequest) -> Result<Vec<String>, InvalidModel> {
+    let mut args: Vec<String> = vec![];
     args.extend(match req.session {
         Session::New(id) => ["--session-id".into(), id.to_string()],
         Session::Resume(id) => ["--resume".into(), id.to_string()],
@@ -114,6 +121,31 @@ pub fn claude_args(req: &ClaudeRequest) -> Result<Vec<String>, InvalidModel> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct InvalidCwd;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum InvalidTerminalRun {
+    Cwd,
+    Model,
+}
+
+/// Windows Terminal arguments for an interactive Claude whose first message is `prompt`.
+/// The prompt follows `--`, so it can never be read as an option, and its `;` is escaped because
+/// Windows Terminal would otherwise split the command there.
+pub fn run_in_terminal(
+    cwd: &str,
+    req: &ClaudeRequest,
+    prompt: &str,
+) -> Result<Vec<String>, InvalidTerminalRun> {
+    if cwd.is_empty() || cwd.starts_with('-') || cwd.contains(';') {
+        return Err(InvalidTerminalRun::Cwd);
+    }
+    let mut args = vec!["-d".into(), cwd.into(), "claude".into()];
+    args.extend(options(req).map_err(|_| InvalidTerminalRun::Model)?);
+    if !prompt.is_empty() {
+        args.extend(["--".into(), prompt.replace(';', r"\;")]);
+    }
+    Ok(args)
+}
 
 /// Windows Terminal arguments that reopen a headless session interactively.
 pub fn resume_in_terminal(cwd: &str, session_id: Uuid) -> Result<Vec<String>, InvalidCwd> {
@@ -260,5 +292,34 @@ mod tests {
             serde_json::to_string(&ClaudeMode::AcceptEdits).unwrap(),
             "\"acceptEdits\""
         );
+    }
+
+    #[test]
+    fn terminal_run_passes_the_prompt_after_the_options() {
+        let req = ClaudeRequest {
+            mode: ClaudeMode::Plan,
+            model: Some("opus".into()),
+            session: Session::New(Uuid::nil()),
+        };
+        let args = run_in_terminal("C:/p", &req, "--help; rm -rf /").unwrap();
+        assert_eq!(
+            args,
+            [
+                "-d",
+                "C:/p",
+                "claude",
+                "--session-id",
+                &Uuid::nil().to_string(),
+                "--permission-mode",
+                "plan",
+                "--model",
+                "opus",
+                "--",
+                r"--help\; rm -rf /",
+            ]
+        );
+        let args = run_in_terminal("C:/p", &req, "").unwrap();
+        assert_eq!(args.last().unwrap(), "opus");
+        assert!(run_in_terminal("C:/p;calc", &req, "x").is_err());
     }
 }

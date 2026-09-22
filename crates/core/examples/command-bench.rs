@@ -41,7 +41,7 @@ fn main() {
     let (mut times, mut parser_ok, mut final_ok, mut false_commands) = (vec![], 0, 0, 0);
     let (mut missed, mut model_fixed) = (0, 0);
     for c in &cases {
-        let (by_parser, _) = parser.parse(&c.say);
+        let by_parser = parser.parse(&c.say).0.first().copied();
         let mut result = by_parser;
         let mut took = Duration::ZERO;
         if by_parser.is_none() {

@@ -313,6 +313,11 @@ impl Executor {
                     eprintln!("{e}");
                 }
             }
+            Effect::RunInTerminal {
+                session,
+                cwd,
+                prompt,
+            } => self.run_in_terminal(session, cwd, prompt),
             Effect::StopCapture => self.capture = None,
             Effect::LiveDecode { op, samples } => {
                 self.decode(op, samples, |op, text| Msg::Live { op, text })
@@ -444,6 +449,39 @@ impl Executor {
         });
     }
 
+    fn run_in_terminal(&mut self, session: Session, cwd: String, prompt: String) {
+        let settings = self.settings.read().unwrap().clone();
+        let request = ClaudeRequest {
+            mode: settings.mode,
+            model: (!settings.model.is_empty()).then_some(settings.model),
+            session,
+        };
+        let args = match erindi_core::claude::run_in_terminal(&cwd, &request, &prompt) {
+            Ok(args) => args,
+            Err(e) => return eprintln!("Cannot open a terminal in {cwd}: {e:?}"),
+        };
+        if let Err(e) = std::process::Command::new("wt.exe").args(args).spawn() {
+            return eprintln!("Cannot start Windows Terminal: {e}");
+        }
+        if !prompt.is_empty() {
+            self.remember_prompt(session, &cwd, prompt);
+        }
+    }
+
+    fn remember_prompt(&mut self, session: Session, cwd: &str, prompt: String) {
+        let id = match session {
+            Session::New(id) | Session::Resume(id) => id,
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        let entry = Prompt::Plain(prompt);
+        if let Err(e) = self.history.lock().unwrap().record(id, cwd, entry, now_ms) {
+            eprintln!("cannot save session history: {e}");
+        }
+        let _ = self.app.emit_to("settings", "sessions-changed", ());
+    }
+
     fn start_run(&mut self, op: OpId, prompt: String, session: Session, cwd: String) {
         let settings = self.settings.read().unwrap().clone();
         let request = ClaudeRequest {
@@ -475,14 +513,7 @@ impl Executor {
             id,
             cwd: cwd.clone(),
         });
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
-        let entry = Prompt::Plain(prompt.clone());
-        if let Err(e) = self.history.lock().unwrap().record(id, &cwd, entry, now_ms) {
-            eprintln!("cannot save session history: {e}");
-        }
-        let _ = self.app.emit_to("settings", "sessions-changed", ());
+        self.remember_prompt(session, &cwd, prompt.clone());
         let token = CancellationToken::new();
         self.cancel = Some(token.clone());
         let tx = self.tx.clone();

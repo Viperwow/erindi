@@ -28,11 +28,11 @@ const names: Record<Command, string> = {
 /** What the parser makes of a phrase, with the patterns on screen. */
 function TryPhrase(props: { patterns: Patterns }) {
   const [text, setText] = useState("");
-  const [result, setResult] = useState<{ command: Command | null; rest: string } | string | null>(null);
+  const [result, setResult] = useState<{ commands: Command[]; rest: string } | string | null>(null);
 
   useEffect(() => {
     if (!text.trim()) return setResult(null);
-    invoke<{ command: Command | null; rest: string }>("test_command", { patterns: props.patterns, text })
+    invoke<{ commands: Command[]; rest: string }>("test_command", { patterns: props.patterns, text })
       .then(setResult)
       .catch((err) => setResult(String(err)));
   }, [text, props.patterns]);
@@ -49,11 +49,13 @@ function TryPhrase(props: { patterns: Patterns }) {
       {typeof result === "string" && <p class="text-xs text-red-600">{result}</p>}
       {result && typeof result !== "string" && (
         <p class="text-xs text-neutral-600 dark:text-neutral-400">
-          {result.command === null
+          {result.commands.length === 0
             ? "No command; the whole phrase goes to Claude."
-            : result.command === "cancel"
+            : result.commands.includes("cancel")
               ? "Cancel: nothing is sent."
-              : `${names[result.command]}${result.rest ? ` · Claude gets: «${result.rest}»` : " · nothing goes to Claude"}`}
+              : `${result.commands.map((c) => names[c]).join(" + ")}${
+                  result.rest ? ` · Claude gets: «${result.rest}»` : " · nothing goes to Claude"
+                }`}
         </p>
       )}
     </div>

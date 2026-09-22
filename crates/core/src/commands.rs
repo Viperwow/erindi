@@ -77,29 +77,40 @@ impl Parser {
         })
     }
 
-    /// Returns the command and the task without it. Cancel counts only at the end and wins.
-    pub fn parse(&self, text: &str) -> (Option<Command>, String) {
+    /// Returns the commands found at either edge, peeled off one by one, and the task left
+    /// between them. Cancel counts only at the end and replaces everything else.
+    pub fn parse(&self, text: &str) -> (Vec<Command>, String) {
         let cancel = |c: Command| c == Command::Cancel;
-        if let Some((command, at)) = self.at_end(text, cancel) {
-            return (Some(command), self.before(&text[..at]));
+        if let Some((_, at)) = self.at_end(text, cancel) {
+            return (vec![Command::Cancel], self.before(&text[..at]));
         }
-        let start = self
-            .entries
-            .iter()
-            .filter(|e| !cancel(e.command))
-            .filter_map(|e| e.start.find(text).map(|m| (e.command, m.end())))
-            .max_by_key(|(_, end)| *end);
-        if let Some((command, end)) = start {
-            let rest = &text[end..];
-            return (
-                Some(command),
-                rest[self.lead.find(rest).map_or(0, |m| m.end())..].to_string(),
-            );
+        let mut commands = vec![];
+        let mut rest = text.to_string();
+        loop {
+            let start = self
+                .entries
+                .iter()
+                .filter(|e| !cancel(e.command))
+                .filter_map(|e| e.start.find(&rest).map(|m| (e.command, m.end())))
+                .max_by_key(|(_, end)| *end);
+            if let Some((command, end)) = start {
+                let tail = &rest[end..];
+                rest = tail[self.lead.find(tail).map_or(0, |m| m.end())..].to_string();
+                if !commands.contains(&command) {
+                    commands.push(command);
+                }
+                continue;
+            }
+            if let Some((command, at)) = self.at_end(&rest, |c| !cancel(c)) {
+                rest = self.before(&rest[..at]);
+                if !commands.contains(&command) {
+                    commands.push(command);
+                }
+                continue;
+            }
+            break;
         }
-        if let Some((command, at)) = self.at_end(text, |c| !cancel(c)) {
-            return (Some(command), self.before(&text[..at]));
-        }
-        (None, text.to_string())
+        (commands, rest)
     }
 
     /// The longest match at the end among commands that pass `pick`.
@@ -122,7 +133,9 @@ mod tests {
     use super::*;
 
     fn parse(text: &str) -> (Option<Command>, String) {
-        Parser::new(&Patterns::default()).unwrap().parse(text)
+        let (commands, rest) = Parser::new(&Patterns::default()).unwrap().parse(text);
+        assert!(commands.len() <= 1, "{commands:?}");
+        (commands.first().copied(), rest)
     }
 
     #[test]
@@ -206,8 +219,40 @@ mod tests {
         let parser = Parser::new(&patterns).unwrap();
         assert_eq!(
             parser.parse("С чистого листа, напиши README"),
-            (Some(Command::NewSession), "напиши README".to_string())
+            (vec![Command::NewSession], "напиши README".to_string())
         );
-        assert_eq!(parser.parse("новая сессия, напиши README").0, None);
+        assert_eq!(parser.parse("новая сессия, напиши README").0, []);
+    }
+
+    #[test]
+    fn several_commands_in_one_phrase() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        let cases = [
+            "Открой в терминале в новой сессии, проверь diff",
+            "в новой сессии проверь diff и открой в терминале",
+            "open in terminal, new session and check the diff",
+        ];
+        for text in cases {
+            let (mut commands, rest) = parser.parse(text);
+            commands.sort_by_key(|c| *c as u8);
+            assert_eq!(
+                commands,
+                [Command::NewSession, Command::OpenTerminal],
+                "{text}"
+            );
+            assert!(
+                rest.contains("diff") && !rest.contains("сесси"),
+                "{text}: {rest}"
+            );
+        }
+    }
+
+    #[test]
+    fn cancel_overrides_other_commands() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        assert_eq!(
+            parser.parse("в новой сессии проверь diff, отмена").0,
+            [Command::Cancel]
+        );
     }
 }
