@@ -19,7 +19,7 @@ Hold a hotkey, speak a task, and Erindi transcribes it locally and runs it in Cl
 
 Hotkeys: `Ctrl+Alt+Space` hold to talk, double-press for hands-free, press once to cancel; `Ctrl+Alt+N` talks into a new session; `Ctrl+Alt+T` opens the active session in a terminal. Say "new session", "open in terminal" or "cancel" at the start or end of a phrase; the Commands tab lists and edits the patterns.
 
-**Download:** the [latest build](https://github.com/Viperwow/erindi/releases/tag/latest) is rebuilt on every merge into `main`. Unpack it and start `erindi.exe`; Settings downloads the speech model on first launch.
+**Download:** the [latest build](https://github.com/Viperwow/erindi/releases/tag/latest) is rebuilt on every merge into `main`. Unpack it and start `erindi.exe`; Settings opens on first launch; press **Download** there to install the speech model.
 
 **From source:**
 
