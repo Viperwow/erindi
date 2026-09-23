@@ -90,7 +90,7 @@ function SettingsView() {
         </div>
 
         <div class="grid grid-cols-2 gap-3">
-          <Field label="Session" hint={'Say "new session" or "same session" to override.'}>
+          <Field label="Session" hint={'Say "new session" to start a new one.'}>
             <select
               class={input}
               value={s.sessionPolicy}
