@@ -91,7 +91,7 @@ impl Parser {
                 .entries
                 .iter()
                 .filter(|e| !cancel(e.command))
-                .filter_map(|e| e.start.find(&rest).map(|m| (e.command, m.end())))
+                .filter_map(|e| Some((e.command, nonempty(e.start.find(&rest))?.end())))
                 .max_by_key(|(_, end)| *end);
             if let Some((command, end)) = start {
                 let tail = &rest[end..];
@@ -118,7 +118,7 @@ impl Parser {
         self.entries
             .iter()
             .filter(|e| pick(e.command))
-            .filter_map(|e| e.end.find(text).map(|m| (e.command, m.start())))
+            .filter_map(|e| Some((e.command, nonempty(e.end.find(text))?.start())))
             .min_by_key(|(_, start)| *start)
     }
 
@@ -126,6 +126,11 @@ impl Parser {
         let cut = self.tail.find(rest).map_or(rest.len(), |m| m.start());
         rest[..cut].to_string()
     }
+}
+
+/// A zero-width match, such as a bare `\b` pattern, would peel nothing and loop forever.
+fn nonempty(m: Option<regex::Match>) -> Option<regex::Match> {
+    m.filter(|m| !m.is_empty())
 }
 
 #[cfg(test)]
@@ -208,6 +213,17 @@ mod tests {
             let err = Parser::new(&patterns).err().unwrap();
             assert!(err.contains(bad), "{err}");
         }
+    }
+
+    #[test]
+    fn zero_width_patterns_match_nothing() {
+        let patterns = Patterns {
+            new_session: vec![r"\b".into()],
+            cancel: vec![r"\b".into()],
+            ..Patterns::default()
+        };
+        let parser = Parser::new(&patterns).unwrap();
+        assert_eq!(parser.parse("fix bug"), (vec![], "fix bug".to_string()));
     }
 
     #[test]
