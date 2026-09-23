@@ -181,7 +181,7 @@ export function CommandsView() {
           <input
             type="checkbox"
             checked={s.modelCommands}
-            disabled={!model?.installed}
+            disabled={!model?.installed && !s.modelCommands}
             onChange={(e) => set({ modelCommands: e.currentTarget.checked })}
           />
           Understand commands in my own words
