@@ -17,13 +17,20 @@ struct Case {
     command: String,
 }
 
-fn name(command: Option<Command>) -> &'static str {
-    match command {
-        Some(Command::NewSession) => "new_session",
-        Some(Command::OpenTerminal) => "open_terminal",
-        Some(Command::Cancel) => "cancel",
-        None => "none",
+/// Every command found, so an extra one fails the case.
+fn name(commands: &[Command]) -> String {
+    if commands.is_empty() {
+        return "none".into();
     }
+    let names: Vec<&str> = commands
+        .iter()
+        .map(|c| match c {
+            Command::NewSession => "new_session",
+            Command::OpenTerminal => "open_terminal",
+            Command::Cancel => "cancel",
+        })
+        .collect();
+    names.join("+")
 }
 
 fn main() {
@@ -41,25 +48,28 @@ fn main() {
     let (mut times, mut parser_ok, mut final_ok, mut false_commands) = (vec![], 0, 0, 0);
     let (mut missed, mut model_fixed) = (0, 0);
     for c in &cases {
-        let by_parser = parser.parse(&c.say).0.first().copied();
-        let mut result = by_parser;
+        let by_parser = parser.parse(&c.say).0;
+        let mut result = by_parser.clone();
         let mut took = Duration::ZERO;
-        if by_parser.is_none() {
+        if by_parser.is_empty() {
             let started = Instant::now();
             let answer = server.classify(&c.say).ok().flatten();
             took = started.elapsed();
             times.push(took);
-            result = accept(&c.say, answer).map(|(command, _)| command);
+            result = accept(&c.say, answer)
+                .map(|(command, _)| command)
+                .into_iter()
+                .collect();
             if c.command != "none" {
                 missed += 1;
-                model_fixed += usize::from(name(result) == c.command);
+                model_fixed += usize::from(name(&result) == c.command);
             }
         }
-        parser_ok += usize::from(name(by_parser) == c.command);
-        final_ok += usize::from(name(result) == c.command);
-        false_commands += usize::from(c.command == "none" && result.is_some());
+        parser_ok += usize::from(name(&by_parser) == c.command);
+        final_ok += usize::from(name(&result) == c.command);
+        false_commands += usize::from(c.command == "none" && !result.is_empty());
         let warn = if took > BUDGET { "WARN" } else { "    " };
-        let mark = if name(result) == c.command {
+        let mark = if name(&result) == c.command {
             "ok "
         } else {
             "BAD"
@@ -67,8 +77,8 @@ fn main() {
         println!(
             "{warn} {mark} {:>4} ms  parser={:<13} final={:<13} want={:<13} {}",
             took.as_millis(),
-            name(by_parser),
-            name(result),
+            name(&by_parser),
+            name(&result),
             c.command,
             c.say
         );
