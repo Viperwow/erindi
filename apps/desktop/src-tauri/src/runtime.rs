@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
@@ -207,18 +207,22 @@ fn pick_models_dir(
 
 /// The cleanup model server. It starts when cleanup is turned on and stays loaded.
 #[derive(Clone, Default)]
-struct Refiner(Arc<Mutex<Option<LlamaServer>>>);
+struct Refiner {
+    server: Arc<Mutex<Option<LlamaServer>>>,
+    enabled: Arc<AtomicBool>,
+}
 
 impl Refiner {
+    /// Works off the calling thread, since starting holds the lock through the model load.
+    /// The thread reads the latest flag, so a quick on-then-off never leaves a server behind.
     fn set_enabled(&self, on: bool) {
-        if !on {
-            self.0.lock().unwrap().take();
-            return;
-        }
+        self.enabled.store(on, Ordering::SeqCst);
         let this = self.clone();
         std::thread::spawn(move || {
-            let mut server = this.0.lock().unwrap();
-            if server.is_none() {
+            let mut server = this.server.lock().unwrap();
+            if !this.enabled.load(Ordering::SeqCst) {
+                server.take();
+            } else if server.is_none() {
                 *server = start_llama();
             }
         });
@@ -226,7 +230,7 @@ impl Refiner {
 
     /// Waits for a starting server, so an utterance right after launch is still checked.
     fn classify(&self, text: &str) -> Option<(Option<Command>, String)> {
-        let mut server = self.0.lock().unwrap();
+        let mut server = self.server.lock().unwrap();
         if server.is_none() {
             *server = start_llama();
         }
