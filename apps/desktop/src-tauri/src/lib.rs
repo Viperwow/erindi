@@ -120,7 +120,11 @@ struct ModelStatus {
     id: &'static str,
     label: &'static str,
     installed: bool,
+    downloading: bool,
 }
+
+/// Models downloading now, so a remounted row keeps its progress and a second request is refused.
+static DOWNLOADING: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
 
 #[tauri::command]
 fn model_status() -> Vec<ModelStatus> {
@@ -131,6 +135,7 @@ fn model_status() -> Vec<ModelStatus> {
             id: m.id,
             label: m.label,
             installed: m.installed(&dir),
+            downloading: DOWNLOADING.lock().unwrap().contains(&m.id),
         })
         .collect()
 }
@@ -148,7 +153,6 @@ struct Done {
     error: Option<String>,
 }
 
-// ponytail: no guard against two downloads of one model; the button is disabled while one runs.
 #[tauri::command]
 fn download_model(
     app: AppHandle,
@@ -156,6 +160,13 @@ fn download_model(
     id: String,
 ) -> Result<(), String> {
     let model = erindi_core::models::by_id(&id).ok_or("Unknown model")?;
+    {
+        let mut active = DOWNLOADING.lock().unwrap();
+        if active.contains(&model.id) {
+            return Err("This model is already downloading".into());
+        }
+        active.push(model.id);
+    }
     let runtime = runtime.inner().clone();
     std::thread::spawn(move || {
         let mut last = std::time::Instant::now();
@@ -170,6 +181,7 @@ fn download_model(
                 let _ = app.emit_to("settings", "model-progress", progress);
             }
         });
+        DOWNLOADING.lock().unwrap().retain(|id| *id != model.id);
         if result.is_ok() && model.id == "speech" {
             runtime.load_speech();
         }

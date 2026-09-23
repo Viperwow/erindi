@@ -28,7 +28,12 @@ export type Settings = {
   modelCommands: boolean;
 };
 
-export type ModelStatus = { id: "speech" | "cleanup"; label: string; installed: boolean };
+export type ModelStatus = {
+  id: "speech" | "cleanup";
+  label: string;
+  installed: boolean;
+  downloading: boolean;
+};
 
 export const modes: [Mode, string][] = [
   ["default", "Claude settings (no flag)"],
@@ -80,7 +85,7 @@ export function Section(props: {
 }
 
 export function ModelRow(props: { model: ModelStatus; onInstalled: () => void }) {
-  const [progress, setProgress] = useState<number | null>(null);
+  const [progress, setProgress] = useState<number | null>(props.model.downloading ? 0 : null);
   const [error, setError] = useState("");
 
   useEffect(() => {
