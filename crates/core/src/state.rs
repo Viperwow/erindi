@@ -101,7 +101,7 @@ impl Machine {
 
         let next = match (self.state, event) {
             (S::LoadingModel, E::ModelReady) => S::Idle,
-            (S::LoadingModel, E::ModelFailed) => S::Failed,
+            (S::LoadingModel | S::NoModel, E::ModelFailed) => S::Failed,
             (S::LoadingModel, E::ModelMissing) => S::NoModel,
             (S::NoModel, E::ModelReady) => S::Idle,
             (S::Idle, E::StartListening) => {
@@ -294,6 +294,13 @@ mod tests {
         assert_eq!(m.apply(ModelMissing), Ok(Outcome::Changed(NoModel)));
         assert!(m.apply(StartListening).is_err());
         assert_eq!(m.apply(ModelReady), Ok(Outcome::Changed(Idle)));
+    }
+
+    #[test]
+    fn downloaded_model_that_fails_to_load_shows_the_failure() {
+        let mut m = Machine::new();
+        m.apply(ModelMissing).unwrap();
+        assert_eq!(m.apply(ModelFailed), Ok(Outcome::Changed(Failed)));
     }
 
     #[test]
