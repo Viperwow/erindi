@@ -1,114 +1,41 @@
 import { render } from "preact";
-import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
-import { accelerator, heldModifiers } from "./hotkey";
+import { CommandsView } from "./commands";
+import {
+  Field,
+  HotkeyInput,
+  type Mode,
+  ModelRow,
+  type ModelStatus,
+  SaveBar,
+  Section,
+  type SessionPolicy,
+  type Settings,
+  type Status,
+  input,
+  modes,
+  policies,
+} from "./controls";
 import { SessionsView } from "./sessions";
 import logo from "./logo.svg";
 import "./style.css";
 
-type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "bypassPermissions";
-
-type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
-
-type Settings = {
-  holdHotkey: string;
-  toggleHotkey: string;
-  newSessionHotkey: string;
-  sessionPolicy: SessionPolicy;
-  recentMinutes: number;
-  cwd: string;
-  mode: Mode;
-  model: string;
-  microphone: string;
-  silenceSecs: number;
-  dictionary: [string, string][];
-};
-
-const modes: [Mode, string][] = [
-  ["default", "Claude settings (no flag)"],
-  ["acceptEdits", "Accept edits"],
-  ["auto", "Auto"],
-  ["plan", "Plan"],
-  ["dontAsk", "Don't ask"],
-  ["bypassPermissions", "Bypass permissions (unsafe)"],
-];
-
-const policies: [SessionPolicy, string][] = [
-  ["continue", "Continue the active session"],
-  ["continueIfRecent", "Continue if used recently"],
-  ["alwaysNew", "Always start a new session"],
-];
-
-const input =
-  "w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900";
-
-function Field(props: { label: string; hint?: string; children: ComponentChildren }) {
-  return (
-    <label class="block space-y-1">
-      <span class="font-medium">{props.label}</span>
-      {props.children}
-      {props.hint && <span class="block text-xs text-neutral-500">{props.hint}</span>}
-    </label>
-  );
-}
-
-/** Click, then press the combination. Esc cancels. */
-function HotkeyInput(props: { value: string; label: string; onChange: (value: string) => void }) {
-  const [recording, setRecording] = useState(false);
-  const [held, setHeld] = useState("");
-
-  useEffect(() => {
-    if (!recording) return;
-    setHeld("");
-    invoke("set_hotkeys_paused", { paused: true });
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.code === "Escape") return setRecording(false);
-      const combo = accelerator(e);
-      if (combo) {
-        props.onChange(combo);
-        setRecording(false);
-      } else {
-        setHeld(heldModifiers(e));
-      }
-    };
-    const onKeyUp = (e: KeyboardEvent) => setHeld(heldModifiers(e));
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("keyup", onKeyUp, true);
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("keyup", onKeyUp, true);
-      invoke("set_hotkeys_paused", { paused: false });
-    };
-  }, [recording]);
-
-  return (
-    <button
-      type="button"
-      aria-label={props.label}
-      aria-pressed={recording}
-      class={`${input} text-left font-mono ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
-      onClick={() => setRecording(!recording)}
-      onBlur={() => setRecording(false)}
-    >
-      {recording ? (held ? `${held.replaceAll("+", " + ")} + …` : "Press keys… (Esc to cancel)") : props.value}
-    </button>
-  );
-}
-
 function SettingsView() {
   const [s, setS] = useState<Settings | null>(null);
   const [mics, setMics] = useState<string[]>([]);
-  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [status, setStatus] = useState<Status>(null);
+  const [models, setModels] = useState<ModelStatus[]>([]);
+  const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
 
   useEffect(() => {
     invoke<Settings>("get_settings").then(setS);
     invoke<string[]>("list_microphones").then(setMics);
+    refreshModels();
   }, []);
 
   if (!s) return null;
+  const speech = models.find((m) => m.id === "speech");
   const set = (patch: Partial<Settings>) => {
     setS({ ...s, ...patch });
     setStatus(null);
@@ -135,104 +62,113 @@ function SettingsView() {
     >
       <h2 class="text-base font-semibold">Settings</h2>
 
-      <Field label="Project folder" hint="Claude runs here.">
-        <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
-      </Field>
+      <Section title="Agent" description="Where Claude runs and how it treats your requests.">
+        <Field label="Project folder" hint="Claude runs here.">
+          <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
+        </Field>
 
-      <div class="grid grid-cols-2 gap-3">
-        <Field label="Permission mode">
-          <select
-            class={input}
-            value={s.mode}
-            onChange={(e) => set({ mode: e.currentTarget.value as Mode })}
-          >
-            {modes.map(([value, label]) => (
-              <option value={value}>{label}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Model" hint="Empty uses the Claude default.">
-          <input
-            class={input}
-            value={s.model}
-            placeholder="default"
-            onInput={(e) => set({ model: e.currentTarget.value })}
-          />
-        </Field>
-      </div>
+        <div class="grid grid-cols-2 gap-3">
+          <Field label="Permission mode">
+            <select
+              class={input}
+              value={s.mode}
+              onChange={(e) => set({ mode: e.currentTarget.value as Mode })}
+            >
+              {modes.map(([value, label]) => (
+                <option value={value}>{label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Model" hint="Empty uses the Claude default.">
+            <input
+              class={input}
+              value={s.model}
+              placeholder="default"
+              onInput={(e) => set({ model: e.currentTarget.value })}
+            />
+          </Field>
+        </div>
 
-      <div class="grid grid-cols-2 gap-3">
-        <Field label="Session" hint={'Say "new session" or "same session" to override.'}>
-          <select
-            class={input}
-            value={s.sessionPolicy}
-            onChange={(e) => set({ sessionPolicy: e.currentTarget.value as SessionPolicy })}
-          >
-            {policies.map(([value, label]) => (
-              <option value={value}>{label}</option>
-            ))}
-          </select>
-        </Field>
-        {s.sessionPolicy === "continueIfRecent" && (
-          <Field label="Recent means within (min)">
+        <div class="grid grid-cols-2 gap-3">
+          <Field label="Session" hint={'Say "new session" to start a new one.'}>
+            <select
+              class={input}
+              value={s.sessionPolicy}
+              onChange={(e) => set({ sessionPolicy: e.currentTarget.value as SessionPolicy })}
+            >
+              {policies.map(([value, label]) => (
+                <option value={value}>{label}</option>
+              ))}
+            </select>
+          </Field>
+          {s.sessionPolicy === "continueIfRecent" && (
+            <Field label="Recent means within (min)">
+              <input
+                class={input}
+                type="number"
+                min="1"
+                max="1440"
+                value={s.recentMinutes}
+                onInput={(e) => set({ recentMinutes: Number(e.currentTarget.value) })}
+              />
+            </Field>
+          )}
+        </div>
+
+      </Section>
+
+      <Section
+        title="Voice"
+        description="Speech recognition runs on this computer."
+        highlight={speech && !speech.installed}
+      >
+        {speech && <ModelRow model={speech} onInstalled={refreshModels} />}
+        {speech && !speech.installed && (
+          <p class="text-xs text-red-600">Speech model is not installed. Download it to start dictating.</p>
+        )}
+        <div class="grid grid-cols-2 gap-3">
+          <Field label="Microphone">
+            <select
+              class={input}
+              value={s.microphone}
+              onChange={(e) => set({ microphone: e.currentTarget.value })}
+            >
+              <option value="">System default</option>
+              {mics.map((m) => (
+                <option value={m}>{m}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Silence before sending (s)" hint="Hands-free mode only.">
             <input
               class={input}
               type="number"
-              min="1"
-              max="1440"
-              value={s.recentMinutes}
-              onInput={(e) => set({ recentMinutes: Number(e.currentTarget.value) })}
+              min="0.5"
+              max="10"
+              step="0.5"
+              value={s.silenceSecs}
+              onInput={(e) => set({ silenceSecs: Number(e.currentTarget.value) })}
             />
           </Field>
-        )}
-      </div>
+        </div>
 
-      <fieldset class="space-y-2">
-        <legend class="font-medium">Hotkeys</legend>
-        <p class="text-xs text-neutral-500">Click a field, then press the combination.</p>
-        {(
-          [
-            ["holdHotkey", "Hold to talk"],
-            ["toggleHotkey", "Hands-free"],
-            ["newSessionHotkey", "Hands-free, new session"],
-          ] as const
-        ).map(([field, label]) => (
-          <div class="flex items-center gap-3">
-            <span class="w-44 shrink-0">{label}</span>
-            <HotkeyInput label={label} value={s[field]} onChange={(value) => set({ [field]: value })} />
-          </div>
-        ))}
-      </fieldset>
+      </Section>
 
-      <div class="grid grid-cols-2 gap-3">
-        <Field label="Microphone">
-          <select
-            class={input}
-            value={s.microphone}
-            onChange={(e) => set({ microphone: e.currentTarget.value })}
-          >
-            <option value="">System default</option>
-            {mics.map((m) => (
-              <option value={m}>{m}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Silence before sending (s)" hint="Hands-free mode only.">
-          <input
-            class={input}
-            type="number"
-            min="0.5"
-            max="10"
-            step="0.5"
-            value={s.silenceSecs}
-            onInput={(e) => set({ silenceSecs: Number(e.currentTarget.value) })}
-          />
-        </Field>
-      </div>
+      <Section title="Hotkeys" description="How you start, send and cancel a recording.">
+        <div class="flex items-center gap-3">
+          <span class="w-44 shrink-0">Talk</span>
+          <HotkeyInput label="Talk" value={s.talkHotkey} onChange={(talkHotkey) => set({ talkHotkey })} />
+        </div>
+        <ul class="list-disc space-y-0.5 pl-5 text-xs text-neutral-500">
+          <li>Hold: talk while holding, release to send.</li>
+          <li>Double-press: hands-free; sends after a pause.</li>
+          <li>Double-press while recording hands-free: send now.</li>
+          <li>Press once while recording or while Claude works: cancel.</li>
+        </ul>
+        <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
+      </Section>
 
-      <fieldset class="space-y-2">
-        <legend class="font-medium">Dictionary</legend>
-        <p class="text-xs text-neutral-500">Replaces what you say with how it should be written.</p>
+      <Section title="Dictionary" description="Replaces what you say with how it should be written.">
         {s.dictionary.map(([from, to], i) => (
           <div class="flex gap-2">
             <input
@@ -266,32 +202,30 @@ function SettingsView() {
         >
           Add word
         </button>
-      </fieldset>
+      </Section>
 
-      <div class="flex items-center gap-3 pt-2">
-        <button
-          type="submit"
-          class="rounded-md bg-neutral-900 px-4 py-1.5 font-medium text-white hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900"
-        >
-          Save
-        </button>
-        {status && (
-          <span class={`whitespace-pre-line ${status.ok ? "text-green-700 dark:text-green-400" : "text-red-600"}`}>
-            {status.text}
-          </span>
-        )}
-      </div>
+      <SaveBar status={status} />
     </form>
   );
 }
 
 const tabs = [
   ["sessions", "Sessions"],
+  ["commands", "Commands"],
   ["settings", "Settings"],
 ] as const;
 
+type Tab = (typeof tabs)[number][0];
+
+const tabFromHash = (): Tab => tabs.find(([id]) => `#${id}` === location.hash)?.[0] ?? "sessions";
+
 function App() {
-  const [tab, setTab] = useState<(typeof tabs)[number][0]>("sessions");
+  const [tab, setTab] = useState<Tab>(tabFromHash());
+  useEffect(() => {
+    const onHash = () => setTab(tabFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   return (
     <div class="flex h-screen bg-neutral-50 text-sm text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <nav class="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-3 dark:border-neutral-800">
@@ -308,13 +242,15 @@ function App() {
                 ? "bg-neutral-200 font-medium dark:bg-neutral-800"
                 : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900"
             }`}
-            onClick={() => setTab(id)}
+            onClick={() => (location.hash = id)}
           >
             {label}
           </button>
         ))}
       </nav>
-      <main class="flex-1 overflow-y-auto">{tab === "sessions" ? <SessionsView /> : <SettingsView />}</main>
+      <main class="flex-1 overflow-y-auto">
+        {tab === "sessions" ? <SessionsView /> : tab === "commands" ? <CommandsView /> : <SettingsView />}
+      </main>
     </div>
   );
 }

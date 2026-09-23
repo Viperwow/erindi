@@ -3,10 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ago } from "./time";
 
+type Prompt = string | { text: string; raw: string };
+
+const textOf = (p: Prompt) => (typeof p === "string" ? p : p.text);
+
 type Entry = {
   id: string;
   cwd: string;
-  prompts: string[];
+  prompts: Prompt[];
   createdMs: number;
   updatedMs: number;
 };
@@ -80,7 +84,7 @@ export function SessionsView() {
                   : "border-neutral-200 dark:border-neutral-800"
               }`}
             >
-              <p class="line-clamp-2 font-medium">{entry.prompts[0]}</p>
+              <p class="line-clamp-2 font-medium">{textOf(entry.prompts[0])}</p>
               <p class="mt-1 text-xs text-neutral-500">
                 {[folderName(entry.cwd), ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}
               </p>
@@ -106,7 +110,12 @@ export function SessionsView() {
                       <span class="w-5 shrink-0 text-right text-xs leading-5 text-neutral-500 tabular-nums">
                         {i + 1}.
                       </span>
-                      <span>{p}</span>
+                      <span>
+                        {textOf(p)}
+                        {typeof p !== "string" && (
+                          <span class="block text-xs text-neutral-500">Said: {p.raw}</span>
+                        )}
+                      </span>
                     </li>
                   ))}
                 </ol>

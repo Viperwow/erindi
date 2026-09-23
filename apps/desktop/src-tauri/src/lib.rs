@@ -9,7 +9,7 @@ use std::sync::{Arc, RwLock};
 use erindi_core::controller::{Key, Msg};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::runtime::{Runtime, SharedSettings};
@@ -30,7 +30,11 @@ pub fn run() {
             list_sessions,
             open_history_session,
             continue_session,
-            delete_session
+            delete_session,
+            model_status,
+            download_model,
+            test_command,
+            default_patterns
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
@@ -41,7 +45,11 @@ pub fn run() {
             if let Err(e) = register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime) {
                 eprintln!("{e}");
             }
+            runtime.set_cleanup(settings.read().unwrap().model_commands);
             app.manage(runtime);
+            if !erindi_core::models::SPEECH.installed(&runtime::models_dir()) {
+                show_settings(app.handle());
+            }
             app.manage(SettingsStore {
                 path,
                 shared: settings,
@@ -106,6 +114,107 @@ fn delete_session(runtime: tauri::State<Runtime>, id: uuid::Uuid) -> Result<(), 
     runtime.delete_session(id)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelStatus {
+    id: &'static str,
+    label: &'static str,
+    installed: bool,
+    downloading: bool,
+}
+
+/// Models downloading now, so a remounted row keeps its progress and a second request is refused.
+static DOWNLOADING: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+
+#[tauri::command]
+fn model_status() -> Vec<ModelStatus> {
+    let dir = runtime::models_dir();
+    [&erindi_core::models::SPEECH, &erindi_core::models::CLEANUP]
+        .into_iter()
+        .map(|m| ModelStatus {
+            id: m.id,
+            label: m.label,
+            installed: m.installed(&dir),
+            downloading: DOWNLOADING.lock().unwrap().contains(&m.id),
+        })
+        .collect()
+}
+
+#[derive(Clone, serde::Serialize)]
+struct Progress {
+    id: &'static str,
+    done: u64,
+    total: u64,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct Done {
+    id: &'static str,
+    error: Option<String>,
+}
+
+#[tauri::command]
+fn download_model(
+    app: AppHandle,
+    runtime: tauri::State<Runtime>,
+    id: String,
+) -> Result<(), String> {
+    let model = erindi_core::models::by_id(&id).ok_or("Unknown model")?;
+    {
+        let mut active = DOWNLOADING.lock().unwrap();
+        if active.contains(&model.id) {
+            return Err("This model is already downloading".into());
+        }
+        active.push(model.id);
+    }
+    let runtime = runtime.inner().clone();
+    std::thread::spawn(move || {
+        let mut last = std::time::Instant::now();
+        let result = erindi_core::models::download(model, &runtime::models_dir(), |done, total| {
+            if last.elapsed() >= std::time::Duration::from_millis(100) || done == total {
+                last = std::time::Instant::now();
+                let progress = Progress {
+                    id: model.id,
+                    done,
+                    total,
+                };
+                let _ = app.emit_to("settings", "model-progress", progress);
+            }
+        });
+        DOWNLOADING.lock().unwrap().retain(|id| *id != model.id);
+        if result.is_ok() && model.id == "speech" {
+            runtime.load_speech();
+        }
+        let done = Done {
+            id: model.id,
+            error: result.err(),
+        };
+        let _ = app.emit_to("settings", "model-done", done);
+    });
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct TestResult {
+    commands: Vec<erindi_core::commands::Command>,
+    rest: String,
+}
+
+/// What the parser makes of `text` with the patterns on screen, saved or not.
+#[tauri::command]
+fn test_command(
+    patterns: erindi_core::commands::Patterns,
+    text: String,
+) -> Result<TestResult, String> {
+    let (commands, rest) = erindi_core::commands::Parser::new(&patterns)?.parse(&text);
+    Ok(TestResult { commands, rest })
+}
+
+#[tauri::command]
+fn default_patterns() -> erindi_core::commands::Patterns {
+    erindi_core::commands::Patterns::default()
+}
+
 struct SettingsStore {
     path: PathBuf,
     shared: SharedSettings,
@@ -124,9 +233,13 @@ fn save_settings(
     settings: Settings,
 ) -> Result<(), String> {
     settings.validate()?;
+    if settings.model_commands && !erindi_core::models::CLEANUP.installed(&runtime::models_dir()) {
+        return Err("Download the command model first".into());
+    }
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
     runtime.send(settings.session_msg());
+    runtime.set_cleanup(settings.model_commands);
     register_hotkeys(&app, &settings, &runtime)
 }
 
@@ -158,9 +271,9 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     let _ = shortcuts.unregister_all();
     let mut errors = vec![];
     for (combo, key) in [
-        (&settings.hold_hotkey, Key::Hold),
-        (&settings.toggle_hotkey, Key::Toggle),
+        (&settings.talk_hotkey, Key::Talk),
         (&settings.new_session_hotkey, Key::NewSession),
+        (&settings.terminal_hotkey, Key::Terminal),
     ] {
         let runtime = runtime.clone();
         let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {
@@ -180,16 +293,21 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     }
 }
 
-fn show_settings(app: &AppHandle) {
+pub(crate) fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.eval("location.hash = 'settings'");
         let _ = window.show();
         let _ = window.set_focus();
         return;
     }
-    let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html".into()))
-        .title("Erindi")
-        .inner_size(880.0, 680.0)
-        .build();
+    let _ = WebviewWindowBuilder::new(
+        app,
+        "settings",
+        WebviewUrl::App("index.html#settings".into()),
+    )
+    .title("Erindi")
+    .inner_size(880.0, 680.0)
+    .build();
 }
 
 #[cfg(test)]
@@ -218,5 +336,19 @@ mod tests {
     fn settings_capability_is_scoped_to_settings_window() {
         let cap = capability(include_str!("../capabilities/settings.json"));
         assert_eq!(cap["windows"], json!(["settings"]));
+    }
+
+    #[test]
+    fn settings_window_can_manage_models() {
+        let cap = capability(include_str!("../capabilities/settings.json"));
+        let perms = cap["permissions"].as_array().unwrap();
+        for p in [
+            "allow-model-status",
+            "allow-download-model",
+            "allow-test-command",
+            "allow-default-patterns",
+        ] {
+            assert!(perms.contains(&json!(p)), "{p}");
+        }
     }
 }

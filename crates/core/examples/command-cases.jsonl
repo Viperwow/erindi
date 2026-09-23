@@ -1,0 +1,40 @@
+{"say":"создай новую сессию и найди почему падают тесты","command":"new_session"}
+{"say":"в новой сессии проверь diff","command":"new_session"}
+{"say":"Проверь diff и создай новую сессию.","command":"new_session"}
+{"say":"new session, fix the tests","command":"new_session"}
+{"say":"fix the tests in a new session","command":"new_session"}
+{"say":"start a new session and refactor the settings page","command":"new_session"}
+{"say":"Открой в новой сессии: найди баг в overlay","command":"new_session"}
+{"say":"открой в терминале","command":"open_terminal"}
+{"say":"open terminal","command":"open_terminal"}
+{"say":"проверь diff, отмена","command":"cancel"}
+{"say":"fix the login bug, scratch that","command":"cancel"}
+{"say":"давай с чистого листа, напиши README","command":"new_session"}
+{"say":"начнём заново: сделай страницу настроек","command":"new_session"}
+{"say":"забудь всё, что было, и сделай лендинг","command":"new_session"}
+{"say":"let's start fresh, write a CLI for the benchmark","command":"new_session"}
+{"say":"from scratch please, set up the CI pipeline","command":"new_session"}
+{"say":"forget all that and start over: build the landing page","command":"new_session"}
+{"say":"покажи эту сессию в терминале","command":"open_terminal"}
+{"say":"show me this session in the terminal","command":"open_terminal"}
+{"say":"проверь diff, хотя нет, забудь","command":"cancel"}
+{"say":"fix the login bug, never mind","command":"cancel"}
+{"say":"напиши тесты для парсера, не отправляй","command":"cancel"}
+{"say":"проверь diff в модуле auth","command":"none"}
+{"say":"запусти тесты","command":"none"}
+{"say":"почему падает сборка","command":"none"}
+{"say":"добавь логирование в runtime.rs","command":"none"}
+{"say":"переименуй функцию parse_intent в detect_intent","command":"none"}
+{"say":"fix the login bug","command":"none"}
+{"say":"run cargo clippy","command":"none"}
+{"say":"what does this function do","command":"none"}
+{"say":"add a test for the empty transcript","command":"none"}
+{"say":"bump tokio to the latest version","command":"none"}
+{"say":"расскажи про новую сессию в React","command":"none"}
+{"say":"explain how a new session is created in the auth module","command":"none"}
+{"say":"добавь кнопку новая сессия на страницу истории","command":"none"}
+{"say":"почему в этой функции сессия не закрывается","command":"none"}
+{"say":"отмени последний коммит","command":"none"}
+{"say":"cancel the running build job in CI","command":"none"}
+{"say":"открой файл terminal.rs и почини вывод","command":"none"}
+{"say":"write a test for the new session policy","command":"none"}

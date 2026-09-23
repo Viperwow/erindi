@@ -5,9 +5,13 @@ pub type OpId = u64;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum AppState {
     LoadingModel,
+    /// The speech model is not downloaded yet.
+    NoModel,
     Idle,
     Listening,
     Transcribing,
+    /// The local model looks for a command said in the user's own words.
+    Classifying,
     Running,
     Cancelling,
     Succeeded,
@@ -18,13 +22,31 @@ pub enum AppState {
 pub enum Event {
     ModelReady,
     ModelFailed,
+    ModelMissing,
     StartListening,
     StopListening,
     CancelListening,
-    Transcribed { op: OpId, empty: bool },
+    /// A single press while the transcript or command is still being worked out.
+    Abandon,
+    Transcribed {
+        op: OpId,
+        empty: bool,
+    },
+    Classify {
+        op: OpId,
+    },
+    Classified {
+        op: OpId,
+        empty: bool,
+    },
     Cancel,
-    RunExited { op: OpId, ok: bool },
-    StepFailed { op: OpId },
+    RunExited {
+        op: OpId,
+        ok: bool,
+    },
+    StepFailed {
+        op: OpId,
+    },
     Dismiss,
 }
 
@@ -67,7 +89,11 @@ impl Machine {
         use AppState as S;
         use Event as E;
 
-        if let E::Transcribed { op, .. } | E::RunExited { op, .. } | E::StepFailed { op } = event
+        if let E::Transcribed { op, .. }
+        | E::Classify { op }
+        | E::Classified { op, .. }
+        | E::RunExited { op, .. }
+        | E::StepFailed { op } = event
             && op != self.op
         {
             return Ok(Outcome::Stale);
@@ -75,16 +101,25 @@ impl Machine {
 
         let next = match (self.state, event) {
             (S::LoadingModel, E::ModelReady) => S::Idle,
-            (S::LoadingModel, E::ModelFailed) => S::Failed,
+            (S::LoadingModel | S::NoModel, E::ModelFailed) => S::Failed,
+            (S::LoadingModel, E::ModelMissing) => S::NoModel,
+            (S::NoModel, E::ModelReady) => S::Idle,
             (S::Idle, E::StartListening) => {
                 self.op += 1;
                 S::Listening
             }
             (S::Listening, E::StopListening) => S::Transcribing,
             (S::Listening, E::CancelListening) => S::Idle,
+            (S::Transcribing | S::Classifying, E::Abandon) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: true, .. }) => S::Idle,
             (S::Transcribing, E::Transcribed { empty: false, .. }) => S::Running,
-            (S::Listening | S::Transcribing | S::Running, E::StepFailed { .. }) => S::Failed,
+            (S::Transcribing, E::Classify { .. }) => S::Classifying,
+            (S::Classifying, E::Classified { empty: true, .. }) => S::Idle,
+            (S::Classifying, E::Classified { empty: false, .. }) => S::Running,
+            (
+                S::Listening | S::Transcribing | S::Classifying | S::Running,
+                E::StepFailed { .. },
+            ) => S::Failed,
             (S::Running, E::Cancel) => S::Cancelling,
             (S::Running, E::RunExited { ok: true, .. }) => S::Succeeded,
             (S::Running, E::RunExited { ok: false, .. }) => S::Failed,
@@ -251,5 +286,36 @@ mod tests {
             assert_eq!(m.apply(event), Err(InvalidTransition { from, event }));
             assert_eq!(m.state(), from, "state must not change on {event:?}");
         }
+    }
+
+    #[test]
+    fn missing_model_waits_for_download() {
+        let mut m = Machine::new();
+        assert_eq!(m.apply(ModelMissing), Ok(Outcome::Changed(NoModel)));
+        assert!(m.apply(StartListening).is_err());
+        assert_eq!(m.apply(ModelReady), Ok(Outcome::Changed(Idle)));
+    }
+
+    #[test]
+    fn downloaded_model_that_fails_to_load_shows_the_failure() {
+        let mut m = Machine::new();
+        m.apply(ModelMissing).unwrap();
+        assert_eq!(m.apply(ModelFailed), Ok(Outcome::Changed(Failed)));
+    }
+
+    #[test]
+    fn classifying_sits_between_transcribing_and_running() {
+        let mut m = at(Transcribing);
+        let op = m.op();
+        assert_eq!(m.apply(Classify { op }), Ok(Outcome::Changed(Classifying)));
+        let stale = Classified {
+            op: op + 1,
+            empty: false,
+        };
+        assert_eq!(m.apply(stale), Ok(Outcome::Stale));
+        assert_eq!(
+            m.apply(Classified { op, empty: false }),
+            Ok(Outcome::Changed(Running))
+        );
     }
 }

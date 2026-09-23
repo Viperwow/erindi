@@ -6,9 +6,11 @@ import "./style.css";
 
 type AppState =
   | "LoadingModel"
+  | "NoModel"
   | "Idle"
   | "Listening"
   | "Transcribing"
+  | "Classifying"
   | "Running"
   | "Cancelling"
   | "Succeeded"
@@ -25,9 +27,11 @@ type View = {
 
 const palette: Record<AppState, [string, string]> = {
   LoadingModel: ["#64748b", "#94a3b8"],
+  NoModel: ["#64748b", "#94a3b8"],
   Idle: ["#64748b", "#94a3b8"],
   Listening: ["#06b6d4", "#3b82f6"],
   Transcribing: ["#a855f7", "#6366f1"],
+  Classifying: ["#a855f7", "#f59e0b"],
   Running: ["#f59e0b", "#eab308"],
   Cancelling: ["#f59e0b", "#78716c"],
   Succeeded: ["#22c55e", "#10b981"],
@@ -36,6 +40,7 @@ const palette: Record<AppState, [string, string]> = {
 
 const labels: Partial<Record<AppState, string>> = {
   Transcribing: "Transcribing…",
+  Classifying: "Checking command…",
   Running: "Claude is working",
   Cancelling: "Cancelling…",
   Succeeded: "Done",

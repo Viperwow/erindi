@@ -1,5 +1,8 @@
+# Development only: users download models from Settings.
 # Downloads the ASR and VAD models into models/ and verifies their SHA-256.
-# Parakeet TDT 0.6B v3 is CC-BY-4.0 (NVIDIA); Silero VAD is MIT.
+# -Refiner also fetches llama-server (Vulkan) into models/llama/ and the cleanup model.
+# Parakeet TDT 0.6B v3 is CC-BY-4.0 (NVIDIA); Silero VAD is MIT; Qwen2.5-3B-Instruct is Qwen Research License.
+param([switch]$Refiner)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
@@ -34,3 +37,26 @@ if (-not (Test-Path (Join-Path $parakeet 'tokens.txt'))) {
     tar -xjf (Join-Path $models 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2') -C $models
 }
 Write-Host 'models ready'
+
+if ($Refiner) {
+    $zip = Join-Path $models 'llama-vulkan.zip'
+    if (-not (Test-Path $zip)) {
+        Invoke-WebRequest 'https://github.com/ggml-org/llama.cpp/releases/download/b11095/llama-b11095-bin-win-vulkan-x64.zip' -OutFile $zip
+    }
+    if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne '45c586f50af57b7e144aa76c6fc38c544a717c4f4b7b659c489b980f3993412c') {
+        Remove-Item $zip
+        throw 'llama.cpp: SHA-256 mismatch, file removed'
+    }
+    Expand-Archive $zip (Join-Path $models 'llama') -Force
+
+    $gguf = Join-Path $models 'qwen2.5-3b-instruct-q4_k_m.gguf'
+    if (-not (Test-Path $gguf)) {
+        Invoke-WebRequest 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/7dabda4d13d513e3e842b20f0d435c732f172cbe/qwen2.5-3b-instruct-q4_k_m.gguf' -OutFile "$gguf.partial"
+        Move-Item "$gguf.partial" $gguf
+    }
+    if ((Get-FileHash $gguf -Algorithm SHA256).Hash.ToLower() -ne '626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d') {
+        Remove-Item $gguf
+        throw 'cleanup model: SHA-256 mismatch, file removed'
+    }
+    Write-Host 'refiner ready'
+}
