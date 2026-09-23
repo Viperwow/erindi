@@ -32,8 +32,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 ### Voice and models
 
-- [x] **Model downloads.** Speech and cleanup models install from Settings with progress and hash checks.
-- [ ] **Model picker.** Choose among several speech and cleanup models, with Hugging Face search.
+- [x] **Model downloads.** Speech and command models install from Settings with progress and hash checks.
+- [ ] **Model picker.** Choose among several speech and command models, with Hugging Face search.
 
 ### Controls
 

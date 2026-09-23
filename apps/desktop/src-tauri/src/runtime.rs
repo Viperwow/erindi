@@ -205,7 +205,7 @@ fn pick_models_dir(
     }
 }
 
-/// The cleanup model server. It starts when cleanup is turned on and stays loaded.
+/// The command model server. It starts when model commands are turned on and stays loaded.
 #[derive(Clone, Default)]
 struct Refiner {
     server: Arc<Mutex<Option<LlamaServer>>>,

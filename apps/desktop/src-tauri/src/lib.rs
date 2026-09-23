@@ -234,7 +234,7 @@ fn save_settings(
 ) -> Result<(), String> {
     settings.validate()?;
     if settings.model_commands && !erindi_core::models::CLEANUP.installed(&runtime::models_dir()) {
-        return Err("Download the cleanup model first".into());
+        return Err("Download the command model first".into());
     }
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
