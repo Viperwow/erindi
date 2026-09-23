@@ -41,6 +41,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Hotkey gestures.** One talk key: hold to talk, double-press for hands-free, press once to cancel.
 - [ ] **Mouse buttons as hotkeys.** Needs a low-level input hook; the current global shortcut plugin handles keyboard keys only.
 - [ ] **Startup behavior.** Choose between opening Settings on launch and starting minimized to the tray.
+- [ ] **Launch at login.** A Settings toggle starts Erindi with the system.
 - [ ] **First-run setup.** Detect GPU, VRAM and CPU, pick models and device, warn when cleanup would be slow; re-run when the hardware changes.
 - [ ] **Tray click.** Clicking or double-clicking the tray icon opens the window.
 

@@ -6,3 +6,4 @@ dist/
 .env
 /apps/desktop/src-tauri/gen/
 /dist/
+/.serena/
