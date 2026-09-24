@@ -29,6 +29,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
 - [ ] **Plugin system.** Users add their own agents and customize Erindi through plugins, beyond the agents built into the app.
+- [ ] **Agent install guide.** When an agent's CLI is missing, show the minimal install steps for that agent on the user's system.
 - [ ] **Agent Client Protocol.** Talk to every agent through ACP, the shared protocol Zed and other editors use, instead of parsing each CLI's own output. Weigh it against Codex app-server, the JSON-RPC interface behind the Codex VS Code extension.
 - [ ] **Computer control (later).** An "Allow computer control" checkbox lets agents click and type in other apps. A short warning hint appears under it; the same hint appears when `bypassPermissions` is selected.
 
