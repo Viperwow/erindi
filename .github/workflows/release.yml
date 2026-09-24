@@ -1,19 +1,32 @@
 name: Release
 
 # Every merge into main publishes a Windows build as the rolling "latest" pre-release.
+# Merging the release PR also creates a vX.Y.Z release that keeps its own build.
 on:
   push:
     branches: [main]
 
 permissions:
   contents: write
+  pull-requests: write
 
+# A cancelled run could leave a new vX.Y.Z release without its build.
 concurrency:
   group: release
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+
   windows:
+    needs: release-please
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,3 +77,8 @@ jobs:
           $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
           gh release delete latest --cleanup-tag --yes 2>$null
           gh release create latest dist/*.zip --prerelease --target ${{ github.sha }} --title "Erindi $version (latest build)" --notes "Erindi $version, built from ${{ github.sha }}. Work in progress; replaced on every merge into main."
+      - name: Attach to the version release
+        if: needs.release-please.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ needs.release-please.outputs.tag_name }} dist/*.zip

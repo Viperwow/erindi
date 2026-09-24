@@ -62,7 +62,13 @@ cd ../..
 
 The archive holds `erindi.exe`, the sherpa-onnx and onnxruntime DLLs it needs, and `scripts/fetch-models.ps1`. Users unpack it, run the script once, and start `erindi.exe`.
 
-Pull requests into `main` run the checks only. Every merge into `main` makes CI build the same archive and publish it as the `latest` pre-release, replacing the previous one. Bump the version in `Cargo.toml`, `apps/desktop/package.json` and `apps/desktop/src-tauri/tauri.conf.json` when it changes.
+Pull requests into `main` run the checks only. Every merge into `main` makes CI build the same archive and publish it as the `latest` pre-release, replacing the previous one.
+
+## Versions
+
+[release-please](https://github.com/googleapis/release-please) sets the version from the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) on `main`, so write commit messages in that form. `fix` bumps the patch version and `feat` the minor one. Before 1.0.0 a breaking change (`feat!` or a `BREAKING CHANGE:` footer) bumps the minor version too.
+
+After each merge into `main` it opens or updates a release pull request with the new version and `CHANGELOG.md`. Merging that pull request tags `vX.Y.Z` and publishes a GitHub release that keeps its own archive. Never edit the version numbers by hand; `release-please-config.json` lists every file that carries one.
 
 ## Useful tools
 
