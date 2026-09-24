@@ -49,7 +49,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 - [ ] **Redesign.** Modern look, dark by default, with accent colors.
 - [ ] **Themes.** Light, dark and system modes, with main colors set as hex codes.
-- [ ] **Dictionary tab.** Move the dictionary to its own tab; the main page keeps only what matters most.
+- [x] **Dictionary tab.** Move the dictionary to its own tab; the main page keeps only what matters most.
 - [x] **Branding.** The name shows once, in the window title and the sidebar header.
 - [x] **Logo.** Three normal-distribution peaks in the aurora stage colors: green, orange and blue with lilac joins.
 - [ ] **Logo order.** Blue on the left as the start, orange in the middle, green on the right as the result.

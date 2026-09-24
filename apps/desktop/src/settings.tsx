@@ -2,6 +2,7 @@ import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { CommandsView } from "./commands";
+import { DictionaryView } from "./dictionary";
 import {
   Field,
   HotkeyInput,
@@ -39,11 +40,6 @@ function SettingsView() {
   const set = (patch: Partial<Settings>) => {
     setS({ ...s, ...patch });
     setStatus(null);
-  };
-  const setEntry = (i: number, j: 0 | 1, value: string) => {
-    const dictionary = s.dictionary.map((e) => [...e] as [string, string]);
-    dictionary[i][j] = value;
-    set({ dictionary });
   };
   const save = async (e: Event) => {
     e.preventDefault();
@@ -168,42 +164,6 @@ function SettingsView() {
         <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
       </Section>
 
-      <Section title="Dictionary" description="Replaces what you say with how it should be written.">
-        {s.dictionary.map(([from, to], i) => (
-          <div class="flex gap-2">
-            <input
-              class={input}
-              value={from}
-              placeholder="клод"
-              aria-label="Spoken"
-              onInput={(e) => setEntry(i, 0, e.currentTarget.value)}
-            />
-            <input
-              class={input}
-              value={to}
-              placeholder="Claude"
-              aria-label="Written"
-              onInput={(e) => setEntry(i, 1, e.currentTarget.value)}
-            />
-            <button
-              type="button"
-              class="px-2 text-neutral-500 hover:text-red-600"
-              aria-label="Remove entry"
-              onClick={() => set({ dictionary: s.dictionary.filter((_, k) => k !== i) })}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          class="text-blue-600 hover:underline dark:text-blue-400"
-          onClick={() => set({ dictionary: [...s.dictionary, ["", ""]] })}
-        >
-          Add word
-        </button>
-      </Section>
-
       <SaveBar status={status} />
     </form>
   );
@@ -212,6 +172,7 @@ function SettingsView() {
 const tabs = [
   ["sessions", "Sessions"],
   ["commands", "Commands"],
+  ["dictionary", "Dictionary"],
   ["settings", "Settings"],
 ] as const;
 
@@ -249,7 +210,15 @@ function App() {
         ))}
       </nav>
       <main class="flex-1 overflow-y-auto">
-        {tab === "sessions" ? <SessionsView /> : tab === "commands" ? <CommandsView /> : <SettingsView />}
+        {tab === "sessions" ? (
+          <SessionsView />
+        ) : tab === "commands" ? (
+          <CommandsView />
+        ) : tab === "dictionary" ? (
+          <DictionaryView />
+        ) : (
+          <SettingsView />
+        )}
       </main>
     </div>
   );
