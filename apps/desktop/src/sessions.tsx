@@ -81,7 +81,7 @@ export function SessionsView() {
   }
 
   return (
-    <div class="max-w-2xl space-y-3 p-6">
+    <div class="max-w-4xl space-y-3 p-6">
       <h2 class="text-base font-semibold">Sessions</h2>
       {error && <p class="text-red-600">{error}</p>}
       <ul class="space-y-2">

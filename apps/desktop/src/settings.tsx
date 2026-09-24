@@ -68,7 +68,7 @@ function SettingsView() {
   return (
     <form
       onSubmit={save}
-      class="@container max-w-2xl space-y-4 p-6"
+      class="@container max-w-4xl space-y-4 p-6"
     >
       <h2 class="text-base font-semibold">Settings</h2>
 
@@ -77,28 +77,24 @@ function SettingsView() {
           <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
         </Field>
 
-        <div class="flex items-end gap-3">
-          <div class="flex-1">
-            <Field
-              label="Agent"
-              hint="New sessions use it. Say “claude” or “codex” to pick one for a new session."
-              error={
-                agentStatus && !agentStatus.path
-                  ? `${agentStatus.label} CLI not found. Install it, then press Re-check.`
-                  : undefined
-              }
-            >
-              <select class={input} value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
-                {agents.map((a) => (
-                  <option value={a.agent}>{a.label}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <div class="mb-5">
+        <Field
+          label="Agent"
+          hint="New sessions use it. Say “claude” or “codex” to pick one for a new session."
+          error={
+            agentStatus && !agentStatus.path
+              ? `${agentStatus.label} CLI not found. Install it, then press Re-check.`
+              : undefined
+          }
+        >
+          <div class="flex items-center gap-3">
+            <select class={input} aria-label="Agent" value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
+              {agents.map((a) => (
+                <option value={a.agent}>{a.label}</option>
+              ))}
+            </select>
             <RecheckButton recheck={recheck} />
           </div>
-        </div>
+        </Field>
         <AgentFields
           status={agentStatus ?? checking(s.agent)}
           value={s.agents[s.agent] ?? { model: null, permission: "default" }}
