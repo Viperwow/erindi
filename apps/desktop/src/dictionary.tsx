@@ -31,7 +31,7 @@ export function DictionaryView() {
   };
 
   return (
-    <form onSubmit={save} class="max-w-2xl space-y-4 p-6">
+    <form onSubmit={save} class="@container max-w-2xl space-y-4 p-6">
       <div class="space-y-1">
         <h2 class="text-base font-semibold">Dictionary</h2>
         <p class="text-neutral-600 dark:text-neutral-400">Replaces what you say with how it should be written.</p>

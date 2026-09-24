@@ -81,7 +81,7 @@ export function SessionsView() {
   }
 
   return (
-    <div class="space-y-3 p-6">
+    <div class="max-w-2xl space-y-3 p-6">
       <h2 class="text-base font-semibold">Sessions</h2>
       {error && <p class="text-red-600">{error}</p>}
       <ul class="space-y-2">
@@ -105,11 +105,11 @@ export function SessionsView() {
               }`}
             >
               <p class="line-clamp-2 font-medium">{textOf(entry.prompts[0])}</p>
-              <p class="mt-1 flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
-                <AgentIcon agent={entry.agent} />
-                {sessionLine(agentLabel, model, permission, listed)}
-                {!live && <span class="text-neutral-400">(at start)</span>}
-                {!resumable && <span class="text-red-600">· can't resume</span>}
+              <p class="mt-1 flex h-4 min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-neutral-600 dark:text-neutral-400">
+                <AgentIcon agent={entry.agent} class="h-4 w-4 shrink-0" />
+                <span class="truncate">{sessionLine(agentLabel, model, permission, listed)}</span>
+                {!live && <span class="shrink-0 text-neutral-400">(at start)</span>}
+                {!resumable && <span class="shrink-0 text-red-600">· can't resume</span>}
               </p>
               <p class="mt-1 text-xs text-neutral-500">
                 {[folderName(entry.cwd), ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}
