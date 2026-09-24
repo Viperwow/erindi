@@ -55,11 +55,16 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Logo order.** Blue on the left as the start, orange in the middle, green on the right as the result.
 - [x] **Form saving.** One Save button for the whole form (keep it).
 - [ ] **Localization.** English interface by default, with infrastructure for more interface and speech languages.
-- [ ] **README demo.** A short GIF under the README header, recorded from the real app: the tabs and the overlay while someone talks.
 
 ### Platforms
 
 - [ ] **macOS build** for testing, as a primary platform.
+
+### Website and videos
+
+- [ ] **README demo.** A short GIF under the README header, recorded from the real app: the tabs and the overlay while someone talks.
+- [ ] **Landing page.** A site that presents Erindi, with a download link to the releases.
+- [ ] **Feature videos.** Automatically recorded short videos for the main features only, such as talking to Claude, voice commands and sessions, shown on the landing page.
 
 ## From the original plan
 
