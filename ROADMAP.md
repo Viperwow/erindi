@@ -21,6 +21,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Session history.** A Sessions page lists sessions started from Erindi with what was said, the folder and the session ID. Each one opens in a terminal, becomes the active session for the next utterance, or is deleted from the list.
 - [x] **Voice commands.** New session, open in terminal and cancel, each with a hotkey and editable regex patterns on a Commands tab; commands count only at the start or end of a phrase.
 - [x] **Commands in your own words.** A local model (Qwen2.5-3B on llama.cpp Vulkan) recognises commands the patterns miss; it never changes the text that reaches the agent.
+- [x] **Codex.** Codex runs next to Claude Code: a default agent in Settings, a spoken agent name for a new session, and the agent, model and permission of each session on the Sessions tab.
 - [ ] **More voice commands.** Switch the project folder by name.
 - [ ] **Unload the command model** after idle time, for machines short on memory.
 - [ ] **Command model device.** Auto, GPU or CPU; a CUDA build if Vulkan is not fast enough.
@@ -69,7 +70,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 ## From the original plan
 
-- [ ] Adapters for Codex, Pi and Gemini, then Copilot, Qwen and Kimi.
+- [ ] Adapters for Pi and Gemini, then Copilot, Qwen and Kimi.
 - [ ] HTTP providers: OpenAI-compatible APIs, Ollama, OpenRouter.
 - [ ] API keys stored in the OS keychain.
 - [ ] Wake word activation, as a second way to start a recording next to the hotkeys.
