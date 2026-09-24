@@ -93,9 +93,9 @@ jobs:
         run: |
           $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
           gh release delete latest --cleanup-tag --yes 2>$null
-          gh release create latest dist/*.zip --prerelease --target ${{ github.sha }} --title "Erindi $version (latest build)" --notes "Erindi $version, built from ${{ github.sha }}. Work in progress; replaced on every merge into main."
+          gh release create latest dist/erindi-*.zip --prerelease --target ${{ github.sha }} --title "Erindi $version (latest build)" --notes "Erindi $version, built from ${{ github.sha }}. Work in progress; replaced on every merge into main."
       - name: Attach to the version release
         if: needs.version.outputs.tag
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload ${{ needs.version.outputs.tag }} dist/*.zip
+        run: gh release upload ${{ needs.version.outputs.tag }} dist/erindi-*.zip
