@@ -1,43 +1,71 @@
-<p align="center"><img src="apps/desktop/src/logo.svg" width="112" alt="Erindi logo"></p>
+<p align="center">
+  <img src="apps/desktop/src/logo.svg" width="112" alt="Erindi logo">
+</p>
 
-# Erindi 0.0.1
+<h1 align="center">Erindi</h1>
 
-> **Work in progress.** Proof of concept: Windows only, Claude Code only.
+<p align="center">
+  Speak a task, and Claude Code runs it. Speech recognition stays on your computer.
+</p>
 
-Hold a hotkey, speak a task, and Erindi transcribes it locally and runs it in Claude Code, without leaving the app you are in.
+<p align="center">
+  <a href="https://github.com/Viperwow/erindi/releases">Download</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
-**The name.** *Erindi* (Icelandic, from Old Norse *erendi*) means an errand, a message and a speech. It shares its root with English *errand*, Danish *ærinde* and Swedish *ärende*. Pronounced *ER-in-dee*.
+> [!NOTE]
+> Erindi is a proof of concept: Windows only, Claude Code only.
+
+## Features
+
+- **Talk from any app.** Hold a hotkey to talk, or double-press it for hands-free mode that sends after a pause.
+- **Local speech recognition.** Russian and English, with a live transcript above the aurora overlay.
+- **Claude Code runs in the background.** Cancel a run with one press, or open the session in Windows Terminal.
+- **Sessions.** New utterances continue the active session; the Sessions tab lists past ones and reopens them.
+- **Voice commands.** Say "new session", "open in terminal" or "cancel" at the start or end of a phrase. A local model understands commands in your own words.
+- **Dictionary.** Replaces what you say with how it should be written.
+
+## Install
+
+1. Download the archive from [Releases](https://github.com/Viperwow/erindi/releases).
+2. Unpack it and start `erindi.exe`.
+3. Settings opens on first launch. Press **Download** there to install the speech model.
+
+The `latest` pre-release is rebuilt on every merge into `main`.
+
+## Usage
+
+| Hotkey | Action |
+|---|---|
+| `Ctrl+Alt+Space` | Hold to talk, double-press for hands-free, press once to cancel |
+| `Ctrl+Alt+N` | Talk into a new session |
+| `Ctrl+Alt+T` | Open the active session in a terminal |
+
+The Commands tab lists the voice command patterns and lets you edit them.
+
+## Build from source
+
+```powershell
+./scripts/fetch-models.ps1 -Refiner   # development models; drop -Refiner to skip the command model
+cd apps/desktop
+pnpm install
+pnpm tauri dev
+```
+
+Run the tests with `cargo test --workspace`. [CONTRIBUTING.md](CONTRIBUTING.md) covers release builds, versions and commit messages.
+
+## Built with
 
 | Part | Built with |
 |---|---|
 | Desktop shell, tray, overlay | Tauri 2, Preact, Tailwind, TypeScript |
 | Audio capture and resampling | cpal, rubato |
-| Speech recognition (RU/EN) | sherpa-onnx, Parakeet TDT 0.6B v3 |
+| Speech recognition | sherpa-onnx, Parakeet TDT 0.6B v3 |
 | End of speech | Silero VAD |
 | Voice commands in your own words | llama.cpp (Vulkan), Qwen2.5-3B-Instruct |
 | Agent run and cancel | `claude -p` stream-json, Windows Job Objects |
 
-Hotkeys: `Ctrl+Alt+Space` hold to talk, double-press for hands-free, press once to cancel; `Ctrl+Alt+N` talks into a new session; `Ctrl+Alt+T` opens the active session in a terminal. Say "new session", "open in terminal" or "cancel" at the start or end of a phrase; the Commands tab lists and edits the patterns.
+## The name
 
-**Download:** the [latest build](https://github.com/Viperwow/erindi/releases/tag/latest) is rebuilt on every merge into `main`. Unpack it and start `erindi.exe`; Settings opens on first launch; press **Download** there to install the speech model.
-
-**From source:**
-
-```powershell
-./scripts/fetch-models.ps1 -Refiner   # development models; drop -Refiner to skip the command model
-cd apps/desktop; pnpm install; pnpm tauri dev
-```
-
-## Status
-
-- [x] Speak a task with a hold or hands-free hotkey
-- [x] Local speech recognition with a live transcript
-- [x] Run Claude Code headless, cancel it, reopen the session
-- [x] Continue the same session by voice
-- [x] Session history sidebar
-- [x] Voice commands with editable patterns and a local model
-- [ ] Provider and model picker
-- [x] Hotkey recorder (mouse buttons next)
-- [ ] macOS build
-
-Full plan: [ROADMAP.md](ROADMAP.md). Building and contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Tests: `cargo test --workspace`.
+*Erindi* (Icelandic, from Old Norse *erendi*) means an errand, a message and a speech. It shares its root with English *errand*, Danish *ærinde* and Swedish *ärende*. Pronounced *ER-in-dee*.
