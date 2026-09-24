@@ -70,11 +70,15 @@ const ENV_ALLOW: &[&str] = &[
 ];
 const ENV_ALLOW_PREFIX: &[&str] = &["ANTHROPIC_", "CLAUDE_"];
 
+pub(crate) fn base_env_allowed(upper: &str) -> bool {
+    ENV_ALLOW.contains(&upper)
+}
+
 pub fn claude_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
     vars.into_iter()
         .filter(|(k, _)| {
             let k = k.to_uppercase();
-            ENV_ALLOW.contains(&k.as_str()) || ENV_ALLOW_PREFIX.iter().any(|p| k.starts_with(p))
+            base_env_allowed(&k) || ENV_ALLOW_PREFIX.iter().any(|p| k.starts_with(p))
         })
         .collect()
 }

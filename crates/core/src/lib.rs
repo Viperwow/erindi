@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod classify;
 pub mod claude;
+pub mod codex;
 pub mod commands;
 pub mod controller;
 #[cfg(windows)]
