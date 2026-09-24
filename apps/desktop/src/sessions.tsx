@@ -1,6 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { AgentIcon, useAgents } from "./agents";
+import type { Agent } from "./controls";
+import { modelLabel } from "./model";
 import { ago } from "./time";
 
 type Prompt = string | { text: string; raw: string };
@@ -13,9 +16,16 @@ type Entry = {
   prompts: Prompt[];
   createdMs: number;
   updatedMs: number;
+  agent: Agent;
+  nativeId: string | null;
+  startedModel: string | null;
+  startedPermission: string | null;
 };
 
-type Sessions = { entries: Entry[]; active: string | null };
+type Details = { model: string | null; permission: string | null };
+
+type Sessions = { entries: Entry[]; active: string | null; details: Record<string, Details> };
+
 
 const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
 
@@ -33,12 +43,15 @@ export function SessionsView() {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const load = () => invoke<Sessions>("list_sessions").then(setData);
+  const { agents } = useAgents();
 
   useEffect(() => {
     load();
     const off = listen("sessions-changed", load);
+    window.addEventListener("focus", load);
     return () => {
       off.then((f) => f());
+      window.removeEventListener("focus", load);
     };
   }, []);
 
@@ -76,6 +89,11 @@ export function SessionsView() {
           const active = entry.id === data.active;
           const expanded = open === entry.id;
           const count = entry.prompts.length;
+          const live = data.details[entry.id];
+          const model = live?.model ?? entry.startedModel;
+          const listed = agents.find((a) => a.agent === entry.agent)?.models.find((m) => m.id === model)?.label;
+          const permission = live?.permission ?? entry.startedPermission ?? "default";
+          const resumable = entry.nativeId !== null;
           return (
             <li
               class={`rounded-lg border p-3 ${
@@ -84,6 +102,12 @@ export function SessionsView() {
                   : "border-neutral-200 dark:border-neutral-800"
               }`}
             >
+              <p class="mb-1 flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
+                <AgentIcon agent={entry.agent} />
+                {[model ? (listed ?? modelLabel(model)) : "Default model", permission].join(" · ")}
+                {!live && <span class="text-neutral-400">(at start)</span>}
+                {!resumable && <span class="text-red-600">· can't resume</span>}
+              </p>
               <p class="line-clamp-2 font-medium">{textOf(entry.prompts[0])}</p>
               <p class="mt-1 text-xs text-neutral-500">
                 {[folderName(entry.cwd), ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}
@@ -121,13 +145,18 @@ export function SessionsView() {
                 </ol>
               )}
               <div class="mt-3 flex gap-2">
-                <button type="button" class={button} onClick={() => act("open_history_session", entry.id)}>
+                <button
+                  type="button"
+                  class={button}
+                  disabled={!resumable}
+                  onClick={() => act("open_history_session", entry.id)}
+                >
                   Open in terminal
                 </button>
                 <button
                   type="button"
                   class={button}
-                  disabled={active}
+                  disabled={active || !resumable}
                   onClick={() => act("continue_session", entry.id)}
                 >
                   {active ? "Active" : "Continue by voice"}
