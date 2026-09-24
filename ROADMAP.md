@@ -55,6 +55,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Logo order.** Blue on the left as the start, orange in the middle, green on the right as the result.
 - [x] **Form saving.** One Save button for the whole form (keep it).
 - [ ] **Localization.** English interface by default, with infrastructure for more interface and speech languages.
+- [ ] **README demo.** A short GIF under the README header, recorded from the real app: the tabs and the overlay while someone talks.
 
 ### Platforms
 
