@@ -1,0 +1,5 @@
+{"type":"user","permissionMode":"default","message":{"role":"user","content":"hi"}}
+{"type":"assistant","message":{"model":"claude-opus-5","content":[]}}
+{"type":"user","permissionMode":"plan","message":{"role":"user","content":"again"}}
+{"type":"assistant","message":{"model":"claude-opus-5-5","content":[]}}
+{"type":"assistant","message":{"model":"<synthetic>","content":[]}}

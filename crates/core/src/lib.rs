@@ -14,3 +14,4 @@ pub mod run;
 pub mod session;
 pub mod state;
 pub mod stream;
+pub mod transcript;
