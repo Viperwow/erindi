@@ -68,6 +68,6 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] Wake word activation, as a second way to start a recording next to the hotkeys.
 - [ ] MSI installer for Windows through the Tauri bundler, with `llama/` as a bundled resource.
 - [ ] Signed installers and macOS notarization.
-- [ ] Auto-update channel.
+- [ ] **Auto-update.** Erindi checks the GitHub releases for a newer signed version, downloads it and installs it on restart, so nobody follows the install guide again.
 - [ ] Modifier-only hotkeys.
 - [ ] Update GitHub Actions versions that still target Node.js 20.
