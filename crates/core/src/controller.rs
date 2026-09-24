@@ -358,6 +358,7 @@ impl Controller {
                     self.result = Some((ok, text));
                     vec![]
                 }
+                RunEvent::SessionStarted { .. } | RunEvent::Reply { .. } => vec![],
             },
             Msg::RunExited { op, end, stderr } if current(op) => {
                 let result_ok = self.result.as_ref().is_none_or(|(ok, _)| *ok);

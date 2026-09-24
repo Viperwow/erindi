@@ -1,16 +1,31 @@
 use serde::Serialize;
 use serde_json::Value;
 
-/// Progress events from `claude --output-format stream-json`, reduced to what the overlay shows.
+/// Progress events from an agent run, reduced to what Erindi uses.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum RunEvent {
-    ToolUse { name: String },
-    PermissionDenied { tool: String },
-    Result { ok: bool, text: String },
+    /// The agent's own ID for the session, when the agent picks it.
+    SessionStarted {
+        native_id: String,
+    },
+    ToolUse {
+        name: String,
+    },
+    PermissionDenied {
+        tool: String,
+    },
+    /// A reply message before the run ends; the last one becomes the result text.
+    Reply {
+        text: String,
+    },
+    Result {
+        ok: bool,
+        text: String,
+    },
 }
 
-/// Unknown, malformed or irrelevant lines yield no events.
+/// Claude's `--output-format stream-json`. Unknown, malformed or irrelevant lines yield no events.
 pub fn parse_line(line: &str) -> Vec<RunEvent> {
     let Ok(v) = serde_json::from_str::<Value>(line) else {
         return vec![];

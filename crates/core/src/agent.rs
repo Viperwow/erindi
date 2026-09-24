@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::claude::{self, ClaudeMode, ClaudeRequest, Session};
 use crate::codex;
+use crate::stream::{self, RunEvent};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
@@ -203,6 +204,42 @@ pub fn env(
     match agent {
         Agent::Claude => claude::claude_env(vars),
         Agent::Codex => codex::codex_env(vars),
+    }
+}
+
+/// Parses one run's output. Codex sends the reply before the result, so the parser keeps it.
+pub struct EventParser {
+    agent: Agent,
+    reply: String,
+}
+
+impl EventParser {
+    pub fn new(agent: Agent) -> Self {
+        Self {
+            agent,
+            reply: String::new(),
+        }
+    }
+
+    pub fn feed(&mut self, line: &str) -> Vec<RunEvent> {
+        let events = match self.agent {
+            Agent::Claude => stream::parse_line(line),
+            Agent::Codex => codex::parse_line(line),
+        };
+        events
+            .into_iter()
+            .filter_map(|e| match e {
+                RunEvent::Reply { text } => {
+                    self.reply = text;
+                    None
+                }
+                RunEvent::Result { ok, text } if text.is_empty() => Some(RunEvent::Result {
+                    ok,
+                    text: std::mem::take(&mut self.reply),
+                }),
+                e => Some(e),
+            })
+            .collect()
     }
 }
 
@@ -434,6 +471,40 @@ mod tests {
         assert_eq!(
             kept,
             ["Path", "CODEX_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL"]
+        );
+    }
+
+    #[test]
+    fn parser_fills_an_empty_result_with_the_latest_reply() {
+        let mut p = EventParser::new(Agent::Codex);
+        let mut events = vec![];
+        for line in [
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"first"}}"#,
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"done"}}"#,
+            r#"{"type":"turn.completed"}"#,
+        ] {
+            events.extend(p.feed(line));
+        }
+        assert_eq!(
+            events.last(),
+            Some(&RunEvent::Result {
+                ok: true,
+                text: "done".into()
+            })
+        );
+        assert!(!events.iter().any(|e| matches!(e, RunEvent::Reply { .. })));
+    }
+
+    #[test]
+    fn parser_passes_claude_lines_through() {
+        let mut p = EventParser::new(Agent::Claude);
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"ok"}"#;
+        assert_eq!(
+            p.feed(line),
+            [RunEvent::Result {
+                ok: true,
+                text: "ok".into()
+            }]
         );
     }
 }

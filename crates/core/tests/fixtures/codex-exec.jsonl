@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a0d2c0-0c6d-7dc0-90c7-da4ffbaf65a2"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"git diff","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"git diff","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_1","type":"file_change","changes":[{"path":"src/a.rs","kind":"update"}],"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"pong"}}
+{"type":"turn.completed","usage":{"input_tokens":21106,"cached_input_tokens":11392,"output_tokens":5}}
