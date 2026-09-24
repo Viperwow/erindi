@@ -8,7 +8,7 @@ export type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "by
 
 export type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
 
-export type Command = "newSession" | "openTerminal" | "cancel";
+export type Command = "newSession" | "openTerminal" | "cancel" | "claude" | "codex";
 
 export type Patterns = Record<Command, string[]>;
 

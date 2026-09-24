@@ -702,7 +702,7 @@ mod tests {
         }
 
         fn run(&mut self) -> OpId {
-            self.run_saying("клод, проверь diff")
+            self.run_saying("проверь, что клод видит diff")
         }
 
         /// Runs `text` to completion and returns the session it used.
@@ -1029,7 +1029,7 @@ mod tests {
         let op = t.run();
         assert_eq!(t.c.state(), AppState::Running);
         let v = &t.c.view;
-        assert_eq!(v.text, "Claude, проверь diff");
+        assert_eq!(v.text, "проверь, что Claude видит diff");
         assert!(v.session_id.is_some());
         let _ = op;
     }
@@ -1041,7 +1041,7 @@ mod tests {
         t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
-            text: " клод  go ".into(),
+            text: " go  клод ".into(),
         });
         let Some(Effect::StartRun {
             op: rop,
@@ -1052,7 +1052,7 @@ mod tests {
         else {
             panic!("{fx:?}")
         };
-        assert_eq!((*rop, prompt.as_str()), (op, "Claude go"));
+        assert_eq!((*rop, prompt.as_str()), (op, "go Claude"));
         assert_eq!(shown(&fx).unwrap().session_id, Some(*session_id));
         assert!(!shown(&fx).unwrap().continued);
     }
@@ -1259,7 +1259,7 @@ mod tests {
         t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
-            text: "в новой сессии клод, найди баг".into(),
+            text: "в новой сессии найди баг у клод".into(),
         });
         let Some(Effect::StartRun {
             prompt, session, ..
@@ -1267,7 +1267,7 @@ mod tests {
         else {
             panic!("{fx:?}")
         };
-        assert_eq!(prompt, "Claude, найди баг");
+        assert_eq!(prompt, "найди баг у Claude");
         assert!(matches!(session, Session::New(new) if *new != id(first)));
     }
 

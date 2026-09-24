@@ -28,6 +28,8 @@ fn name(commands: &[Command]) -> String {
             Command::NewSession => "new_session",
             Command::OpenTerminal => "open_terminal",
             Command::Cancel => "cancel",
+            Command::Claude => "claude",
+            Command::Codex => "codex",
         })
         .collect();
     names.join("+")
