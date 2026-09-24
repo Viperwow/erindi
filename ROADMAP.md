@@ -28,6 +28,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Prompt cleanup, revisited.** Rewriting dictation with a 3B model translated and dropped sentences; retry with a larger model or drop the idea.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
+- [ ] **Plugin system.** Users add their own agents and customize Erindi through plugins, beyond the agents built into the app.
 - [ ] **Computer control (later).** An "Allow computer control" checkbox lets agents click and type in other apps. A short warning hint appears under it; the same hint appears when `bypassPermissions` is selected.
 
 ### Voice and models
