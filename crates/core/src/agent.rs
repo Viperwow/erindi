@@ -179,6 +179,7 @@ pub fn terminal_args(
     prompt: &str,
 ) -> Result<Vec<String>, InvalidRequest> {
     cwd_ok(cwd)?;
+    let prompt = &cmd_safe(program, prompt);
     match req.agent {
         Agent::Claude => claude::run_in_terminal(program, cwd, &claude_request(req)?, prompt)
             .map_err(|e| match e {
@@ -200,6 +201,22 @@ pub fn terminal_args(
             ))
         }
     }
+}
+
+/// npm installs CLIs as `.cmd` shims, which Windows runs through `cmd /c`; cmd ignores the
+/// argument quoting and would run the text after `&`, `|` or a redirect as commands of its own.
+fn cmd_safe(program: &str, prompt: &str) -> String {
+    let lower = program.to_ascii_lowercase();
+    if !(lower.ends_with(".cmd") || lower.ends_with(".bat")) {
+        return prompt.to_string();
+    }
+    prompt
+        .chars()
+        .map(|c| match c {
+            '"' | '&' | '|' | '<' | '>' | '^' | '%' => ' ',
+            c => c,
+        })
+        .collect()
 }
 
 /// Windows Terminal arguments that reopen session `native_id` interactively.
@@ -552,5 +569,20 @@ mod tests {
     fn claude_models_are_the_aliases() {
         let ids: Vec<_> = claude_models().into_iter().map(|m| m.id).collect();
         assert_eq!(ids, ["fable", "opus", "sonnet", "haiku"]);
+    }
+
+    #[test]
+    fn cmd_shims_get_prompts_cmd_cannot_misread() {
+        let req = codex(None, None, Target::New(Uuid::nil()));
+        let prompt = r#"rename "foo" & calc | more > out ^ 50%"#;
+        let args = terminal_args(r"C:\npm\codex.CMD", "C:/p", &req, prompt).unwrap();
+        let sent = args.last().unwrap();
+        assert!(
+            !sent.contains(['"', '&', '|', '<', '>', '^', '%']),
+            "{sent}"
+        );
+        assert!(sent.contains("rename") && sent.contains("calc"), "{sent}");
+        let args = terminal_args(r"C:\bin\codex.exe", "C:/p", &req, "a & b").unwrap();
+        assert_eq!(args.last().unwrap(), "a & b");
     }
 }

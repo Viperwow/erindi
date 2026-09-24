@@ -111,6 +111,7 @@ impl Parser {
                 .iter()
                 .filter(|e| !cancel(e.command))
                 .filter_map(|e| Some((e.command, nonempty(e.start.find(&rest))?.end())))
+                .filter(|(command, end)| command.agent().is_none() || agent_break(&rest[*end..]))
                 .max_by_key(|(_, end)| *end);
             if let Some((command, end)) = start {
                 let tail = &rest[end..];
@@ -145,6 +146,14 @@ impl Parser {
         let cut = self.tail.find(rest).map_or(rest.len(), |m| m.start());
         rest[..cut].to_string()
     }
+}
+
+/// An agent name counts only as a word of its own: "Claude.md" and "codex-smoke" are file names.
+fn agent_break(after: &str) -> bool {
+    after
+        .chars()
+        .next()
+        .is_none_or(|c| c.is_whitespace() || matches!(c, ',' | ':' | '!' | '—' | '–'))
 }
 
 /// A zero-width match, such as a bare `\b` pattern, would peel nothing and loop forever.
@@ -320,5 +329,25 @@ mod tests {
     fn commands_name_their_agent() {
         assert_eq!(Command::Codex.agent(), Some(crate::agent::Agent::Codex));
         assert_eq!(Command::NewSession.agent(), None);
+    }
+
+    #[test]
+    fn agent_names_need_a_break_after_them() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        for text in [
+            "Claude.md обнови",
+            "codex-smoke почини",
+            "CLAUDE.md: add a rule",
+        ] {
+            assert_eq!(parser.parse(text), (vec![], text.to_string()), "{text}");
+        }
+        for text in [
+            "codex: проверь diff",
+            "Codex! проверь diff",
+            "codex — проверь diff",
+        ] {
+            assert_eq!(parser.parse(text).0, [Command::Codex], "{text}");
+        }
+        assert_eq!(parser.parse("codex").0, [Command::Codex]);
     }
 }

@@ -109,7 +109,8 @@ struct Sessions {
     details: HashMap<uuid::Uuid, Details>,
 }
 
-#[tauri::command]
+/// Async so reading the agents' session logs never blocks the main thread.
+#[tauri::command(async)]
 fn list_sessions(runtime: tauri::State<Runtime>) -> Sessions {
     let (entries, active) = runtime.sessions();
     let home = std::env::var_os("USERPROFILE")

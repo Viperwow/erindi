@@ -17,6 +17,7 @@ use erindi_core::prompt::{Dictionary, PromptTransformer};
 use erindi_core::run::{RunEnd, RunSpec, run};
 use erindi_core::state::{AppState, OpId};
 use erindi_core::stream::RunEvent;
+use erindi_core::transcript::Details;
 use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
@@ -513,21 +514,25 @@ impl Executor {
                 (Target::New(id), start)
             }
             Session::Resume(id) => {
-                let native = self
-                    .history
-                    .lock()
-                    .unwrap()
-                    .get(id)
-                    .and_then(|e| e.native_id.clone());
+                let entry = self.history.lock().unwrap().get(id).cloned();
                 // A Claude session opened empty in a terminal never reached history.
-                let native = native
+                let native = entry
+                    .as_ref()
+                    .and_then(|e| e.native_id.clone())
                     .or_else(|| (agent == Agent::Claude).then(|| id.to_string()))
                     .ok_or("This session can't be resumed")?;
-                let start = Start {
+                let started = Start {
                     agent,
                     native_id: Some(native.clone()),
-                    model: None,
-                    permission: None,
+                    model: entry.as_ref().and_then(|e| e.started_model.clone()),
+                    permission: entry.as_ref().and_then(|e| e.started_permission.clone()),
+                };
+                let live = session_details(agent, &native);
+                let (model, permission) = continue_flags(&started, live);
+                let start = Start {
+                    model,
+                    permission,
+                    ..started
                 };
                 (Target::Resume(native), start)
             }
@@ -675,6 +680,32 @@ impl Executor {
     }
 }
 
+/// The model and permission a continued run passes. `claude -p --resume` falls back to the default
+/// permission mode unless it is passed again, so Claude gets the session's current values; Codex
+/// keeps its own and gets none.
+fn continue_flags(started: &Start, live: Option<Details>) -> (Option<String>, Option<String>) {
+    if started.agent != Agent::Claude {
+        return (None, None);
+    }
+    let live = live.unwrap_or(Details {
+        model: None,
+        permission: None,
+    });
+    let model = live.model.or_else(|| started.model.clone());
+    let permission = live
+        .permission
+        .or_else(|| started.permission.clone())
+        .filter(|p| p != "default");
+    (model, permission)
+}
+
+/// What the agent's own log says about session `native_id` now.
+fn session_details(agent: Agent, native_id: &str) -> Option<Details> {
+    let home = std::env::var_os("USERPROFILE").map(PathBuf::from)?;
+    let logs = erindi_core::transcript::find_logs(agent, &home);
+    erindi_core::transcript::read(agent, logs.get(native_id)?)
+}
+
 /// A new Codex session that never reported its ID cannot be continued, so it must not stay active.
 fn forget_after_run(agent: Agent, new: bool, native_seen: bool) -> bool {
     agent == Agent::Codex && new && !native_seen
@@ -694,6 +725,47 @@ fn run_env(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::history;
+
+    fn details(model: Option<&str>, permission: Option<&str>) -> Details {
+        Details {
+            model: model.map(String::from),
+            permission: permission.map(String::from),
+        }
+    }
+
+    #[test]
+    fn continued_claude_keeps_the_session_permission_and_model() {
+        let entry = history::Start {
+            agent: Agent::Claude,
+            native_id: None,
+            model: Some("opus".into()),
+            permission: Some("plan".into()),
+        };
+        let live = Some(details(Some("claude-opus-5-5"), Some("acceptEdits")));
+        assert_eq!(
+            continue_flags(&entry, live),
+            (Some("claude-opus-5-5".into()), Some("acceptEdits".into()))
+        );
+        assert_eq!(
+            continue_flags(&entry, None),
+            (Some("opus".into()), Some("plan".into()))
+        );
+        let live = Some(details(None, Some("default")));
+        assert_eq!(continue_flags(&entry, live), (Some("opus".into()), None));
+    }
+
+    #[test]
+    fn continued_codex_passes_no_flags() {
+        let entry = history::Start {
+            agent: Agent::Codex,
+            native_id: None,
+            model: Some("gpt-5.5".into()),
+            permission: Some("read-only".into()),
+        };
+        let live = Some(details(Some("gpt-5.5"), Some("workspace-write")));
+        assert_eq!(continue_flags(&entry, live), (None, None));
+    }
 
     #[test]
     fn codex_session_without_native_id_is_forgotten() {
