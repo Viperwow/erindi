@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::agent::Target;
+use crate::agent::{ModelOption, Target};
 use crate::stream::RunEvent;
 
 /// Windows basics shared with Claude, plus what Codex and its Node launcher read.
@@ -109,6 +109,24 @@ pub fn parse_line(line: &str) -> Vec<RunEvent> {
     }
 }
 
+/// Models from `codex debug models` that Codex shows in its own picker.
+pub fn parse_models(json: &str) -> Result<Vec<ModelOption>, String> {
+    let v: Value = serde_json::from_str(json).map_err(|e| format!("not JSON: {e}"))?;
+    let list = v["models"].as_array().ok_or("no \"models\" list")?;
+    Ok(list
+        .iter()
+        .filter(|m| m["visibility"] == "list")
+        .filter_map(|m| {
+            let id = m["slug"].as_str()?;
+            let label = m["display_name"].as_str().unwrap_or(id);
+            Some(ModelOption {
+                id: id.into(),
+                label: label.into(),
+            })
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +191,23 @@ mod tests {
             r#"{"type":"item.completed","item":{"type":"reasoning","text":"…"}}"#,
         ] {
             assert_eq!(parse_line(line), [], "{line}");
+        }
+    }
+
+    #[test]
+    fn listed_models_only() {
+        let models = parse_models(include_str!("../tests/fixtures/codex-models.json")).unwrap();
+        let ids: Vec<_> = models
+            .iter()
+            .map(|m| (m.id.as_str(), m.label.as_str()))
+            .collect();
+        assert_eq!(ids, [("gpt-6-sol", "GPT-6-Sol"), ("gpt-5.5", "GPT-5.5")]);
+    }
+
+    #[test]
+    fn broken_catalog_is_an_error() {
+        for bad in ["", "{", r#"{"models":"x"}"#, r#"{"other":[]}"#] {
+            assert!(parse_models(bad).is_err(), "{bad}");
         }
     }
 }

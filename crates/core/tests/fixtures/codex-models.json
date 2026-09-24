@@ -1,0 +1,5 @@
+{"models":[
+ {"slug":"gpt-6-sol","display_name":"GPT-6-Sol","visibility":"list","supported_in_api":true},
+ {"slug":"gpt-reserve","display_name":"GPT-Reserve","visibility":"hide","supported_in_api":true},
+ {"slug":"gpt-5.5","display_name":"GPT-5.5","visibility":"list","supported_in_api":true}
+]}

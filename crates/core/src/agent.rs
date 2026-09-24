@@ -48,6 +48,27 @@ impl Agent {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ModelOption {
+    pub id: String,
+    pub label: String,
+}
+
+/// Claude Code has no command that lists models; its aliases always point at the latest one.
+pub fn claude_models() -> Vec<ModelOption> {
+    [
+        ("fable", "Fable"),
+        ("opus", "Opus"),
+        ("sonnet", "Sonnet"),
+        ("haiku", "Haiku"),
+    ]
+    .map(|(id, label)| ModelOption {
+        id: id.into(),
+        label: label.into(),
+    })
+    .into()
+}
+
 /// Where a run goes: a new session with Erindi's ID, or an existing one by the agent's native ID.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
@@ -506,5 +527,11 @@ mod tests {
                 text: "ok".into()
             }]
         );
+    }
+
+    #[test]
+    fn claude_models_are_the_aliases() {
+        let ids: Vec<_> = claude_models().into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["fable", "opus", "sonnet", "haiku"]);
     }
 }
