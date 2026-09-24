@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AgentIcon, useAgents } from "./agents";
 import type { Agent } from "./controls";
-import { modelLabel } from "./model";
+import { sessionLine } from "./model";
 import { ago } from "./time";
 
 type Prompt = string | { text: string; raw: string };
@@ -91,7 +91,9 @@ export function SessionsView() {
           const count = entry.prompts.length;
           const live = data.details[entry.id];
           const model = live?.model ?? entry.startedModel;
-          const listed = agents.find((a) => a.agent === entry.agent)?.models.find((m) => m.id === model)?.label;
+          const status = agents.find((a) => a.agent === entry.agent);
+          const listed = status?.models.find((m) => m.id === model)?.label;
+          const agentLabel = status?.label ?? (entry.agent === "codex" ? "Codex" : "Claude");
           const permission = live?.permission ?? entry.startedPermission ?? "default";
           const resumable = entry.nativeId !== null;
           return (
@@ -102,13 +104,13 @@ export function SessionsView() {
                   : "border-neutral-200 dark:border-neutral-800"
               }`}
             >
-              <p class="mb-1 flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
+              <p class="line-clamp-2 font-medium">{textOf(entry.prompts[0])}</p>
+              <p class="mt-1 flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
                 <AgentIcon agent={entry.agent} />
-                {[model ? (listed ?? modelLabel(model)) : "Default model", permission].join(" · ")}
+                {sessionLine(agentLabel, model, permission, listed)}
                 {!live && <span class="text-neutral-400">(at start)</span>}
                 {!resumable && <span class="text-red-600">· can't resume</span>}
               </p>
-              <p class="line-clamp-2 font-medium">{textOf(entry.prompts[0])}</p>
               <p class="mt-1 text-xs text-neutral-500">
                 {[folderName(entry.cwd), ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}
               </p>

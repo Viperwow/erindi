@@ -16,7 +16,7 @@ export function useAgents() {
   useEffect(() => {
     invoke<AgentStatus[]>("agent_status").then(setAgents);
     const off = listen<AgentStatus[]>("agents-changed", (e) => setAgents(e.payload));
-    const onFocus = () => invoke("recheck_agents", { force: false });
+    const onFocus = () => invoke<AgentStatus[]>("recheck_agents", { force: false }).then(setAgents);
     window.addEventListener("focus", onFocus);
     onFocus();
     return () => {
@@ -24,7 +24,40 @@ export function useAgents() {
       window.removeEventListener("focus", onFocus);
     };
   }, []);
-  return { agents, recheck: () => invoke("recheck_agents", { force: true }) };
+  const recheck = () => invoke<AgentStatus[]>("recheck_agents", { force: true }).then(setAgents);
+  return { agents, recheck };
+}
+
+/** Re-check with a spinner while it runs, then "Re-checked ✓" or the error for a moment. */
+export function RecheckButton(props: { recheck: () => Promise<void> }) {
+  const [phase, setPhase] = useState<"idle" | "checking" | "done" | "failed">("idle");
+  const run = () => {
+    setPhase("checking");
+    props
+      .recheck()
+      .then(() => setPhase("done"), () => setPhase("failed"))
+      .then(() => setTimeout(() => setPhase("idle"), 2000));
+  };
+  return (
+    <button
+      type="button"
+      disabled={phase === "checking"}
+      aria-live="polite"
+      class="inline-flex w-32 shrink-0 items-center justify-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 disabled:opacity-70 dark:border-neutral-700 dark:hover:bg-neutral-800"
+      onClick={run}
+    >
+      {phase === "checking" && (
+        <svg aria-hidden="true" viewBox="0 0 16 16" class="h-4 w-4 animate-spin">
+          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" opacity="0.25" />
+          <path d="M14 8a6 6 0 0 0-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      )}
+      {phase === "idle" && "Re-check"}
+      {phase === "checking" && "Checking"}
+      {phase === "done" && <span class="text-green-700 dark:text-green-400">Re-checked ✓</span>}
+      {phase === "failed" && <span class="text-red-600">Failed</span>}
+    </button>
+  );
 }
 
 const CUSTOM = "\u0000custom";
@@ -48,7 +81,7 @@ export function AgentFields(props: {
       <div class="grid grid-cols-2 gap-3">
         <Field label="Model" hint={status.modelsError ?? undefined}>
           <select class={input} value={selected} onChange={(e) => pick(e.currentTarget.value)}>
-            <option value={DEFAULT}>{status.agent === "codex" ? "Default (config.toml)" : "Default"}</option>
+            <option value={DEFAULT}>Default ({status.label})</option>
             {status.models.map((m) => (
               <option value={m.id}>{m.label}</option>
             ))}

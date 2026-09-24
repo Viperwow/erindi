@@ -7,6 +7,8 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   build: {
+    // The CSP allows images from 'self' only, so small images must not be inlined as data: URIs.
+    assetsInlineLimit: 0,
     rollupOptions: { input: { settings: "index.html", overlay: "overlay.html" } },
   },
 });

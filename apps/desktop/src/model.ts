@@ -9,3 +9,9 @@ export const modelLabel = (raw: string) => {
   const version = parts.filter((p) => /^\d+$/.test(p)).join(".");
   return ["Claude", ...words, version].filter(Boolean).join(" ");
 };
+
+/** "Claude · Opus 5.5 · plan": the agent, its model without the agent's name, the permission. */
+export const sessionLine = (agent: string, model: string | null, permission: string, listed?: string) => {
+  const name = model ? (listed ?? modelLabel(model).replace(new RegExp(`^${agent} `), "")) : "Default model";
+  return [agent, name, permission].join(" · ");
+};

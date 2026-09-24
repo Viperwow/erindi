@@ -96,14 +96,19 @@ impl Agents {
     /// Checks every agent off the calling thread and emits `agents-changed` when anything changed.
     pub fn recheck(&self, app: &AppHandle) {
         let (this, app) = (self.clone(), app.clone());
-        std::thread::spawn(move || {
-            let fresh: Vec<_> = Agent::ALL.into_iter().map(check).collect();
-            let changed = this.status() != fresh;
-            *this.0.lock().unwrap() = Some((Instant::now(), fresh.clone()));
-            if changed {
-                let _ = app.emit_to("settings", "agents-changed", fresh);
-            }
-        });
+        std::thread::spawn(move || this.check_now(&app));
+    }
+
+    /// Checks every agent on this thread, emits `agents-changed` when anything changed, and
+    /// returns what it found.
+    pub fn check_now(&self, app: &AppHandle) -> Vec<AgentStatus> {
+        let fresh: Vec<_> = Agent::ALL.into_iter().map(check).collect();
+        let changed = self.status() != fresh;
+        *self.0.lock().unwrap() = Some((Instant::now(), fresh.clone()));
+        if changed {
+            let _ = app.emit_to("settings", "agents-changed", fresh.clone());
+        }
+        fresh
     }
 
     pub fn recheck_if_stale(&self, app: &AppHandle) {

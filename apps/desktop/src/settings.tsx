@@ -1,7 +1,7 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
-import { AgentFields, useAgents } from "./agents";
+import { AgentFields, RecheckButton, useAgents } from "./agents";
 import { CommandsView } from "./commands";
 import { DictionaryView } from "./dictionary";
 import {
@@ -75,13 +75,9 @@ function SettingsView() {
               </select>
             </Field>
           </div>
-          <button
-            type="button"
-            class="mb-5 shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-            onClick={recheck}
-          >
-            Re-check
-          </button>
+          <div class="mb-5">
+            <RecheckButton recheck={recheck} />
+          </div>
         </div>
         {agentStatus && !agentStatus.path && (
           <p class="text-xs text-red-600">{agentStatus.label} CLI not found. Install it, then press Re-check.</p>
