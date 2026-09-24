@@ -65,6 +65,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **README demo.** A short GIF under the README header, recorded from the real app: the tabs and the overlay while someone talks.
 - [ ] **Landing page.** A site that presents Erindi, with a download link to the releases.
 - [ ] **Feature videos.** Automatically recorded short videos for the main features only, such as talking to Claude, voice commands and sessions, shown on the landing page.
+- [ ] **Performance benchmark.** Measure Erindi against other voice tools on key tasks: speed first, such as the time from the end of speech to the transcript and to the agent start, then recognition accuracy, shown honestly even where Erindi is slightly behind. Keep the numbers over releases and show them in the README and on the landing page, together with the methodology: hardware, audio set, tool versions, how each number is measured and how to reproduce it.
 
 ## From the original plan
 
