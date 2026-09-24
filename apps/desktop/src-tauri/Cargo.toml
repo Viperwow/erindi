@@ -18,8 +18,8 @@ tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-single-instance = "2.4.5"
 tokio-util = { version = "0.7.19", default-features = false }
 uuid = "1.26.1"
-erindi-audio-asr = { version = "0.0.1", path = "../../../crates/audio-asr" }
-erindi-core = { version = "0.0.1", path = "../../../crates/core" }
+erindi-audio-asr = { path = "../../../crates/audio-asr" }
+erindi-core = { path = "../../../crates/core" }
 
 [dev-dependencies]
 tempfile = "3.27.0"
