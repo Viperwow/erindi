@@ -132,6 +132,7 @@ pub enum InvalidTerminalRun {
 /// The prompt follows `--`, so it can never be read as an option, and its `;` is escaped because
 /// Windows Terminal would otherwise split the command there.
 pub fn run_in_terminal(
+    program: &str,
     cwd: &str,
     req: &ClaudeRequest,
     prompt: &str,
@@ -139,7 +140,7 @@ pub fn run_in_terminal(
     if cwd.is_empty() || cwd.starts_with('-') || cwd.contains(';') {
         return Err(InvalidTerminalRun::Cwd);
     }
-    let mut args = vec!["-d".into(), cwd.into(), "claude".into()];
+    let mut args = vec!["-d".into(), cwd.into(), program.into()];
     args.extend(options(req).map_err(|_| InvalidTerminalRun::Model)?);
     if !prompt.is_empty() {
         args.extend(["--".into(), prompt.replace(';', r"\;")]);
@@ -148,14 +149,18 @@ pub fn run_in_terminal(
 }
 
 /// Windows Terminal arguments that reopen a headless session interactively.
-pub fn resume_in_terminal(cwd: &str, session_id: Uuid) -> Result<Vec<String>, InvalidCwd> {
+pub fn resume_in_terminal(
+    program: &str,
+    cwd: &str,
+    session_id: Uuid,
+) -> Result<Vec<String>, InvalidCwd> {
     if cwd.is_empty() || cwd.starts_with('-') || cwd.contains(';') {
         return Err(InvalidCwd);
     }
     Ok(vec![
         "-d".into(),
         cwd.into(),
-        "claude".into(),
+        program.into(),
         "--resume".into(),
         session_id.to_string(),
     ])
@@ -169,11 +174,11 @@ mod tests {
     fn resume_opens_session_in_cwd() {
         let id = Uuid::nil();
         assert_eq!(
-            resume_in_terminal("C:\\My Projects\\app", id).unwrap(),
+            resume_in_terminal(r"C:\bin\claude.exe", "C:\\My Projects\\app", id).unwrap(),
             [
                 "-d",
                 "C:\\My Projects\\app",
-                "claude",
+                r"C:\bin\claude.exe",
                 "--resume",
                 "00000000-0000-0000-0000-000000000000"
             ]
@@ -185,7 +190,7 @@ mod tests {
         // `wt` treats `;` as a command separator even inside one argument.
         for bad in ["C:\\a;calc", "", "-p evil"] {
             assert_eq!(
-                resume_in_terminal(bad, Uuid::nil()),
+                resume_in_terminal("claude", bad, Uuid::nil()),
                 Err(InvalidCwd),
                 "{bad}"
             );
@@ -301,7 +306,7 @@ mod tests {
             model: Some("opus".into()),
             session: Session::New(Uuid::nil()),
         };
-        let args = run_in_terminal("C:/p", &req, "--help; rm -rf /").unwrap();
+        let args = run_in_terminal("claude", "C:/p", &req, "--help; rm -rf /").unwrap();
         assert_eq!(
             args,
             [
@@ -318,8 +323,8 @@ mod tests {
                 r"--help\; rm -rf /",
             ]
         );
-        let args = run_in_terminal("C:/p", &req, "").unwrap();
+        let args = run_in_terminal("claude", "C:/p", &req, "").unwrap();
         assert_eq!(args.last().unwrap(), "opus");
-        assert!(run_in_terminal("C:/p;calc", &req, "x").is_err());
+        assert!(run_in_terminal("claude", "C:/p;calc", &req, "x").is_err());
     }
 }

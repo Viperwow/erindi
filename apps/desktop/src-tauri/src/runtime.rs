@@ -163,8 +163,8 @@ impl Runtime {
 }
 
 fn open_terminal(cwd: &str, id: uuid::Uuid) -> Result<(), String> {
-    let args =
-        resume_in_terminal(cwd, id).map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
+    let args = resume_in_terminal("claude", cwd, id)
+        .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
     std::process::Command::new("wt.exe")
         .args(args)
         .spawn()
@@ -460,7 +460,7 @@ impl Executor {
             model: (!settings.model.is_empty()).then_some(settings.model),
             session,
         };
-        let started = erindi_core::claude::run_in_terminal(&cwd, &request, &prompt)
+        let started = erindi_core::claude::run_in_terminal("claude", &cwd, &request, &prompt)
             .map_err(|e| format!("Cannot open a terminal in {cwd}: {e:?}"))
             .and_then(|args| {
                 std::process::Command::new("wt.exe")

@@ -100,7 +100,7 @@ impl Settings {
         if !Path::new(&self.cwd).is_dir() {
             return Err(format!("Folder does not exist: {}", self.cwd));
         }
-        resume_in_terminal(&self.cwd, Uuid::nil())
+        resume_in_terminal("claude", &self.cwd, Uuid::nil())
             .map_err(|_| "The folder path cannot contain ';' or start with '-'")?;
         let request = ClaudeRequest {
             mode: self.mode,
