@@ -62,7 +62,15 @@ cd ../..
 
 The archive holds `erindi.exe`, the sherpa-onnx and onnxruntime DLLs it needs, and `scripts/fetch-models.ps1`. Users unpack it, run the script once, and start `erindi.exe`.
 
-Pull requests into `main` run the checks only. Every merge into `main` makes CI build the same archive and publish it as the `latest` pre-release, replacing the previous one. Bump the version in `Cargo.toml`, `apps/desktop/package.json` and `apps/desktop/src-tauri/tauri.conf.json` when it changes.
+Pull requests into `main` run the checks only. Every merge into `main` makes CI build the same archive and publish it as the `latest` pre-release, replacing the previous one.
+
+## Versions
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Run `pnpm install` in the repository root once: it installs a `commit-msg` hook that checks each message with commitlint. CI checks the commits of every pull request the same way.
+
+[semantic-release](https://github.com/semantic-release/semantic-release) sets the version from those commits on every merge into `main`. `fix` bumps the patch version and `feat` the minor one. A breaking change (`feat!` or a `BREAKING CHANGE:` footer) bumps the minor version too, because 1.0.0 is a deliberate step, not a commit type. Other types release nothing.
+
+A release writes the version into every file that carries one (`scripts/set-version.mjs`), commits it as `chore(release): X.Y.Z`, tags `vX.Y.Z` and publishes a GitHub release that keeps its own archive. Never edit the version numbers by hand.
 
 ## Useful tools
 
