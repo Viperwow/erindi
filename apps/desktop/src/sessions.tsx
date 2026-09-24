@@ -37,6 +37,23 @@ const dangerButton =
 /** How long the Delete button waits for the confirming second click. */
 const CONFIRM_MS = 3000;
 
+/** A small mark at the end of the agent line; the text shows on hover and to screen readers. */
+function Note(props: { tone: "error" | "info"; text: string }) {
+  const color = props.tone === "error" ? "text-red-600" : "text-neutral-400";
+  return (
+    <span role="img" aria-label={props.text} title={props.text} class={`shrink-0 cursor-help ${color}`}>
+      <svg aria-hidden="true" viewBox="0 0 16 16" class="h-3.5 w-3.5">
+        <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+        {props.tone === "error" ? (
+          <path d="M8 4.5v4.2M8 11.2v.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        ) : (
+          <path d="M8 7.3v4.2M8 4.6v.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        )}
+      </svg>
+    </span>
+  );
+}
+
 export function SessionsView() {
   const [data, setData] = useState<Sessions | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -81,7 +98,7 @@ export function SessionsView() {
   }
 
   return (
-    <div class="space-y-3 p-6">
+    <div class="max-w-4xl space-y-3 p-6">
       <h2 class="text-base font-semibold">Sessions</h2>
       {error && <p class="text-red-600">{error}</p>}
       <ul class="space-y-2">
@@ -105,11 +122,14 @@ export function SessionsView() {
               }`}
             >
               <p class="line-clamp-2 font-medium">{textOf(entry.prompts[0])}</p>
-              <p class="mt-1 flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
-                <AgentIcon agent={entry.agent} />
-                {sessionLine(agentLabel, model, permission, listed)}
-                {!live && <span class="text-neutral-400">(at start)</span>}
-                {!resumable && <span class="text-red-600">· can't resume</span>}
+              <p class="mt-1 flex h-4 min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-neutral-600 dark:text-neutral-400">
+                <AgentIcon agent={entry.agent} class="h-4 w-4 shrink-0" />
+                <span class="truncate">{sessionLine(agentLabel, model, permission, listed)}</span>
+                {!resumable ? (
+                  <Note tone="error" text="This session didn't start, so it can't be continued." />
+                ) : (
+                  !live && <Note tone="info" text="Couldn't read the agent's log. Showing the values the session started with." />
+                )}
               </p>
               <p class="mt-1 text-xs text-neutral-500">
                 {[folderName(entry.cwd), ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}

@@ -59,15 +59,21 @@ export const policies: [SessionPolicy, string][] = [
 export const input =
   "w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-500 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-400";
 
-export function Field(props: { label: string; hint?: string; children: ComponentChildren }) {
+/** The line under the field is always there, so a hint or error never pushes the form down. */
+export function Field(props: { label: string; hint?: string; error?: string; children: ComponentChildren }) {
   return (
     <label class="block space-y-1">
       <span class="font-medium">{props.label}</span>
       {props.children}
-      {props.hint && <span class="block text-xs text-neutral-500">{props.hint}</span>}
+      <span class={`block min-h-4 text-xs ${props.error ? "text-red-600" : "text-neutral-500"}`}>
+        {props.error ?? props.hint}
+      </span>
     </label>
   );
 }
+
+/** Two fields side by side, one above the other when the form is narrow. */
+export const pair = "grid gap-3 @md:grid-cols-2";
 
 export function Section(props: {
   title: string;

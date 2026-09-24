@@ -6,6 +6,7 @@ import { CommandsView } from "./commands";
 import { DictionaryView } from "./dictionary";
 import {
   type Agent,
+  type AgentStatus,
   Field,
   HotkeyInput,
   ModelRow,
@@ -16,11 +17,22 @@ import {
   type Settings,
   type Status,
   input,
+  pair,
   policies,
 } from "./controls";
 import { SessionsView } from "./sessions";
 import logo from "./logo.svg";
 import "./style.css";
+
+/** Shown until the first agent check answers, so the fields keep their place. */
+const checking = (agent: Agent): AgentStatus => ({
+  agent,
+  label: agent === "codex" ? "Codex" : "Claude",
+  path: "",
+  models: [],
+  modelsError: null,
+  permissions: [],
+});
 
 function SettingsView() {
   const [s, setS] = useState<Settings | null>(null);
@@ -56,7 +68,7 @@ function SettingsView() {
   return (
     <form
       onSubmit={save}
-      class="max-w-2xl space-y-4 p-6"
+      class="@container max-w-4xl space-y-4 p-6"
     >
       <h2 class="text-base font-semibold">Settings</h2>
 
@@ -65,32 +77,31 @@ function SettingsView() {
           <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
         </Field>
 
-        <div class="flex items-end gap-3">
-          <div class="flex-1">
-            <Field label="Agent" hint="New sessions use it. Say “claude” or “codex” to pick one for a new session.">
-              <select class={input} value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
-                {agents.map((a) => (
-                  <option value={a.agent}>{a.label}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <div class="mb-5">
+        <Field
+          label="Agent"
+          hint="New sessions use it. Say “claude” or “codex” to pick one for a new session."
+          error={
+            agentStatus && !agentStatus.path
+              ? `${agentStatus.label} CLI not found. Install it, then press Re-check.`
+              : undefined
+          }
+        >
+          <div class="flex items-center gap-3">
+            <select class={input} aria-label="Agent" value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
+              {agents.map((a) => (
+                <option value={a.agent}>{a.label}</option>
+              ))}
+            </select>
             <RecheckButton recheck={recheck} />
           </div>
-        </div>
-        {agentStatus && !agentStatus.path && (
-          <p class="text-xs text-red-600">{agentStatus.label} CLI not found. Install it, then press Re-check.</p>
-        )}
-        {agentStatus && (
-          <AgentFields
-            status={agentStatus}
-            value={s.agents[s.agent] ?? { model: null, permission: "default" }}
-            onChange={(v) => set({ agents: { ...s.agents, [s.agent]: v } })}
-          />
-        )}
+        </Field>
+        <AgentFields
+          status={agentStatus ?? checking(s.agent)}
+          value={s.agents[s.agent] ?? { model: null, permission: "default" }}
+          onChange={(v) => set({ agents: { ...s.agents, [s.agent]: v } })}
+        />
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class={pair}>
           <Field label="Session" hint={'Say "new session" to start a new one.'}>
             <select
               class={input}
@@ -102,18 +113,17 @@ function SettingsView() {
               ))}
             </select>
           </Field>
-          {s.sessionPolicy === "continueIfRecent" && (
-            <Field label="Recent means within (min)">
-              <input
-                class={input}
-                type="number"
-                min="1"
-                max="1440"
-                value={s.recentMinutes}
-                onInput={(e) => set({ recentMinutes: Number(e.currentTarget.value) })}
-              />
-            </Field>
-          )}
+          <Field label="Recent means within (min)" hint="Only for “Continue if used recently”.">
+            <input
+              class={input}
+              type="number"
+              min="1"
+              max="1440"
+              disabled={s.sessionPolicy !== "continueIfRecent"}
+              value={s.recentMinutes}
+              onInput={(e) => set({ recentMinutes: Number(e.currentTarget.value) })}
+            />
+          </Field>
         </div>
 
       </Section>
@@ -127,7 +137,7 @@ function SettingsView() {
         {speech && !speech.installed && (
           <p class="text-xs text-red-600">Speech model is not installed. Download it to start dictating.</p>
         )}
-        <div class="grid grid-cols-2 gap-3">
+        <div class={pair}>
           <Field label="Microphone">
             <select
               class={input}
@@ -214,7 +224,7 @@ function App() {
           </button>
         ))}
       </nav>
-      <main class="flex-1 overflow-y-auto">
+      <main class="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {tab === "sessions" ? (
           <SessionsView />
         ) : tab === "commands" ? (

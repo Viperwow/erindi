@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { type Agent, type AgentSettings, type AgentStatus, Field, input, unsafePermissions } from "./controls";
+import { type Agent, type AgentSettings, type AgentStatus, Field, input, pair, unsafePermissions } from "./controls";
 import claudeIcon from "./icons/claude.svg";
 import openaiIcon from "./icons/openai.svg";
 
@@ -76,10 +76,11 @@ export function AgentFields(props: {
       ...value,
       model: id === DEFAULT ? null : id === CUSTOM ? { custom: "" } : { listed: id },
     });
+  const custom = model !== null && "custom" in model;
   return (
     <div class="space-y-3">
-      <div class="grid grid-cols-2 gap-3">
-        <Field label="Model" hint={status.modelsError ?? undefined}>
+      <div class={pair}>
+        <Field label="Model" error={status.modelsError ?? undefined}>
           <select class={input} value={selected} onChange={(e) => pick(e.currentTarget.value)}>
             <option value={DEFAULT}>Default ({status.label})</option>
             {status.models.map((m) => (
@@ -90,7 +91,7 @@ export function AgentFields(props: {
         </Field>
         <Field
           label="Permission"
-          hint={
+          error={
             unsafePermissions.includes(value.permission)
               ? "The agent can change anything on this computer."
               : undefined
@@ -108,16 +109,15 @@ export function AgentFields(props: {
           </select>
         </Field>
       </div>
-      {model !== null && "custom" in model && (
-        <Field label="Model ID">
-          <input
-            class={input}
-            value={model.custom}
-            placeholder={status.agent === "codex" ? "gpt-5.5" : "claude-opus-4-8"}
-            onInput={(e) => props.onChange({ ...value, model: { custom: e.currentTarget.value } })}
-          />
-        </Field>
-      )}
+      <Field label="Model ID" hint={custom ? undefined : "Choose Custom model ID to type one."}>
+        <input
+          class={input}
+          disabled={!custom}
+          value={custom ? model.custom : ""}
+          placeholder={status.agent === "codex" ? "gpt-5.5" : "claude-opus-4-8"}
+          onInput={(e) => props.onChange({ ...value, model: { custom: e.currentTarget.value } })}
+        />
+      </Field>
     </div>
   );
 }
