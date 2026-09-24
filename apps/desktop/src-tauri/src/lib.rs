@@ -1,12 +1,16 @@
+mod agents;
 mod history;
 mod overlay;
 mod runtime;
 mod settings;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use erindi_core::agent::Agent;
 use erindi_core::controller::{Key, Msg};
+use erindi_core::transcript::{self, Details};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
@@ -34,14 +38,24 @@ pub fn run() {
             model_status,
             download_model,
             test_command,
-            default_patterns
+            default_patterns,
+            agent_status,
+            recheck_agents
         ])
         .setup(|app| {
             overlay::create(app.handle())?;
             let path = app.path().app_config_dir()?.join("settings.json");
             let history_path = app.path().app_data_dir()?.join("sessions.json");
             let settings = Arc::new(RwLock::new(Settings::load(&path)));
-            let runtime = Runtime::start(app.handle().clone(), settings.clone(), &history_path);
+            let agents = agents::Agents::default();
+            agents.recheck(app.handle());
+            app.manage(agents.clone());
+            let runtime = Runtime::start(
+                app.handle().clone(),
+                settings.clone(),
+                &history_path,
+                agents,
+            );
             if let Err(e) = register_hotkeys(app.handle(), &settings.read().unwrap(), &runtime) {
                 eprintln!("{e}");
             }
@@ -91,12 +105,47 @@ fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
 struct Sessions {
     entries: Vec<history::Entry>,
     active: Option<uuid::Uuid>,
+    /// The model and permission each session has now, from the agent's own log.
+    details: HashMap<uuid::Uuid, Details>,
 }
 
 #[tauri::command]
 fn list_sessions(runtime: tauri::State<Runtime>) -> Sessions {
     let (entries, active) = runtime.sessions();
-    Sessions { entries, active }
+    let home = std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let logs: HashMap<_, _> = Agent::ALL
+        .into_iter()
+        .map(|a| (a, transcript::find_logs(a, &home)))
+        .collect();
+    let details = entries
+        .iter()
+        .filter_map(|e| {
+            let path = logs[&e.agent].get(e.native()?)?;
+            Some((e.id, transcript::read(e.agent, path)?))
+        })
+        .collect();
+    Sessions {
+        entries,
+        active,
+        details,
+    }
+}
+
+#[tauri::command]
+fn agent_status(agents: tauri::State<agents::Agents>) -> Vec<agents::AgentStatus> {
+    agents.status()
+}
+
+/// `force` re-checks now; otherwise only when the last check is stale, as on window focus.
+#[tauri::command]
+fn recheck_agents(app: AppHandle, agents: tauri::State<agents::Agents>, force: bool) {
+    if force {
+        agents.recheck(&app)
+    } else {
+        agents.recheck_if_stale(&app)
+    }
 }
 
 #[tauri::command]
@@ -240,6 +289,7 @@ fn save_settings(
     *store.shared.write().unwrap() = settings.clone();
     runtime.send(settings.session_msg());
     runtime.set_cleanup(settings.model_commands);
+    app.state::<agents::Agents>().recheck(&app);
     register_hotkeys(&app, &settings, &runtime)
 }
 
@@ -347,6 +397,8 @@ mod tests {
             "allow-download-model",
             "allow-test-command",
             "allow-default-patterns",
+            "allow-agent-status",
+            "allow-recheck-agents",
         ] {
             assert!(perms.contains(&json!(p)), "{p}");
         }

@@ -187,11 +187,15 @@ pub fn terminal_args(
             }),
         Agent::Codex => {
             check(req)?;
+            if let Target::Resume(id) = &req.target {
+                native_ok(id)?;
+            }
             Ok(codex::terminal_args(
                 program,
                 cwd,
                 req.model.as_deref(),
                 req.permission.as_deref(),
+                &req.target,
                 prompt,
             ))
         }
@@ -450,6 +454,21 @@ mod tests {
     fn codex_permission_must_be_a_sandbox_mode() {
         let req = codex(None, Some("plan"), Target::New(Uuid::nil()));
         assert_eq!(headless_args(&req, "C:/p"), Err(InvalidRequest::Permission));
+    }
+
+    #[test]
+    fn codex_terminal_task_continues_an_existing_session() {
+        let req = codex(Some("gpt-5.5"), None, Target::Resume("abc-1".into()));
+        let args = terminal_args("codex", "C:/p", &req, "fix it").unwrap();
+        assert_eq!(
+            args,
+            ["-d", "C:/p", "codex", "resume", "abc-1", "--", "fix it"]
+        );
+        let req = codex(None, None, Target::Resume("--last".into()));
+        assert_eq!(
+            terminal_args("codex", "C:/p", &req, "x"),
+            Err(InvalidRequest::NativeId)
+        );
     }
 
     #[test]
