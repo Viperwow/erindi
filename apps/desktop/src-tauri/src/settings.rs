@@ -77,6 +77,7 @@ impl Settings {
             cwd: self.cwd.clone(),
             patterns: self.patterns.clone(),
             model_commands: self.model_commands,
+            agent: erindi_core::agent::Agent::Claude,
         }
     }
 

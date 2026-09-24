@@ -129,7 +129,11 @@ impl Runtime {
 
     pub fn continue_session(&self, id: uuid::Uuid) -> Result<(), String> {
         let cwd = self.session_cwd(id)?;
-        self.send(Msg::SetActive { id, cwd });
+        self.send(Msg::SetActive {
+            id,
+            cwd,
+            agent: erindi_core::agent::Agent::Claude,
+        });
         Ok(())
     }
 
@@ -312,7 +316,7 @@ impl Executor {
                     let _ = tx.send(Msg::GestureTimeout { seq });
                 });
             }
-            Effect::OpenTerminal { id, cwd } => {
+            Effect::OpenTerminal { id, cwd, .. } => {
                 if let Err(e) = open_terminal(&cwd, id) {
                     eprintln!("{e}");
                 }
@@ -321,6 +325,7 @@ impl Executor {
                 session,
                 cwd,
                 prompt,
+                ..
             } => self.run_in_terminal(session, cwd, prompt),
             Effect::StopCapture => self.capture = None,
             Effect::LiveDecode { op, samples } => {
@@ -334,6 +339,7 @@ impl Executor {
                 prompt,
                 session,
                 cwd,
+                ..
             } => self.start_run(op, prompt, session, cwd),
             Effect::Classify { op, text } => {
                 let (refiner, tx) = (self.refiner.clone(), self.tx.clone());

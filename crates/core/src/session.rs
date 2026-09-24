@@ -19,6 +19,7 @@ pub struct Active {
     pub id: Uuid,
     pub cwd: String,
     pub last_used: Instant,
+    pub agent: crate::agent::Agent,
 }
 
 /// Returns the session to resume, or `None` to start a new one.
@@ -50,6 +51,7 @@ mod tests {
             id: Uuid::from_u128(7),
             cwd: cwd.into(),
             last_used: now - age,
+            agent: crate::agent::Agent::Claude,
         }
     }
 
