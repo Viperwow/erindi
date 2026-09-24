@@ -17,12 +17,16 @@ const commands: { id: Command; name: string; example: string; hotkey?: "newSessi
   { id: "newSession", name: "New session", example: "new session, check the diff", hotkey: "newSessionHotkey" },
   { id: "openTerminal", name: "Open in terminal", example: "open in terminal", hotkey: "terminalHotkey" },
   { id: "cancel", name: "Cancel", example: "check the diff… cancel" },
+  { id: "claude", name: "Claude", example: "claude, check the diff" },
+  { id: "codex", name: "Codex", example: "codex, check the diff" },
 ];
 
 const names: Record<Command, string> = {
   newSession: "New session",
   openTerminal: "Open in terminal",
   cancel: "Cancel",
+  claude: "New Claude session",
+  codex: "New Codex session",
 };
 
 /** What the parser makes of a phrase, with the patterns on screen. */
@@ -50,11 +54,11 @@ function TryPhrase(props: { patterns: Patterns }) {
       {result && typeof result !== "string" && (
         <p class="text-xs text-neutral-600 dark:text-neutral-400">
           {result.commands.length === 0
-            ? "No command; the whole phrase goes to Claude."
+            ? "No command; the whole phrase goes to the agent."
             : result.commands.includes("cancel")
               ? "Cancel: nothing is sent."
               : `${result.commands.map((c) => names[c]).join(" + ")}${
-                  result.rest ? ` · Claude gets: «${result.rest}»` : " · nothing goes to Claude"
+                  result.rest ? ` · the agent gets: «${result.rest}»` : " · nothing goes to the agent"
                 }`}
         </p>
       )}

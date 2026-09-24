@@ -1,12 +1,13 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { AgentFields, RecheckButton, useAgents } from "./agents";
 import { CommandsView } from "./commands";
 import { DictionaryView } from "./dictionary";
 import {
+  type Agent,
   Field,
   HotkeyInput,
-  type Mode,
   ModelRow,
   type ModelStatus,
   SaveBar,
@@ -15,7 +16,6 @@ import {
   type Settings,
   type Status,
   input,
-  modes,
   policies,
 } from "./controls";
 import { SessionsView } from "./sessions";
@@ -28,6 +28,7 @@ function SettingsView() {
   const [status, setStatus] = useState<Status>(null);
   const [models, setModels] = useState<ModelStatus[]>([]);
   const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
+  const { agents, recheck } = useAgents();
 
   useEffect(() => {
     invoke<Settings>("get_settings").then(setS);
@@ -37,6 +38,7 @@ function SettingsView() {
 
   if (!s) return null;
   const speech = models.find((m) => m.id === "speech");
+  const agentStatus = agents.find((a) => a.agent === s.agent);
   const set = (patch: Partial<Settings>) => {
     setS({ ...s, ...patch });
     setStatus(null);
@@ -58,32 +60,35 @@ function SettingsView() {
     >
       <h2 class="text-base font-semibold">Settings</h2>
 
-      <Section title="Agent" description="Where Claude runs and how it treats your requests.">
-        <Field label="Project folder" hint="Claude runs here.">
+      <Section title="Agent" description="Which agent runs your requests and how.">
+        <Field label="Project folder" hint="The agent runs here.">
           <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
         </Field>
 
-        <div class="grid grid-cols-2 gap-3">
-          <Field label="Permission mode">
-            <select
-              class={input}
-              value={s.mode}
-              onChange={(e) => set({ mode: e.currentTarget.value as Mode })}
-            >
-              {modes.map(([value, label]) => (
-                <option value={value}>{label}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Model" hint="Empty uses the Claude default.">
-            <input
-              class={input}
-              value={s.model}
-              placeholder="default"
-              onInput={(e) => set({ model: e.currentTarget.value })}
-            />
-          </Field>
+        <div class="flex items-end gap-3">
+          <div class="flex-1">
+            <Field label="Agent" hint="New sessions use it. Say “claude” or “codex” to pick one for a new session.">
+              <select class={input} value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
+                {agents.map((a) => (
+                  <option value={a.agent}>{a.label}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div class="mb-5">
+            <RecheckButton recheck={recheck} />
+          </div>
         </div>
+        {agentStatus && !agentStatus.path && (
+          <p class="text-xs text-red-600">{agentStatus.label} CLI not found. Install it, then press Re-check.</p>
+        )}
+        {agentStatus && (
+          <AgentFields
+            status={agentStatus}
+            value={s.agents[s.agent] ?? { model: null, permission: "default" }}
+            onChange={(v) => set({ agents: { ...s.agents, [s.agent]: v } })}
+          />
+        )}
 
         <div class="grid grid-cols-2 gap-3">
           <Field label="Session" hint={'Say "new session" to start a new one.'}>

@@ -75,6 +75,7 @@ A release writes the version into every file that carries one (`scripts/set-vers
 ## Useful tools
 
 - `cargo run -p erindi-core --example claude-smoke -- <folder> <prompt>` sends one prompt to the real `claude` through the same runner the app uses.
+- `cargo run -p erindi-core --example codex-smoke -- <folder> <prompt>` does the same for `codex`. Codex runs only inside a git repository or a folder it trusts.
 - `node scripts/logo.mjs` in `apps/desktop` redraws the logo into `src/logo.svg` and `app-icon.png`. Then run `pnpm tauri icon app-icon.png -o src-tauri/icons` and delete the generated `android` and `ios` folders.
 
 ## Local data

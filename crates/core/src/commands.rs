@@ -8,6 +8,19 @@ pub enum Command {
     OpenTerminal,
     /// Only at the end of a phrase: nothing is sent.
     Cancel,
+    /// Only at the start: a new session with this agent.
+    Claude,
+    Codex,
+}
+
+impl Command {
+    pub fn agent(self) -> Option<crate::agent::Agent> {
+        match self {
+            Command::Claude => Some(crate::agent::Agent::Claude),
+            Command::Codex => Some(crate::agent::Agent::Codex),
+            _ => None,
+        }
+    }
 }
 
 /// Regular expressions that trigger each command, as the user edits them.
@@ -17,6 +30,8 @@ pub struct Patterns {
     pub new_session: Vec<String>,
     pub open_terminal: Vec<String>,
     pub cancel: Vec<String>,
+    pub claude: Vec<String>,
+    pub codex: Vec<String>,
 }
 
 impl Default for Patterns {
@@ -29,6 +44,8 @@ impl Default for Patterns {
             ]),
             open_terminal: list(&[r"открой (в )?термина\w*", r"open (in )?terminal"]),
             cancel: list(&[r"отмен\w*", "cancel", "scratch that"]),
+            claude: list(&[r"((в|с|через) )?(клод|claude)\w*", r"((in|with) )?claude"]),
+            codex: list(&[r"((в|с|через) )?(кодекс|codex)\w*", r"((in|with) )?codex"]),
         }
     }
 }
@@ -55,6 +72,8 @@ impl Parser {
             (Command::NewSession, &patterns.new_session),
             (Command::OpenTerminal, &patterns.open_terminal),
             (Command::Cancel, &patterns.cancel),
+            (Command::Claude, &patterns.claude),
+            (Command::Codex, &patterns.codex),
         ];
         let mut entries = vec![];
         for (command, list) in groups {
@@ -92,6 +111,7 @@ impl Parser {
                 .iter()
                 .filter(|e| !cancel(e.command))
                 .filter_map(|e| Some((e.command, nonempty(e.start.find(&rest))?.end())))
+                .filter(|(command, end)| command.agent().is_none() || agent_break(&rest[*end..]))
                 .max_by_key(|(_, end)| *end);
             if let Some((command, end)) = start {
                 let tail = &rest[end..];
@@ -101,7 +121,7 @@ impl Parser {
                 }
                 continue;
             }
-            if let Some((command, at)) = self.at_end(&rest, |c| !cancel(c)) {
+            if let Some((command, at)) = self.at_end(&rest, |c| !cancel(c) && c.agent().is_none()) {
                 rest = self.before(&rest[..at]);
                 if !commands.contains(&command) {
                     commands.push(command);
@@ -126,6 +146,14 @@ impl Parser {
         let cut = self.tail.find(rest).map_or(rest.len(), |m| m.start());
         rest[..cut].to_string()
     }
+}
+
+/// An agent name counts only as a word of its own: "Claude.md" and "codex-smoke" are file names.
+fn agent_break(after: &str) -> bool {
+    after
+        .chars()
+        .next()
+        .is_none_or(|c| c.is_whitespace() || matches!(c, ',' | ':' | '!' | '—' | '–'))
 }
 
 /// A zero-width match, such as a bare `\b` pattern, would peel nothing and loop forever.
@@ -270,5 +298,56 @@ mod tests {
             parser.parse("в новой сессии проверь diff, отмена").0,
             [Command::Cancel]
         );
+    }
+
+    #[test]
+    fn agent_names_count_only_at_the_start() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        assert_eq!(
+            parser.parse("Codex, проверь diff"),
+            (vec![Command::Codex], "проверь diff".to_string())
+        );
+        assert_eq!(
+            parser.parse("в клоде напиши тесты"),
+            (vec![Command::Claude], "напиши тесты".to_string())
+        );
+        for text in ["проверь diff в codex", "review this with claude"] {
+            assert_eq!(parser.parse(text), (vec![], text.to_string()), "{text}");
+        }
+    }
+
+    #[test]
+    fn agent_and_terminal_combine() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        let (mut commands, rest) = parser.parse("codex, открой в терминале, проверь diff");
+        commands.sort_by_key(|c| *c as u8);
+        assert_eq!(commands, [Command::OpenTerminal, Command::Codex]);
+        assert_eq!(rest, "проверь diff");
+    }
+
+    #[test]
+    fn commands_name_their_agent() {
+        assert_eq!(Command::Codex.agent(), Some(crate::agent::Agent::Codex));
+        assert_eq!(Command::NewSession.agent(), None);
+    }
+
+    #[test]
+    fn agent_names_need_a_break_after_them() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        for text in [
+            "Claude.md обнови",
+            "codex-smoke почини",
+            "CLAUDE.md: add a rule",
+        ] {
+            assert_eq!(parser.parse(text), (vec![], text.to_string()), "{text}");
+        }
+        for text in [
+            "codex: проверь diff",
+            "Codex! проверь diff",
+            "codex — проверь diff",
+        ] {
+            assert_eq!(parser.parse(text).0, [Command::Codex], "{text}");
+        }
+        assert_eq!(parser.parse("codex").0, [Command::Codex]);
     }
 }

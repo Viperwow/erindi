@@ -15,6 +15,8 @@ fn main() {
         "download_model",
         "test_command",
         "default_patterns",
+        "agent_status",
+        "recheck_agents",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(commands))
         .expect("failed to run tauri-build");

@@ -4,11 +4,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { accelerator, heldModifiers } from "./hotkey";
 
-export type Mode = "default" | "acceptEdits" | "auto" | "plan" | "dontAsk" | "bypassPermissions";
-
 export type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
 
-export type Command = "newSession" | "openTerminal" | "cancel";
+export type Command = "newSession" | "openTerminal" | "cancel" | "claude" | "codex";
 
 export type Patterns = Record<Command, string[]>;
 
@@ -20,8 +18,8 @@ export type Settings = {
   sessionPolicy: SessionPolicy;
   recentMinutes: number;
   cwd: string;
-  mode: Mode;
-  model: string;
+  agent: Agent;
+  agents: Partial<Record<Agent, AgentSettings>>;
   microphone: string;
   silenceSecs: number;
   dictionary: [string, string][];
@@ -35,14 +33,22 @@ export type ModelStatus = {
   downloading: boolean;
 };
 
-export const modes: [Mode, string][] = [
-  ["default", "Claude settings (no flag)"],
-  ["acceptEdits", "Accept edits"],
-  ["auto", "Auto"],
-  ["plan", "Plan"],
-  ["dontAsk", "Don't ask"],
-  ["bypassPermissions", "Bypass permissions (unsafe)"],
-];
+export type Agent = "claude" | "codex";
+
+export type ModelChoice = { listed: string } | { custom: string } | null;
+
+export type AgentSettings = { model: ModelChoice; permission: string };
+
+export type AgentStatus = {
+  agent: Agent;
+  label: string;
+  path: string | null;
+  models: { id: string; label: string }[];
+  modelsError: string | null;
+  permissions: string[];
+};
+
+export const unsafePermissions = ["bypassPermissions", "danger-full-access"];
 
 export const policies: [SessionPolicy, string][] = [
   ["continue", "Continue the active session"],

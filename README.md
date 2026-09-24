@@ -15,13 +15,14 @@
 </p>
 
 > [!NOTE]
-> Erindi is a proof of concept: Windows only, Claude Code only.
+> Erindi is a proof of concept: Windows only, Claude Code and Codex.
 
 ## Features
 
 - **Talk from any app.** Hold a hotkey to talk, or double-press it for hands-free mode that sends after a pause.
 - **Local speech recognition.** Russian and English, with a live transcript above the aurora overlay.
-- **Claude Code runs in the background.** Cancel a run with one press, or open the session in Windows Terminal.
+- **Claude Code or Codex.** Pick the default agent in Settings, or say "claude" or "codex" to start a session with one. Each session keeps its agent.
+- **Runs in the background.** Cancel a run with one press, or open the session in Windows Terminal.
 - **Sessions.** New utterances continue the active session; the Sessions tab lists past ones and reopens them.
 - **Voice commands.** Say "new session", "open in terminal" or "cancel" at the start or end of a phrase. A local model understands commands in your own words.
 - **Dictionary.** Replaces what you say with how it should be written.
@@ -64,7 +65,7 @@ Run the tests with `cargo test --workspace`. [CONTRIBUTING.md](CONTRIBUTING.md) 
 | Speech recognition | sherpa-onnx, Parakeet TDT 0.6B v3 |
 | End of speech | Silero VAD |
 | Voice commands in your own words | llama.cpp (Vulkan), Qwen2.5-3B-Instruct |
-| Agent run and cancel | `claude -p` stream-json, Windows Job Objects |
+| Agent run and cancel | `claude -p` stream-json, `codex exec --json`, Windows Job Objects |
 
 ## The name
 

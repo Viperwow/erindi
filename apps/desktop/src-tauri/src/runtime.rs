@@ -8,18 +8,21 @@ use erindi_audio_asr::asr::Asr;
 use erindi_audio_asr::capture::{self, Capture};
 use erindi_audio_asr::dsp::{To16k, rms};
 use erindi_audio_asr::vad::{Endpoint, Endpointer};
-use erindi_core::claude::{ClaudeRequest, Session, claude_args, claude_env, resume_in_terminal};
+use erindi_core::agent::{self, Agent, AgentRequest, EventParser, Target};
+use erindi_core::claude::Session;
 use erindi_core::commands::Command;
 use erindi_core::controller::{Controller, Effect, Msg};
 use erindi_core::llama::LlamaServer;
 use erindi_core::prompt::{Dictionary, PromptTransformer};
 use erindi_core::run::{RunEnd, RunSpec, run};
 use erindi_core::state::{AppState, OpId};
-use erindi_core::stream::parse_line;
+use erindi_core::stream::RunEvent;
+use erindi_core::transcript::Details;
 use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
-use crate::history::{Entry, History, Prompt};
+use crate::agents::{Agents, missing};
+use crate::history::{Entry, History, Prompt, Start};
 use crate::overlay;
 use crate::settings::Settings;
 
@@ -41,16 +44,22 @@ pub struct Runtime {
     active: Arc<Mutex<Option<uuid::Uuid>>>,
 }
 
-/// The most recent Claude run, which the overlay can reopen in a terminal.
+/// The most recent agent run, which the overlay can reopen in a terminal.
 #[derive(Clone)]
 struct LastRun {
     op: OpId,
     id: uuid::Uuid,
     cwd: String,
+    agent: Agent,
 }
 
 impl Runtime {
-    pub fn start(app: AppHandle, settings: SharedSettings, history_path: &Path) -> Self {
+    pub fn start(
+        app: AppHandle,
+        settings: SharedSettings,
+        history_path: &Path,
+        agents: Agents,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let asr = Arc::new(OnceLock::new());
         let last_session = Arc::new(Mutex::new(None));
@@ -70,6 +79,7 @@ impl Runtime {
             history: history.clone(),
             active: active.clone(),
             refiner: refiner.clone(),
+            agents,
         };
         std::thread::spawn(move || {
             let mut controller = Controller::new(Box::new(SettingsDictionary(settings.clone())));
@@ -123,13 +133,23 @@ impl Runtime {
     }
 
     pub fn open_history_session(&self, id: uuid::Uuid) -> Result<(), String> {
-        let cwd = self.session_cwd(id)?;
-        open_terminal(&cwd, id)
+        let (cwd, agent) = self.session(id)?;
+        open_terminal(&self.history, &cwd, id, agent)
     }
 
     pub fn continue_session(&self, id: uuid::Uuid) -> Result<(), String> {
-        let cwd = self.session_cwd(id)?;
-        self.send(Msg::SetActive { id, cwd });
+        let (cwd, agent) = self.session(id)?;
+        if self
+            .history
+            .lock()
+            .unwrap()
+            .get(id)
+            .and_then(Entry::native)
+            .is_none()
+        {
+            return Err("This session can't be resumed".into());
+        }
+        self.send(Msg::SetActive { id, cwd, agent });
         Ok(())
     }
 
@@ -139,10 +159,10 @@ impl Runtime {
         Ok(())
     }
 
-    fn session_cwd(&self, id: uuid::Uuid) -> Result<String, String> {
+    fn session(&self, id: uuid::Uuid) -> Result<(String, Agent), String> {
         let history = self.history.lock().unwrap();
         let entry = history.get(id).ok_or("Session not found")?;
-        Ok(entry.cwd.clone())
+        Ok((entry.cwd.clone(), entry.agent))
     }
 
     pub fn set_cleanup(&self, on: bool) {
@@ -155,16 +175,31 @@ impl Runtime {
 
     pub fn open_session(&self) -> Result<(), String> {
         let session = self.last_session.lock().unwrap().clone();
-        let session = session.ok_or("No Claude session yet")?;
-        open_terminal(&session.cwd, session.id)?;
+        let session = session.ok_or("No session yet")?;
+        open_terminal(&self.history, &session.cwd, session.id, session.agent)?;
         self.send(Msg::Dismiss { op: session.op });
         Ok(())
     }
 }
 
-fn open_terminal(cwd: &str, id: uuid::Uuid) -> Result<(), String> {
-    let args =
-        resume_in_terminal(cwd, id).map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
+/// Reopens session `id` in Windows Terminal with the agent that started it.
+fn open_terminal(
+    history: &Mutex<History>,
+    cwd: &str,
+    id: uuid::Uuid,
+    agent: Agent,
+) -> Result<(), String> {
+    let entry = history.lock().unwrap().get(id).cloned();
+    let agent = entry.as_ref().map_or(agent, |e| e.agent);
+    // A Claude session opened empty in a terminal never reached history, and uses Erindi's ID.
+    let native = match (entry.and_then(|e| e.native_id), agent) {
+        (Some(native), _) => native,
+        (None, Agent::Claude) => id.to_string(),
+        (None, _) => return Err("This session can't be resumed".into()),
+    };
+    let program = erindi_core::cli::locate(agent).ok_or_else(|| missing(agent))?;
+    let args = agent::resume_in_terminal(&program.display().to_string(), cwd, agent, &native)
+        .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
     std::process::Command::new("wt.exe")
         .args(args)
         .spawn()
@@ -299,6 +334,7 @@ struct Executor {
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
     refiner: Refiner,
+    agents: Agents,
 }
 
 impl Executor {
@@ -312,8 +348,8 @@ impl Executor {
                     let _ = tx.send(Msg::GestureTimeout { seq });
                 });
             }
-            Effect::OpenTerminal { id, cwd } => {
-                if let Err(e) = open_terminal(&cwd, id) {
+            Effect::OpenTerminal { id, cwd, agent } => {
+                if let Err(e) = open_terminal(&self.history, &cwd, id, agent) {
                     eprintln!("{e}");
                 }
             }
@@ -321,7 +357,8 @@ impl Executor {
                 session,
                 cwd,
                 prompt,
-            } => self.run_in_terminal(session, cwd, prompt),
+                agent,
+            } => self.run_in_terminal(session, cwd, prompt, agent),
             Effect::StopCapture => self.capture = None,
             Effect::LiveDecode { op, samples } => {
                 self.decode(op, samples, |op, text| Msg::Live { op, text })
@@ -334,7 +371,8 @@ impl Executor {
                 prompt,
                 session,
                 cwd,
-            } => self.start_run(op, prompt, session, cwd),
+                agent,
+            } => self.start_run(op, prompt, session, cwd, agent),
             Effect::Classify { op, text } => {
                 let (refiner, tx) = (self.refiner.clone(), self.tx.clone());
                 std::thread::spawn(move || {
@@ -453,35 +491,95 @@ impl Executor {
         });
     }
 
-    fn run_in_terminal(&mut self, session: Session, cwd: String, prompt: String) {
-        let settings = self.settings.read().unwrap().clone();
-        let request = ClaudeRequest {
-            mode: settings.mode,
-            model: (!settings.model.is_empty()).then_some(settings.model),
-            session,
+    /// The agent's CLI and request for `session`. A new session takes the agent's settings; a
+    /// resumed one passes neither model nor permission and uses the agent's own session ID.
+    fn request(
+        &self,
+        session: Session,
+        agent: Agent,
+    ) -> Result<(PathBuf, AgentRequest, Start), String> {
+        let program = self
+            .agents
+            .locate(agent, &self.app)
+            .ok_or_else(|| missing(agent))?;
+        let (target, start) = match session {
+            Session::New(id) => {
+                let settings = self.settings.read().unwrap().agent_settings(agent);
+                let start = Start {
+                    agent,
+                    native_id: (agent == Agent::Claude).then(|| id.to_string()),
+                    model: settings.model_id().map(String::from),
+                    permission: settings.permission_flag().map(String::from),
+                };
+                (Target::New(id), start)
+            }
+            Session::Resume(id) => {
+                let entry = self.history.lock().unwrap().get(id).cloned();
+                // A Claude session opened empty in a terminal never reached history.
+                let native = entry
+                    .as_ref()
+                    .and_then(|e| e.native_id.clone())
+                    .or_else(|| (agent == Agent::Claude).then(|| id.to_string()))
+                    .ok_or("This session can't be resumed")?;
+                let started = Start {
+                    agent,
+                    native_id: Some(native.clone()),
+                    model: entry.as_ref().and_then(|e| e.started_model.clone()),
+                    permission: entry.as_ref().and_then(|e| e.started_permission.clone()),
+                };
+                let live = session_details(agent, &native);
+                let (model, permission) = continue_flags(&started, live);
+                let start = Start {
+                    model,
+                    permission,
+                    ..started
+                };
+                (Target::Resume(native), start)
+            }
         };
-        let started = erindi_core::claude::run_in_terminal(&cwd, &request, &prompt)
-            .map_err(|e| format!("Cannot open a terminal in {cwd}: {e:?}"))
-            .and_then(|args| {
+        let request = AgentRequest {
+            agent,
+            model: start.model.clone(),
+            permission: start.permission.clone(),
+            target,
+        };
+        Ok((program, request, start))
+    }
+
+    fn run_in_terminal(&mut self, session: Session, cwd: String, prompt: String, agent: Agent) {
+        let started = self
+            .request(session, agent)
+            .and_then(|(program, request, start)| {
+                let args =
+                    agent::terminal_args(&program.display().to_string(), &cwd, &request, &prompt)
+                        .map_err(|e| format!("Cannot open a terminal in {cwd}: {e:?}"))?;
                 std::process::Command::new("wt.exe")
                     .args(args)
                     .spawn()
-                    .map_err(|e| format!("Cannot start Windows Terminal: {e}"))
+                    .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
+                Ok(start)
             });
-        if let Err(e) = started {
-            eprintln!("{e}");
-            // The controller already made this session active; a session that never started must not be resumed.
-            if let Session::New(id) = session {
-                let _ = self.tx.send(Msg::Forget { id });
+        let start = match started {
+            Ok(start) => start,
+            Err(e) => {
+                eprintln!("{e}");
+                // The controller already made this session active; a session that never started must not be resumed.
+                if let Session::New(id) = session {
+                    let _ = self.tx.send(Msg::Forget { id });
+                }
+                return;
             }
-            return;
+        };
+        // An interactive Codex picks its own session ID, which Erindi never sees.
+        if let (Agent::Codex, Session::New(id)) = (agent, session) {
+            let _ = self.tx.send(Msg::Forget { id });
         }
         if !prompt.is_empty() {
-            self.remember_prompt(session, &cwd, prompt);
+            self.remember_prompt(session, &cwd, prompt, &start);
         }
     }
 
-    fn remember_prompt(&mut self, session: Session, cwd: &str, prompt: String) {
+    fn remember_prompt(&mut self, session: Session, cwd: &str, prompt: String, start: &Start) {
         let id = match session {
             Session::New(id) | Session::Resume(id) => id,
         };
@@ -489,32 +587,46 @@ impl Executor {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
         let entry = Prompt::Plain(prompt);
-        if let Err(e) = self.history.lock().unwrap().record(id, cwd, entry, now_ms) {
+        if let Err(e) = self
+            .history
+            .lock()
+            .unwrap()
+            .record(id, cwd, entry, now_ms, start)
+        {
             eprintln!("cannot save session history: {e}");
         }
         let _ = self.app.emit_to("settings", "sessions-changed", ());
     }
 
-    fn start_run(&mut self, op: OpId, prompt: String, session: Session, cwd: String) {
-        let settings = self.settings.read().unwrap().clone();
-        let request = ClaudeRequest {
-            mode: settings.mode,
-            model: (!settings.model.is_empty()).then_some(settings.model),
-            session,
-        };
-        let Ok(args) = claude_args(&request) else {
-            let _ = self.tx.send(Msg::RunExited {
+    fn start_run(&mut self, op: OpId, prompt: String, session: Session, cwd: String, agent: Agent) {
+        let fail = |tx: &Sender<Msg>, stderr: String| {
+            let _ = tx.send(Msg::RunExited {
                 op,
                 end: RunEnd::Exited { success: false },
-                stderr: "Invalid model name".into(),
+                stderr,
             });
-            return;
+        };
+        let (program, request, start) = match self.request(session, agent) {
+            Ok(r) => r,
+            Err(e) => return fail(&self.tx, e),
+        };
+        let args = match agent::headless_args(&request, &cwd) {
+            Ok(args) => args,
+            Err(e) => {
+                return fail(
+                    &self.tx,
+                    format!("Invalid {} settings: {e:?}", agent.label()),
+                );
+            }
         };
         let spec = RunSpec {
-            program: "claude".into(),
+            program,
             args,
             cwd: cwd.clone().into(),
-            env: claude_env(std::env::vars()),
+            env: agent::env(
+                agent,
+                run_env(std::env::vars(), erindi_core::cli::current_path()),
+            ),
             stdin: prompt.clone(),
             timeout: RUN_TIMEOUT,
         };
@@ -525,14 +637,25 @@ impl Executor {
             op,
             id,
             cwd: cwd.clone(),
+            agent,
         });
-        self.remember_prompt(session, &cwd, prompt.clone());
+        self.remember_prompt(session, &cwd, prompt.clone(), &start);
         let token = CancellationToken::new();
         self.cancel = Some(token.clone());
-        let tx = self.tx.clone();
+        let (tx, history, app) = (self.tx.clone(), self.history.clone(), self.app.clone());
+        let new = matches!(session, Session::New(_));
         tauri::async_runtime::spawn(async move {
+            let mut parser = EventParser::new(agent);
+            let mut native_seen = false;
             let outcome = run(spec, token, |line| {
-                for event in parse_line(line) {
+                for event in parser.feed(line) {
+                    if let RunEvent::SessionStarted { native_id } = &event {
+                        native_seen = true;
+                        if let Err(e) = history.lock().unwrap().set_native(id, native_id) {
+                            eprintln!("cannot save session history: {e}");
+                        }
+                        let _ = app.emit_to("settings", "sessions-changed", ());
+                    }
                     let _ = tx.send(Msg::Run { op, event });
                 }
             })
@@ -546,17 +669,123 @@ impl Executor {
                 Err(e) => Msg::RunExited {
                     op,
                     end: RunEnd::Exited { success: false },
-                    stderr: format!("Cannot start claude: {e}"),
+                    stderr: format!("Cannot start {}: {e}", agent.cli()),
                 },
             };
             let _ = tx.send(msg);
+            if forget_after_run(agent, new, native_seen) {
+                let _ = tx.send(Msg::Forget { id });
+            }
         });
     }
+}
+
+/// The model and permission a continued run passes. `claude -p --resume` falls back to the default
+/// permission mode unless it is passed again, so Claude gets the session's current values; Codex
+/// keeps its own and gets none.
+fn continue_flags(started: &Start, live: Option<Details>) -> (Option<String>, Option<String>) {
+    if started.agent != Agent::Claude {
+        return (None, None);
+    }
+    let live = live.unwrap_or(Details {
+        model: None,
+        permission: None,
+    });
+    let model = live.model.or_else(|| started.model.clone());
+    let permission = live
+        .permission
+        .or_else(|| started.permission.clone())
+        .filter(|p| p != "default");
+    (model, permission)
+}
+
+/// What the agent's own log says about session `native_id` now.
+fn session_details(agent: Agent, native_id: &str) -> Option<Details> {
+    let home = std::env::var_os("USERPROFILE").map(PathBuf::from)?;
+    let logs = erindi_core::transcript::find_logs(agent, &home);
+    erindi_core::transcript::read(agent, logs.get(native_id)?)
+}
+
+/// A new Codex session that never reported its ID cannot be continued, so it must not stay active.
+fn forget_after_run(agent: Agent, new: bool, native_seen: bool) -> bool {
+    agent == Agent::Codex && new && !native_seen
+}
+
+/// The launcher's environment with PATH as it is now, so tools installed after launch are found.
+fn run_env(
+    vars: impl IntoIterator<Item = (String, String)>,
+    path: String,
+) -> Vec<(String, String)> {
+    vars.into_iter()
+        .filter(|(k, _)| !k.eq_ignore_ascii_case("PATH"))
+        .chain([("PATH".to_string(), path)])
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::history;
+
+    fn details(model: Option<&str>, permission: Option<&str>) -> Details {
+        Details {
+            model: model.map(String::from),
+            permission: permission.map(String::from),
+        }
+    }
+
+    #[test]
+    fn continued_claude_keeps_the_session_permission_and_model() {
+        let entry = history::Start {
+            agent: Agent::Claude,
+            native_id: None,
+            model: Some("opus".into()),
+            permission: Some("plan".into()),
+        };
+        let live = Some(details(Some("claude-opus-5-5"), Some("acceptEdits")));
+        assert_eq!(
+            continue_flags(&entry, live),
+            (Some("claude-opus-5-5".into()), Some("acceptEdits".into()))
+        );
+        assert_eq!(
+            continue_flags(&entry, None),
+            (Some("opus".into()), Some("plan".into()))
+        );
+        let live = Some(details(None, Some("default")));
+        assert_eq!(continue_flags(&entry, live), (Some("opus".into()), None));
+    }
+
+    #[test]
+    fn continued_codex_passes_no_flags() {
+        let entry = history::Start {
+            agent: Agent::Codex,
+            native_id: None,
+            model: Some("gpt-5.5".into()),
+            permission: Some("read-only".into()),
+        };
+        let live = Some(details(Some("gpt-5.5"), Some("workspace-write")));
+        assert_eq!(continue_flags(&entry, live), (None, None));
+    }
+
+    #[test]
+    fn codex_session_without_native_id_is_forgotten() {
+        assert!(forget_after_run(Agent::Codex, true, false));
+        assert!(!forget_after_run(Agent::Codex, true, true));
+        assert!(!forget_after_run(Agent::Claude, true, false));
+        assert!(!forget_after_run(Agent::Codex, false, false));
+    }
+
+    #[test]
+    fn run_env_replaces_path_whatever_its_case() {
+        let vars = [("Path", "old"), ("TEMP", "t")].map(|(k, v)| (k.to_string(), v.to_string()));
+        assert_eq!(
+            run_env(vars, "new".into()),
+            [
+                ("TEMP".to_string(), "t".to_string()),
+                ("PATH".to_string(), "new".to_string())
+            ]
+        );
+    }
 
     #[test]
     fn env_var_wins() {

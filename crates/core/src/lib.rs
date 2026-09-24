@@ -1,5 +1,8 @@
+pub mod agent;
 pub mod classify;
 pub mod claude;
+pub mod cli;
+pub mod codex;
 pub mod commands;
 pub mod controller;
 #[cfg(windows)]
@@ -11,3 +14,4 @@ pub mod run;
 pub mod session;
 pub mod state;
 pub mod stream;
+pub mod transcript;

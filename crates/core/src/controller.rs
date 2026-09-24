@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::agent::Agent;
 use crate::classify::accept;
 use crate::claude::Session;
 use crate::commands::{Command, Parser, Patterns};
@@ -79,6 +80,8 @@ pub enum Msg {
         patterns: Patterns,
         /// Ask the local model when the patterns find no command.
         model_commands: bool,
+        /// The agent of new sessions nobody named an agent for.
+        agent: Agent,
     },
     /// `DOUBLE` has passed since the tap numbered `seq`.
     GestureTimeout {
@@ -88,6 +91,7 @@ pub enum Msg {
     SetActive {
         id: Uuid,
         cwd: String,
+        agent: Agent,
     },
     /// The session was removed from history, so it can no longer be the active one.
     Forget {
@@ -112,12 +116,14 @@ pub enum Effect {
     OpenTerminal {
         id: Uuid,
         cwd: String,
+        agent: Agent,
     },
-    /// Starts an interactive Claude in a terminal, with `prompt` as its first message when not empty.
+    /// Starts an interactive agent in a terminal, with `prompt` as its first message when not empty.
     RunInTerminal {
         session: Session,
         cwd: String,
         prompt: String,
+        agent: Agent,
     },
     StopCapture,
     LiveDecode {
@@ -138,6 +144,7 @@ pub enum Effect {
         session: Session,
         /// Resumed sessions run in their own project folder.
         cwd: String,
+        agent: Agent,
     },
     CancelRun,
     OpenSettings,
@@ -171,7 +178,9 @@ pub struct Controller {
     recent: Duration,
     cwd: String,
     active: Option<Active>,
-    running: Option<(Session, String)>,
+    running: Option<(Session, String, Agent)>,
+    /// The agent of new sessions nobody named an agent for.
+    agent: Agent,
     model_commands: bool,
     /// The transcript while the model looks for a command in it.
     pending: Option<String>,
@@ -209,6 +218,7 @@ impl Controller {
             cwd: String::new(),
             active: None,
             running: None,
+            agent: Agent::Claude,
             model_commands: false,
             pending: None,
             parser: Parser::new(&Patterns::default()).expect("default patterns compile"),
@@ -358,12 +368,15 @@ impl Controller {
                     self.result = Some((ok, text));
                     vec![]
                 }
+                RunEvent::SessionStarted { .. } | RunEvent::Reply { .. } => vec![],
             },
             Msg::RunExited { op, end, stderr } if current(op) => {
                 let result_ok = self.result.as_ref().is_none_or(|(ok, _)| *ok);
                 let ok = end == RunEnd::Exited { success: true } && result_ok;
                 let mut fx = match self.running.take() {
-                    Some((session, cwd)) => self.remember(session, cwd, &end, ok, now),
+                    Some((session, cwd, agent)) => {
+                        self.remember(session, cwd, agent, &end, ok, now)
+                    }
                     None => vec![],
                 };
                 self.view.detail = match (&self.result, &end) {
@@ -381,7 +394,9 @@ impl Controller {
                 cwd,
                 patterns,
                 model_commands,
+                agent,
             } => {
+                self.agent = agent;
                 if let Ok(parser) = Parser::new(&patterns) {
                     self.parser = parser;
                 }
@@ -397,10 +412,11 @@ impl Controller {
             Msg::Forget { id } if self.active.as_ref().is_some_and(|a| a.id == id) => {
                 self.set_active(None)
             }
-            Msg::SetActive { id, cwd } => self.set_active(Some(Active {
+            Msg::SetActive { id, cwd, agent } => self.set_active(Some(Active {
                 id,
                 cwd,
                 last_used: now,
+                agent,
             })),
             Msg::Failed { op, error } if current(op) => {
                 self.view.detail = error;
@@ -421,6 +437,7 @@ impl Controller {
         &mut self,
         session: Session,
         cwd: String,
+        agent: Agent,
         end: &RunEnd,
         ok: bool,
         now: Instant,
@@ -433,6 +450,7 @@ impl Controller {
                 id: session_id(session),
                 cwd,
                 last_used: now,
+                agent,
             }))
         } else if matches!(session, Session::Resume(_)) {
             self.set_active(None)
@@ -453,9 +471,16 @@ impl Controller {
         }
     }
 
-    fn start_run(&mut self, op: OpId, new: bool, prompt: String, now: Instant) -> Vec<Effect> {
-        let (session, cwd, continued) = self.target(new, now);
-        self.running = Some((session, cwd.clone()));
+    fn start_run(
+        &mut self,
+        op: OpId,
+        new: bool,
+        spoken: Option<Agent>,
+        prompt: String,
+        now: Instant,
+    ) -> Vec<Effect> {
+        let (session, cwd, continued, agent) = self.target(new, spoken, now);
+        self.running = Some((session, cwd.clone(), agent));
         self.result = None;
         self.view.text = prompt.clone();
         self.view.session_id = Some(session_id(session));
@@ -467,12 +492,13 @@ impl Controller {
                 prompt,
                 session,
                 cwd,
+                agent,
             },
             self.show(),
         ]
     }
 
-    /// Carries out `commands` and sends the rest of the phrase, if any, to Claude: in the
+    /// Carries out `commands` and sends the rest of the phrase, if any, to the agent: in the
     /// background, or in a terminal when "open in terminal" is among them.
     fn act(
         &mut self,
@@ -484,6 +510,7 @@ impl Controller {
     ) -> Vec<Effect> {
         let has = |c: Command| commands.contains(&c);
         let new = has(Command::NewSession) || self.mode == Key::NewSession;
+        let spoken = commands.iter().find_map(|c| c.agent());
         let prompt = if has(Command::Cancel) {
             String::new()
         } else {
@@ -491,38 +518,54 @@ impl Controller {
         };
         let mut fx = vec![];
         let terminal = has(Command::OpenTerminal) && !has(Command::Cancel);
-        if terminal && prompt.is_empty() && !new {
+        if terminal && prompt.is_empty() && !new && spoken.is_none() {
             fx.extend(self.open_terminal());
         } else if terminal {
-            let (session, cwd, _) = self.target(new, now);
+            let (session, cwd, _, agent) = self.target(new, spoken, now);
             fx.push(Effect::RunInTerminal {
                 session,
                 cwd: cwd.clone(),
                 prompt,
+                agent,
             });
             fx.extend(self.set_active(Some(Active {
                 id: session_id(session),
                 cwd,
                 last_used: now,
+                agent,
             })));
             fx.extend(self.apply(done(op, true)));
             return fx;
         }
         let empty = prompt.is_empty();
         fx.extend(match self.machine.apply(done(op, empty)) {
-            Ok(Outcome::Changed(AppState::Running)) => self.start_run(op, new, prompt, now),
+            Ok(Outcome::Changed(AppState::Running)) => self.start_run(op, new, spoken, prompt, now),
             Ok(Outcome::Changed(_)) => vec![self.show()],
             _ => vec![],
         });
         fx
     }
 
-    /// The session a phrase goes to, its folder, and whether it continues an earlier one.
-    fn target(&self, new: bool, now: Instant) -> (Session, String, bool) {
+    /// The session a phrase goes to, its folder, whether it continues an earlier one, and its
+    /// agent. A spoken agent always starts a new session with that agent.
+    fn target(
+        &self,
+        new: bool,
+        spoken: Option<Agent>,
+        now: Instant,
+    ) -> (Session, String, bool, Agent) {
+        let new = new || spoken.is_some();
         let resume = choose(self.policy, self.recent, new, self.active.as_ref(), now);
         match (resume, &self.active) {
-            (Some(id), Some(active)) => (Session::Resume(id), active.cwd.clone(), true),
-            _ => (Session::New(Uuid::new_v4()), self.cwd.clone(), false),
+            (Some(id), Some(active)) => {
+                (Session::Resume(id), active.cwd.clone(), true, active.agent)
+            }
+            _ => (
+                Session::New(Uuid::new_v4()),
+                self.cwd.clone(),
+                false,
+                spoken.unwrap_or(self.agent),
+            ),
         }
     }
 
@@ -531,6 +574,7 @@ impl Controller {
             Some(active) => vec![Effect::OpenTerminal {
                 id: active.id,
                 cwd: active.cwd.clone(),
+                agent: active.agent,
             }],
             None => vec![],
         }
@@ -627,6 +671,7 @@ fn session_id(session: Session) -> Uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::Agent;
     use crate::prompt::Dictionary;
 
     struct T {
@@ -701,7 +746,7 @@ mod tests {
         }
 
         fn run(&mut self) -> OpId {
-            self.run_saying("клод, проверь diff")
+            self.run_saying("проверь, что клод видит diff")
         }
 
         /// Runs `text` to completion and returns the session it used.
@@ -757,6 +802,7 @@ mod tests {
             cwd: cwd.into(),
             patterns: Patterns::default(),
             model_commands: false,
+            agent: Agent::Claude,
         }
     }
 
@@ -914,7 +960,8 @@ mod tests {
             fx,
             [Effect::OpenTerminal {
                 id: id(session),
-                cwd: "C:/p".into()
+                cwd: "C:/p".into(),
+                agent: Agent::Claude,
             }]
         );
         assert_eq!(t.send(Msg::KeyUp(Key::Terminal)), []);
@@ -952,7 +999,8 @@ mod tests {
         });
         assert!(fx.contains(&Effect::OpenTerminal {
             id: id(session),
-            cwd: "C:/p".into()
+            cwd: "C:/p".into(),
+            agent: Agent::Claude,
         }));
         assert!(!fx.iter().any(|e| matches!(e, Effect::StartRun { .. })));
     }
@@ -1028,7 +1076,7 @@ mod tests {
         let op = t.run();
         assert_eq!(t.c.state(), AppState::Running);
         let v = &t.c.view;
-        assert_eq!(v.text, "Claude, проверь diff");
+        assert_eq!(v.text, "проверь, что Claude видит diff");
         assert!(v.session_id.is_some());
         let _ = op;
     }
@@ -1040,7 +1088,7 @@ mod tests {
         t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
-            text: " клод  go ".into(),
+            text: " go  клод ".into(),
         });
         let Some(Effect::StartRun {
             op: rop,
@@ -1051,7 +1099,7 @@ mod tests {
         else {
             panic!("{fx:?}")
         };
-        assert_eq!((*rop, prompt.as_str()), (op, "Claude go"));
+        assert_eq!((*rop, prompt.as_str()), (op, "go Claude"));
         assert_eq!(shown(&fx).unwrap().session_id, Some(*session_id));
         assert!(!shown(&fx).unwrap().continued);
     }
@@ -1258,7 +1306,7 @@ mod tests {
         t.release(Key::Talk);
         let fx = t.send(Msg::Transcribed {
             op,
-            text: "в новой сессии клод, найди баг".into(),
+            text: "в новой сессии найди баг у клод".into(),
         });
         let Some(Effect::StartRun {
             prompt, session, ..
@@ -1266,7 +1314,7 @@ mod tests {
         else {
             panic!("{fx:?}")
         };
-        assert_eq!(prompt, "Claude, найди баг");
+        assert_eq!(prompt, "найди баг у Claude");
         assert!(matches!(session, Session::New(new) if *new != id(first)));
     }
 
@@ -1369,6 +1417,7 @@ mod tests {
         let fx = t.send(Msg::SetActive {
             id: picked,
             cwd: "D:/elsewhere".into(),
+            agent: Agent::Claude,
         });
         assert_eq!(active_changes(&fx), [Some(picked)]);
 
@@ -1407,6 +1456,7 @@ mod tests {
         t.send(Msg::SetActive {
             id: picked,
             cwd: "D:/elsewhere".into(),
+            agent: Agent::Claude,
         });
         assert_eq!(
             t.send(Msg::Forget {
@@ -1441,6 +1491,7 @@ mod tests {
             cwd: "C:/p".into(),
             patterns: Patterns::default(),
             model_commands: true,
+            agent: Agent::Claude,
         });
         t
     }
@@ -1530,6 +1581,7 @@ mod tests {
                 session,
                 cwd,
                 prompt,
+                ..
             } => Some((*session, cwd.clone(), prompt.clone())),
             _ => None,
         })
@@ -1575,5 +1627,64 @@ mod tests {
         let (session, _, prompt) = run_in_terminal(&fx).expect("runs in a terminal");
         assert!(matches!(session, Session::New(_)));
         assert_eq!(prompt, "");
+    }
+
+    fn with_default(t: &mut T, agent: Agent) {
+        t.send(Msg::Settings {
+            policy: SessionPolicy::Continue,
+            recent: Duration::from_secs(600),
+            cwd: "C:/p".into(),
+            patterns: Patterns::default(),
+            model_commands: false,
+            agent,
+        });
+    }
+
+    fn run_agent(fx: &[Effect]) -> Option<(Session, Agent)> {
+        fx.iter().find_map(|e| match e {
+            Effect::StartRun { session, agent, .. } => Some((*session, *agent)),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn spoken_agent_starts_a_new_session_with_it() {
+        let mut t = T::new();
+        let first = t.finish_saying("проверь diff");
+        let fx = say(&mut t, "codex, напиши тесты");
+        let (session, agent) = run_agent(&fx).unwrap();
+        assert!(matches!(session, Session::New(new) if new != id(first)));
+        assert_eq!(agent, Agent::Codex);
+    }
+
+    #[test]
+    fn plain_phrase_continues_with_the_session_agent() {
+        let mut t = T::new();
+        let first = t.finish_saying("codex, напиши тесты");
+        let fx = say(&mut t, "а теперь поправь");
+        let (session, agent) = run_agent(&fx).unwrap();
+        assert_eq!(session, Session::Resume(id(first)));
+        assert_eq!(agent, Agent::Codex);
+    }
+
+    #[test]
+    fn default_agent_starts_new_sessions() {
+        let mut t = T::new();
+        with_default(&mut t, Agent::Codex);
+        let (_, agent) = run_agent(&say(&mut t, "проверь diff")).unwrap();
+        assert_eq!(agent, Agent::Codex);
+    }
+
+    #[test]
+    fn picked_session_keeps_its_agent() {
+        let mut t = T::new();
+        t.send(Msg::SetActive {
+            id: Uuid::from_u128(9),
+            cwd: "C:/q".into(),
+            agent: Agent::Codex,
+        });
+        let (session, agent) = run_agent(&say(&mut t, "продолжай")).unwrap();
+        assert_eq!(session, Session::Resume(Uuid::from_u128(9)));
+        assert_eq!(agent, Agent::Codex);
     }
 }

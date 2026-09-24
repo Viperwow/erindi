@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-recheck-agents"
+description = "Enables the recheck_agents command without any pre-configured scope."
+commands.allow = ["recheck_agents"]
+
+[[permission]]
+identifier = "deny-recheck-agents"
+description = "Denies the recheck_agents command without any pre-configured scope."
+commands.deny = ["recheck_agents"]
