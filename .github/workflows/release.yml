@@ -1,13 +1,14 @@
 name: Release
 
 # Every merge into main publishes a Windows build as the rolling "latest" pre-release.
-# Merging the release PR also creates a vX.Y.Z release that keeps its own build.
+# A feat or fix since the last tag also makes a vX.Y.Z release that keeps its own build.
 on:
   push:
     branches: [main]
 
 permissions:
   contents: write
+  issues: write
   pull-requests: write
 
 # A cancelled run could leave a new vX.Y.Z release without its build.
@@ -16,20 +17,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-please:
+  version:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Release
         id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec semantic-release
 
   windows:
-    needs: release-please
+    needs: version
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The release commit carries the new version numbers.
+          ref: ${{ needs.version.outputs.tag || github.sha }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # sherpa-onnx-sys downloads its libraries into target/, which rust-cache does not keep while it
@@ -78,7 +95,7 @@ jobs:
           gh release delete latest --cleanup-tag --yes 2>$null
           gh release create latest dist/*.zip --prerelease --target ${{ github.sha }} --title "Erindi $version (latest build)" --notes "Erindi $version, built from ${{ github.sha }}. Work in progress; replaced on every merge into main."
       - name: Attach to the version release
-        if: needs.release-please.outputs.release_created == 'true'
+        if: needs.version.outputs.tag
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload ${{ needs.release-please.outputs.tag_name }} dist/*.zip
+        run: gh release upload ${{ needs.version.outputs.tag }} dist/*.zip

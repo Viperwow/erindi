@@ -66,9 +66,11 @@ Pull requests into `main` run the checks only. Every merge into `main` makes CI 
 
 ## Versions
 
-[release-please](https://github.com/googleapis/release-please) sets the version from the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) on `main`, so write commit messages in that form. `fix` bumps the patch version and `feat` the minor one. Before 1.0.0 a breaking change (`feat!` or a `BREAKING CHANGE:` footer) bumps the minor version too.
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Run `pnpm install` in the repository root once: it installs a `commit-msg` hook that checks each message with commitlint. CI checks the commits of every pull request the same way.
 
-After each merge into `main` it opens or updates a release pull request with the new version and `CHANGELOG.md`. Merging that pull request tags `vX.Y.Z` and publishes a GitHub release that keeps its own archive. Never edit the version numbers by hand; `release-please-config.json` lists every file that carries one.
+[semantic-release](https://github.com/semantic-release/semantic-release) sets the version from those commits on every merge into `main`. `fix` bumps the patch version and `feat` the minor one. A breaking change (`feat!` or a `BREAKING CHANGE:` footer) bumps the minor version too, because 1.0.0 is a deliberate step, not a commit type. Other types release nothing.
+
+A release writes the version into every file that carries one (`scripts/set-version.mjs`), commits it as `chore(release): X.Y.Z`, tags `vX.Y.Z` and publishes a GitHub release that keeps its own archive. Never edit the version numbers by hand.
 
 ## Useful tools
 
