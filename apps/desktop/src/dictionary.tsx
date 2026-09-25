@@ -5,6 +5,7 @@ import { SaveBar, type Settings, type Status, input } from "./controls";
 export function DictionaryView() {
   const [s, setS] = useState<Settings | null>(null);
   const [status, setStatus] = useState<Status>(null);
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     invoke<Settings>("get_settings").then(setS);
@@ -14,6 +15,7 @@ export function DictionaryView() {
   const setDictionary = (dictionary: Settings["dictionary"]) => {
     setS({ ...s, dictionary });
     setStatus(null);
+    setChecked(false);
   };
   const setEntry = (i: number, j: 0 | 1, value: string) => {
     const dictionary = s.dictionary.map((e) => [...e] as [string, string]);
@@ -22,6 +24,11 @@ export function DictionaryView() {
   };
   const save = async (e: Event) => {
     e.preventDefault();
+    if (s.dictionary.some(([from, to]) => !from.trim() || !to.trim())) {
+      setChecked(true);
+      setStatus({ ok: false, text: "Fill in both words of every entry." });
+      return;
+    }
     try {
       await invoke("save_settings", { settings: s });
       setStatus({ ok: true, text: "Saved" });
@@ -42,6 +49,7 @@ export function DictionaryView() {
           <div class="flex gap-2">
             <input
               class={input}
+              aria-invalid={checked && !from.trim()}
               value={from}
               placeholder="клод"
               aria-label="Spoken"
@@ -49,6 +57,7 @@ export function DictionaryView() {
             />
             <input
               class={input}
+              aria-invalid={checked && !to.trim()}
               value={to}
               placeholder="Claude"
               aria-label="Written"
