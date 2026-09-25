@@ -417,7 +417,7 @@ mod tests {
         let req = codex(None, None, Target::New(Uuid::nil()));
         assert_eq!(
             headless_args(&req, r"C:\p").unwrap(),
-            ["exec", "--json", "-C", r"C:\p"]
+            ["exec", "--json", "--skip-git-repo-check", "-C", r"C:\p"]
         );
         let req = codex(
             Some("gpt-5.5"),
@@ -429,6 +429,7 @@ mod tests {
             [
                 "exec",
                 "--json",
+                "--skip-git-repo-check",
                 "-C",
                 r"C:\p",
                 "-m",
@@ -452,7 +453,8 @@ mod tests {
                 "exec",
                 "resume",
                 "01a0d2c0-0c6d-7dc0-90c7-da4ffbaf65a2",
-                "--json"
+                "--json",
+                "--skip-git-repo-check"
             ]
         );
     }

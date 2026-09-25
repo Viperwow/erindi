@@ -73,7 +73,7 @@ function SettingsView() {
       <h2 class="text-base font-semibold">Settings</h2>
 
       <Section title="Agent" description="Which agent runs your requests and how.">
-        <Field label="Project folder" hint="The agent runs here.">
+        <Field label="Project folder" hint="Agents run here without a trust prompt and load this folder's hooks and MCP servers. Pick only folders you trust.">
           <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
         </Field>
 

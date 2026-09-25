@@ -16,6 +16,8 @@ pub fn codex_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(Strin
 }
 
 /// A native ID Codex could read as an option is refused by the caller before this runs.
+/// The user picked the folder in Settings, so Codex's own git-repo guard is skipped.
+/// The flag does not make Codex load the folder's `.codex/` config or hooks.
 pub fn exec_args(
     model: Option<&str>,
     sandbox: Option<&str>,
@@ -23,11 +25,19 @@ pub fn exec_args(
     cwd: &str,
 ) -> Vec<String> {
     match target {
-        Target::Resume(id) => ["exec", "resume", id.as_str(), "--json"]
-            .map(String::from)
-            .into(),
+        Target::Resume(id) => [
+            "exec",
+            "resume",
+            id.as_str(),
+            "--json",
+            "--skip-git-repo-check",
+        ]
+        .map(String::from)
+        .into(),
         Target::New(_) => {
-            let mut args: Vec<String> = ["exec", "--json", "-C", cwd].map(String::from).into();
+            let mut args: Vec<String> = ["exec", "--json", "--skip-git-repo-check", "-C", cwd]
+                .map(String::from)
+                .into();
             args.extend(options(model, sandbox));
             args
         }
