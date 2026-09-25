@@ -163,6 +163,7 @@ pub struct View {
     pub session_id: Option<Uuid>,
     /// The run continues an earlier session rather than starting one.
     pub continued: bool,
+    pub agent: Agent,
 }
 
 pub struct Controller {
@@ -212,6 +213,7 @@ impl Controller {
                 detail: String::new(),
                 session_id: None,
                 continued: false,
+                agent: Agent::Claude,
             },
             policy: SessionPolicy::default(),
             recent: Duration::ZERO,
@@ -485,6 +487,7 @@ impl Controller {
         self.view.text = prompt.clone();
         self.view.session_id = Some(session_id(session));
         self.view.continued = continued;
+        self.view.agent = agent;
         self.view.detail.clear();
         vec![
             Effect::StartRun {
@@ -1076,6 +1079,7 @@ mod tests {
         let op = t.run();
         assert_eq!(t.c.state(), AppState::Running);
         let v = &t.c.view;
+        assert_eq!(v.agent, Agent::Claude);
         assert_eq!(v.text, "проверь, что Claude видит diff");
         assert!(v.session_id.is_some());
         let _ = op;
@@ -1655,6 +1659,7 @@ mod tests {
         let (session, agent) = run_agent(&fx).unwrap();
         assert!(matches!(session, Session::New(new) if new != id(first)));
         assert_eq!(agent, Agent::Codex);
+        assert_eq!(t.c.view.agent, Agent::Codex);
     }
 
     #[test]

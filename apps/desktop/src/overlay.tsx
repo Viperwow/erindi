@@ -23,6 +23,7 @@ type View = {
   detail: string;
   sessionId: string | null;
   continued: boolean;
+  agent: "claude" | "codex";
 };
 
 const palette: Record<AppState, [string, string]> = {
@@ -41,7 +42,6 @@ const palette: Record<AppState, [string, string]> = {
 const labels: Partial<Record<AppState, string>> = {
   Transcribing: "Transcribing…",
   Classifying: "Checking command…",
-  Running: "Claude is working",
   Cancelling: "Cancelling…",
   Succeeded: "Done",
   Failed: "Failed",
@@ -64,7 +64,8 @@ function Overlay() {
   const [a, b] = palette[view.state];
   const listening = view.state === "Listening";
   const intensity = listening ? Math.min(1, 0.6 + level * 8) : 0.8;
-  const status = labels[view.state];
+  const status =
+    view.state === "Running" ? `${view.agent === "codex" ? "Codex" : "Claude"} is working` : labels[view.state];
   const target =
     view.sessionId && view.state !== "Listening"
       ? view.continued
