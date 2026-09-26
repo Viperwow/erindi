@@ -51,6 +51,7 @@ export function DictionaryView() {
             <input
               class={input}
               aria-invalid={checked && !from.trim()}
+              aria-describedby={checked && !from.trim() ? "save-status" : undefined}
               value={from}
               placeholder="клод"
               aria-label="Spoken"
@@ -59,6 +60,7 @@ export function DictionaryView() {
             <input
               class={input}
               aria-invalid={checked && !to.trim()}
+              aria-describedby={checked && !to.trim() ? "save-status" : undefined}
               value={to}
               placeholder="Claude"
               aria-label="Written"

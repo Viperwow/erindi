@@ -50,10 +50,15 @@ function SettingsView() {
   const [cwd, setCwd] = useState<string>();
   useEffect(() => {
     if (cwd === undefined) return;
-    const check = () => invoke<boolean>("codex_limited", { cwd }).then(setLimited);
+    let current = true;
+    setLimited(false);
+    const check = () => invoke<boolean>("codex_limited", { cwd }).then((l) => current && setLimited(l));
     check();
     window.addEventListener("focus", check);
-    return () => window.removeEventListener("focus", check);
+    return () => {
+      current = false;
+      window.removeEventListener("focus", check);
+    };
   }, [cwd]);
 
   useEffect(() => {
@@ -95,7 +100,7 @@ function SettingsView() {
           <Field label="Project folder" hint="Agents run here. Pick only folders you trust.">
             <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
           </Field>
-          <Reveal open={limited && agents.some((a) => a.agent === "codex" && a.path)}>
+          <Reveal open={limited && s.cwd === cwd && agents.some((a) => a.agent === "codex" && a.path)}>
             <div class="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
               <span class="min-w-0 flex-1">Codex runs this folder read-only, without its hooks and MCP servers, until you trust it.</span>
               <button

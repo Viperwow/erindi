@@ -90,7 +90,7 @@ function Overlay() {
           {view.text && <p class="leading-snug">{view.text}</p>}
           {(status || view.detail) && (
             <p class="mt-0.5 truncate text-xs text-white/60">
-              {[status, target, view.detail, canOpen && (view.limited ? "limited mode · click to trust" : "click to open in terminal")]
+              {[status, target, view.detail, canOpen && (view.limited ? "limited mode · click to open in Codex and trust" : "click to open in terminal")]
                 .filter(Boolean)
                 .join(" · ")}
             </p>

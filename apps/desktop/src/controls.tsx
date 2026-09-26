@@ -241,7 +241,7 @@ export function useBusy(minMs = 400) {
 
 export function Spinner() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" class="h-4 w-4 animate-spin">
+    <svg aria-hidden="true" viewBox="0 0 16 16" class="h-4 w-4 motion-safe:animate-spin">
       <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" opacity="0.25" />
       <path d="M14 8a6 6 0 0 0-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
     </svg>
@@ -292,6 +292,7 @@ export function SaveBar(props: { status: Status; busy?: boolean }) {
         Save
       </button>
       <span
+        id="save-status"
         aria-live="polite"
         class={`whitespace-pre-line transition-[opacity,visibility] ${visible ? "visible opacity-100 duration-150 ease-out" : "invisible opacity-0 duration-200 ease-in"} ${shown?.ok ? "text-green-700 dark:text-green-400" : "text-red-600"}`}
       >

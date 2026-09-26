@@ -707,11 +707,11 @@ fn continue_flags(started: &Start, live: Option<Details>) -> (Option<String>, Op
 
 /// Codex skips this folder's hooks and MCP servers until it trusts the folder.
 pub fn codex_limited(cwd: &str) -> bool {
-    let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from) else {
+    let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
+    let Some(path) = erindi_core::codex::config_path(home) else {
         return false;
     };
-    let config =
-        std::fs::read_to_string(erindi_core::codex::config_path(&home)).unwrap_or_default();
+    let config = std::fs::read_to_string(path).unwrap_or_default();
     erindi_core::codex::limited(std::path::Path::new(cwd), &config)
 }
 

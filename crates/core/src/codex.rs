@@ -145,31 +145,34 @@ pub fn parse_models(json: &str) -> Result<Vec<ModelOption>, String> {
 }
 
 /// In a folder its own `config.toml` does not trust, Codex defaults to a read-only sandbox and
-/// skips the folder's `.codex/` hooks, MCP servers and config. The folder or its git root must be
-/// listed; trusting a parent does not count.
+/// skips the folder's `.codex/` hooks, MCP servers and config. Like Codex, this reads the folder's
+/// own entry first and falls back to its project root (the nearest `project_root_markers` match,
+/// `.git` by default); trusting a parent does not count.
 pub fn limited(folder: &Path, codex_config: &str) -> bool {
+    let Ok(config) = codex_config.parse::<toml::Table>() else {
+        return true;
+    };
+    let markers: Vec<&str> = config
+        .get("project_root_markers")
+        .and_then(|m| m.as_array())
+        .map(|m| m.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_else(|| vec![".git"]);
     let root = folder
         .ancestors()
-        .find(|dir| dir.join(".git").exists())
+        .find(|dir| markers.iter().any(|m| dir.join(m).exists()))
         .unwrap_or(folder);
-    !trusted(&[folder, root], codex_config)
-}
-
-fn trusted(dirs: &[&Path], codex_config: &str) -> bool {
-    let Ok(config) = codex_config.parse::<toml::Table>() else {
-        return false;
+    let level = |dir: &Path| {
+        let wanted = same_path(&dir.to_string_lossy());
+        config
+            .get("projects")?
+            .as_table()?
+            .iter()
+            .find(|(path, _)| same_path(path) == wanted)?
+            .1
+            .get("trust_level")?
+            .as_str()
     };
-    let Some(projects) = config.get("projects").and_then(|p| p.as_table()) else {
-        return false;
-    };
-    let wanted: Vec<String> = dirs
-        .iter()
-        .map(|d| same_path(&d.to_string_lossy()))
-        .collect();
-    projects.iter().any(|(path, project)| {
-        project.get("trust_level").and_then(|t| t.as_str()) == Some("trusted")
-            && wanted.contains(&same_path(path))
-    })
+    level(folder).or_else(|| level(root)) != Some("trusted")
 }
 
 /// Windows paths compare without case, separator style or a trailing separator.
@@ -179,10 +182,11 @@ fn same_path(path: &str) -> String {
         .to_lowercase()
 }
 
-pub fn config_path(home: &Path) -> PathBuf {
-    std::env::var_os("CODEX_HOME")
-        .map_or(home.join(".codex"), PathBuf::from)
-        .join("config.toml")
+pub fn config_path(home: Option<PathBuf>) -> Option<PathBuf> {
+    let dir = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| Some(home?.join(".codex")))?;
+    Some(dir.join("config.toml"))
 }
 
 #[cfg(test)]
@@ -223,6 +227,26 @@ mod tests {
         );
         assert!(limited(&sub, ""));
         assert!(!limited(&sub, &trusted));
+        let sub_untrusted = format!(
+            "{trusted}[projects.'{}']\ntrust_level = \"untrusted\"\n",
+            sub.display()
+        );
+        assert!(limited(&sub, &sub_untrusted));
+    }
+
+    #[test]
+    fn configured_root_markers_pick_the_nearest_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let outer = dir.path();
+        std::fs::create_dir(outer.join(".git")).unwrap();
+        let inner = outer.join("inner");
+        std::fs::create_dir_all(inner.join("src")).unwrap();
+        std::fs::write(inner.join(".root"), "").unwrap();
+        let config = format!(
+            "project_root_markers = [\".git\", \".root\"]\n[projects.'{}']\ntrust_level = \"trusted\"\n",
+            inner.display()
+        );
+        assert!(!limited(&inner.join("src"), &config));
     }
 
     const FIXTURE: &str = include_str!("../tests/fixtures/codex-exec.jsonl");
