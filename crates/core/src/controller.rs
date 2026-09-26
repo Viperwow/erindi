@@ -164,6 +164,7 @@ pub struct View {
     /// The run continues an earlier session rather than starting one.
     pub continued: bool,
     pub agent: Agent,
+    pub limited: bool,
 }
 
 pub struct Controller {
@@ -214,6 +215,7 @@ impl Controller {
                 session_id: None,
                 continued: false,
                 agent: Agent::Claude,
+                limited: false,
             },
             policy: SessionPolicy::default(),
             recent: Duration::ZERO,
@@ -370,6 +372,10 @@ impl Controller {
                     self.result = Some((ok, text));
                     vec![]
                 }
+                RunEvent::Limited => {
+                    self.view.limited = true;
+                    vec![self.show()]
+                }
                 RunEvent::SessionStarted { .. } | RunEvent::Reply { .. } => vec![],
             },
             Msg::RunExited { op, end, stderr } if current(op) => {
@@ -488,6 +494,7 @@ impl Controller {
         self.view.session_id = Some(session_id(session));
         self.view.continued = continued;
         self.view.agent = agent;
+        self.view.limited = false;
         self.view.detail.clear();
         vec![
             Effect::StartRun {
@@ -1139,6 +1146,24 @@ mod tests {
             },
         });
         assert_eq!(shown(&fx).unwrap().detail, "Permission denied: Bash");
+    }
+
+    #[test]
+    fn limited_run_is_marked_until_the_next_run() {
+        let mut t = T::new();
+        let op = t.run();
+        let fx = t.send(Msg::Run {
+            op,
+            event: RunEvent::Limited,
+        });
+        assert!(shown(&fx).unwrap().limited);
+        t.send(Msg::RunExited {
+            op,
+            end: RunEnd::Exited { success: true },
+            stderr: String::new(),
+        });
+        t.run();
+        assert!(!t.c.view.limited);
     }
 
     #[test]

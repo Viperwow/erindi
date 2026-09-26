@@ -19,6 +19,9 @@ import {
   input,
   pair,
   policies,
+  Reveal,
+  useBusy,
+  Spinner,
 } from "./controls";
 import { SessionsView } from "./sessions";
 import logo from "./logo.svg";
@@ -41,9 +44,23 @@ function SettingsView() {
   const [models, setModels] = useState<ModelStatus[]>([]);
   const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
   const { agents, recheck } = useAgents();
+  const [limited, setLimited] = useState(false);
+  const { run: guard, busy } = useBusy();
+  // The notice follows the saved folder, so typing a path shows nothing until Save.
+  const [cwd, setCwd] = useState<string>();
+  useEffect(() => {
+    if (cwd === undefined) return;
+    const check = () => invoke<boolean>("codex_limited", { cwd }).then(setLimited);
+    check();
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, [cwd]);
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then(setS);
+    invoke<Settings>("get_settings").then((loaded) => {
+      setS(loaded);
+      setCwd(loaded.cwd);
+    });
     invoke<string[]>("list_microphones").then(setMics);
     refreshModels();
   }, []);
@@ -60,6 +77,7 @@ function SettingsView() {
     try {
       await invoke("save_settings", { settings: s });
       setStatus({ ok: true, text: "Saved" });
+      setCwd(s.cwd);
     } catch (err) {
       setStatus({ ok: false, text: String(err) });
     }
@@ -67,15 +85,33 @@ function SettingsView() {
 
   return (
     <form
-      onSubmit={save}
+      onSubmit={guard(save)}
       class="@container max-w-4xl space-y-4 p-6"
     >
       <h2 class="text-base font-semibold">Settings</h2>
 
       <Section title="Agent" description="Which agent runs your requests and how.">
-        <Field label="Project folder" hint="Agents run here without a trust prompt and load this folder's hooks and MCP servers. Pick only folders you trust.">
-          <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
-        </Field>
+        <div>
+          <Field label="Project folder" hint="Agents run here. Pick only folders you trust.">
+            <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
+          </Field>
+          <Reveal open={limited && agents.some((a) => a.agent === "codex" && a.path)}>
+            <div class="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              <span class="min-w-0 flex-1">Codex runs this folder read-only, without its hooks and MCP servers, until you trust it.</span>
+              <button
+                type="button"
+                disabled={busy}
+                class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-amber-400 px-3 py-1.5 disabled:opacity-70 hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/40"
+                onClick={guard(() =>
+                  invoke("trust_in_codex", { cwd }).catch((err) => setStatus({ ok: false, text: String(err) })),
+                )}
+              >
+                {busy && <Spinner />}
+                Trust in Codex
+              </button>
+            </div>
+          </Reveal>
+        </div>
 
         <Field
           label="Agent"
@@ -179,7 +215,7 @@ function SettingsView() {
         <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
       </Section>
 
-      <SaveBar status={status} />
+      <SaveBar status={status} busy={busy} />
     </form>
   );
 }

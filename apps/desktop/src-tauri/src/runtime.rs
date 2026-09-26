@@ -640,6 +640,12 @@ impl Executor {
             agent,
         });
         self.remember_prompt(session, &cwd, prompt.clone(), &start);
+        if agent == Agent::Codex && codex_limited(&cwd) {
+            let _ = self.tx.send(Msg::Run {
+                op,
+                event: RunEvent::Limited,
+            });
+        }
         let token = CancellationToken::new();
         self.cancel = Some(token.clone());
         let (tx, history, app) = (self.tx.clone(), self.history.clone(), self.app.clone());
@@ -697,6 +703,34 @@ fn continue_flags(started: &Start, live: Option<Details>) -> (Option<String>, Op
         .or_else(|| started.permission.clone())
         .filter(|p| p != "default");
     (model, permission)
+}
+
+/// Codex skips this folder's hooks and MCP servers until it trusts the folder.
+pub fn codex_limited(cwd: &str) -> bool {
+    let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from) else {
+        return false;
+    };
+    let config =
+        std::fs::read_to_string(erindi_core::codex::config_path(&home)).unwrap_or_default();
+    erindi_core::codex::limited(std::path::Path::new(cwd), &config)
+}
+
+/// Opens Codex in `cwd`, where Codex asks on its own whether to trust the folder and its hooks.
+pub fn trust_in_codex(cwd: &str) -> Result<(), String> {
+    let program = erindi_core::cli::locate(Agent::Codex).ok_or_else(|| missing(Agent::Codex))?;
+    let request = AgentRequest {
+        agent: Agent::Codex,
+        model: None,
+        permission: None,
+        target: Target::New(uuid::Uuid::nil()),
+    };
+    let args = agent::terminal_args(&program.display().to_string(), cwd, &request, "")
+        .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
+    std::process::Command::new("wt.exe")
+        .args(args)
+        .spawn()
+        .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
+    Ok(())
 }
 
 /// What the agent's own log says about session `native_id` now.

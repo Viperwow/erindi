@@ -1239,6 +1239,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
+ "toml 1.1.6+spec-1.1.0",
  "ureq 3.4.2",
  "uuid",
  "windows 0.62.2",

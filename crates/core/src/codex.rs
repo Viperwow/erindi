@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use serde_json::Value;
 
 use crate::agent::{ModelOption, Target};
@@ -142,9 +144,86 @@ pub fn parse_models(json: &str) -> Result<Vec<ModelOption>, String> {
         .collect())
 }
 
+/// In a folder its own `config.toml` does not trust, Codex defaults to a read-only sandbox and
+/// skips the folder's `.codex/` hooks, MCP servers and config. The folder or its git root must be
+/// listed; trusting a parent does not count.
+pub fn limited(folder: &Path, codex_config: &str) -> bool {
+    let root = folder
+        .ancestors()
+        .find(|dir| dir.join(".git").exists())
+        .unwrap_or(folder);
+    !trusted(&[folder, root], codex_config)
+}
+
+fn trusted(dirs: &[&Path], codex_config: &str) -> bool {
+    let Ok(config) = codex_config.parse::<toml::Table>() else {
+        return false;
+    };
+    let Some(projects) = config.get("projects").and_then(|p| p.as_table()) else {
+        return false;
+    };
+    let wanted: Vec<String> = dirs
+        .iter()
+        .map(|d| same_path(&d.to_string_lossy()))
+        .collect();
+    projects.iter().any(|(path, project)| {
+        project.get("trust_level").and_then(|t| t.as_str()) == Some("trusted")
+            && wanted.contains(&same_path(path))
+    })
+}
+
+/// Windows paths compare without case, separator style or a trailing separator.
+fn same_path(path: &str) -> String {
+    path.replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_lowercase()
+}
+
+pub fn config_path(home: &Path) -> PathBuf {
+    std::env::var_os("CODEX_HOME")
+        .map_or(home.join(".codex"), PathBuf::from)
+        .join("config.toml")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn limited_until_codex_trusts_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let key = folder.to_string_lossy().to_uppercase().replace('\\', "/");
+        let trusted = format!("[projects.'{key}/']\ntrust_level = \"trusted\"\n");
+        let parent = format!(
+            "[projects.'{}']\ntrust_level = \"trusted\"\n",
+            folder.parent().unwrap().display()
+        );
+
+        assert!(limited(folder, ""));
+        assert!(limited(folder, "not toml ["));
+        assert!(limited(folder, &parent));
+        assert!(!limited(folder, &trusted));
+        assert!(limited(
+            folder,
+            &trusted.replace("\"trusted\"", "\"untrusted\"")
+        ));
+    }
+
+    #[test]
+    fn a_subfolder_uses_the_trust_of_its_git_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join(".git")).unwrap();
+        let sub = root.join("app");
+        std::fs::create_dir(&sub).unwrap();
+        let trusted = format!(
+            "[projects.'{}']\ntrust_level = \"trusted\"\n",
+            root.display()
+        );
+        assert!(limited(&sub, ""));
+        assert!(!limited(&sub, &trusted));
+    }
 
     const FIXTURE: &str = include_str!("../tests/fixtures/codex-exec.jsonl");
 

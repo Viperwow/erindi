@@ -17,6 +17,8 @@
     "allow-test-command",
     "allow-default-patterns",
     "allow-agent-status",
-    "allow-recheck-agents"
+    "allow-recheck-agents",
+    "allow-codex-limited",
+    "allow-trust-in-codex"
   ]
 }
