@@ -197,9 +197,9 @@ impl Settings {
         if self
             .dictionary
             .iter()
-            .any(|(from, _)| from.trim().is_empty())
+            .any(|(from, to)| from.trim().is_empty() || to.trim().is_empty())
         {
-            return Err("Dictionary entries need a spoken form".into());
+            return Err("Fill in both words of every dictionary entry".into());
         }
         Ok(())
     }
@@ -360,6 +360,10 @@ mod tests {
             },
             Settings {
                 dictionary: vec![("".into(), "x".into())],
+                ..ok.clone()
+            },
+            Settings {
+                dictionary: vec![("x".into(), " ".into())],
                 ..ok.clone()
             },
         ];

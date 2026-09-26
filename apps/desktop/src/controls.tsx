@@ -57,7 +57,7 @@ export const policies: [SessionPolicy, string][] = [
 ];
 
 export const input =
-  "w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-500 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-400";
+  "w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-500 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-400 aria-invalid:border-red-600 dark:aria-invalid:border-red-500";
 
 /** The line under the field is always there, so a hint or error never pushes the form down. */
 export function Field(props: { label: string; hint?: string; error?: string; children: ComponentChildren }) {
