@@ -1,13 +1,15 @@
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { type Agent, type AgentSettings, type AgentStatus, Field, input, pair, unsafePermissions } from "./controls";
+import { type Agent, type AgentSettings, type AgentStatus, Field, Spinner, input, pair, unsafePermissions } from "./controls";
 import claudeIcon from "./icons/claude.svg";
 import openaiIcon from "./icons/openai.svg";
 
 export function AgentIcon(props: { agent: Agent; class?: string }) {
   const src = props.agent === "claude" ? claudeIcon : openaiIcon;
-  return <img src={src} alt="" class={`dark:invert ${props.class ?? "h-4 w-4"}`} />;
+  // OpenAI allows its mark only in black or white; Claude's mark keeps its brand color.
+  const tone = props.agent === "claude" ? "" : "dark:invert";
+  return <img src={src} alt="" class={`${tone} ${props.class ?? "h-4 w-4"}`} />;
 }
 
 /** Agent state from Rust, refreshed on `agents-changed` and re-checked when the window gains focus. */
@@ -28,34 +30,41 @@ export function useAgents() {
   return { agents, recheck };
 }
 
-/** Re-check with a spinner while it runs, then "Re-checked ✓" or the error for a moment. */
+/** Re-check with a spinner while it runs, then "Re-checked ✓" or the error for 3 s; each label fades in and out. */
 export function RecheckButton(props: { recheck: () => Promise<void> }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "done" | "failed">("idle");
+  const [visible, setVisible] = useState(true);
   const run = () => {
     setPhase("checking");
-    props
-      .recheck()
+    const spinnerSeen = new Promise((done) => setTimeout(done, 400));
+    Promise.all([props.recheck(), spinnerSeen])
       .then(() => setPhase("done"), () => setPhase("failed"))
-      .then(() => setTimeout(() => setPhase("idle"), 2000));
+      .then(() => {
+        setTimeout(() => setVisible(false), 3000);
+        setTimeout(() => {
+          setPhase("idle");
+          setVisible(true);
+        }, 3200);
+      });
   };
   return (
     <button
       type="button"
-      disabled={phase === "checking"}
+      disabled={phase !== "idle"}
       aria-live="polite"
-      class="inline-flex w-32 shrink-0 items-center justify-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 disabled:opacity-70 dark:border-neutral-700 dark:hover:bg-neutral-800"
+      class={`inline-flex w-32 shrink-0 items-center justify-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1.5 enabled:hover:bg-neutral-100 dark:border-neutral-700 dark:enabled:hover:bg-neutral-800 ${phase === "checking" ? "opacity-70" : ""}`}
       onClick={run}
     >
-      {phase === "checking" && (
-        <svg aria-hidden="true" viewBox="0 0 16 16" class="h-4 w-4 animate-spin">
-          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" opacity="0.25" />
-          <path d="M14 8a6 6 0 0 0-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-        </svg>
-      )}
-      {phase === "idle" && "Re-check"}
-      {phase === "checking" && "Checking"}
-      {phase === "done" && <span class="text-green-700 dark:text-green-400">Re-checked ✓</span>}
-      {phase === "failed" && <span class="text-red-600">Failed</span>}
+      <span
+        key={phase}
+        class={`inline-flex items-center gap-1.5 transition-opacity motion-safe:animate-[fade-in_150ms_ease-out] ${visible ? "opacity-100 duration-150 ease-out" : "opacity-0 duration-200 ease-in"}`}
+      >
+        {phase === "checking" && <Spinner />}
+        {phase === "idle" && "Re-check"}
+        {phase === "checking" && "Checking"}
+        {phase === "done" && <span class="text-green-700 dark:text-green-400">Re-checked ✓</span>}
+        {phase === "failed" && <span class="text-red-600">Failed</span>}
+      </span>
     </button>
   );
 }

@@ -36,3 +36,9 @@ body.overlay {
     animation: none;
   }
 }
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}

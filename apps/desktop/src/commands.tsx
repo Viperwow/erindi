@@ -6,11 +6,13 @@ import {
   ModelRow,
   type ModelStatus,
   type Patterns,
+  Reveal,
   SaveBar,
   Section,
   type Settings,
   type Status,
   input,
+  useBusy,
 } from "./controls";
 
 const commands: { id: Command; name: string; example: string; hotkey?: "newSessionHotkey" | "terminalHotkey" }[] = [
@@ -50,18 +52,20 @@ function TryPhrase(props: { patterns: Patterns }) {
         aria-label="Try a phrase"
         onInput={(e) => setText(e.currentTarget.value)}
       />
-      {typeof result === "string" && <p class="text-xs text-red-600">{result}</p>}
-      {result && typeof result !== "string" && (
-        <p class="text-xs text-neutral-600 dark:text-neutral-400">
-          {result.commands.length === 0
-            ? "No command; the whole phrase goes to the agent."
-            : result.commands.includes("cancel")
-              ? "Cancel: nothing is sent."
-              : `${result.commands.map((c) => names[c]).join(" + ")}${
-                  result.rest ? ` · the agent gets: «${result.rest}»` : " · nothing goes to the agent"
-                }`}
-        </p>
-      )}
+      <Reveal open={!!result}>
+        {typeof result === "string" && <p class="text-xs text-red-600">{result}</p>}
+        {result && typeof result !== "string" && (
+          <p class="text-xs text-neutral-600 dark:text-neutral-400">
+            {result.commands.length === 0
+              ? "No command; the whole phrase goes to the agent."
+              : result.commands.includes("cancel")
+                ? "Cancel: nothing is sent."
+                : `${result.commands.map((c) => names[c]).join(" + ")}${
+                    result.rest ? ` · the agent gets: «${result.rest}»` : " · nothing goes to the agent"
+                  }`}
+          </p>
+        )}
+      </Reveal>
     </div>
   );
 }
@@ -110,6 +114,7 @@ export function CommandsView() {
   const [status, setStatus] = useState<Status>(null);
   const [models, setModels] = useState<ModelStatus[]>([]);
   const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
+  const { run: guard, busy } = useBusy();
 
   useEffect(() => {
     invoke<Settings>("get_settings").then(setS);
@@ -133,7 +138,7 @@ export function CommandsView() {
   };
 
   return (
-    <form onSubmit={save} class="@container max-w-4xl space-y-4 p-6">
+    <form onSubmit={guard(save)} class="@container max-w-4xl space-y-4 p-6">
       <div class="space-y-1">
         <h2 class="text-base font-semibold">Commands</h2>
         <p class="text-neutral-600 dark:text-neutral-400">
@@ -193,7 +198,7 @@ export function CommandsView() {
         {model && <ModelRow model={model} onInstalled={refreshModels} />}
       </Section>
 
-      <SaveBar status={status} />
+      <SaveBar status={status} busy={busy} />
     </form>
   );
 }
