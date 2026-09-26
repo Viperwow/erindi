@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AgentIcon, useAgents } from "./agents";
-import type { Agent } from "./controls";
+import { type Agent, Reveal, useBusy } from "./controls";
 import { sessionLine } from "./model";
 import { ago } from "./time";
 
@@ -26,8 +26,6 @@ type Details = { model: string | null; permission: string | null };
 
 type Sessions = { entries: Entry[]; active: string | null; details: Record<string, Details> };
 
-
-const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
 
 const button =
   "rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
@@ -72,21 +70,24 @@ export function SessionsView() {
     };
   }, []);
 
+  const { run: guard, busy } = useBusy(600);
   const act = (command: string, id: string) =>
     invoke(command, { id }).then(
       () => setError(null),
       (e) => setError(String(e)),
     );
+  const run = guard(act);
 
-  const remove = (id: string) => {
+  // A second click inside the guard's cooldown is not taken as the delete confirmation.
+  const remove = guard((id: string) => {
     if (confirming !== id) {
       setConfirming(id);
       setTimeout(() => setConfirming((current) => (current === id ? null : current)), CONFIRM_MS);
       return;
     }
     setConfirming(null);
-    act("delete_session", id).then(load);
-  };
+    return act("delete_session", id).then(load);
+  });
 
   if (!data) return null;
   if (data.entries.length === 0) {
@@ -131,8 +132,11 @@ export function SessionsView() {
                   !live && <Note tone="info" text="Couldn't read the agent's log. Showing the values the session started with." />
                 )}
               </p>
-              <p class="mt-1 text-xs text-neutral-500">
-                {[folderName(entry.cwd), ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}
+              <p class="mt-1 flex min-w-0 gap-1 text-xs text-neutral-500">
+                <span class="truncate" title={entry.cwd}>
+                  {entry.cwd}
+                </span>
+                <span class="shrink-0">· {[ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}</span>
               </p>
               <button
                 type="button"
@@ -149,7 +153,7 @@ export function SessionsView() {
                 </svg>
                 {expanded ? "Hide" : "Show"} {count} {count === 1 ? "prompt" : "prompts"}
               </button>
-              {expanded && (
+              <Reveal open={expanded}>
                 <ol class="mt-2 space-y-1.5 rounded-md bg-neutral-100 p-3 dark:bg-neutral-900">
                   {entry.prompts.map((p, i) => (
                     <li class="flex gap-2">
@@ -165,25 +169,30 @@ export function SessionsView() {
                     </li>
                   ))}
                 </ol>
-              )}
+              </Reveal>
               <div class="mt-3 flex gap-2">
                 <button
                   type="button"
                   class={button}
-                  disabled={!resumable}
-                  onClick={() => act("open_history_session", entry.id)}
+                  disabled={busy || !resumable}
+                  onClick={() => run("open_history_session", entry.id)}
                 >
                   Open in terminal
                 </button>
                 <button
                   type="button"
                   class={button}
-                  disabled={active || !resumable}
-                  onClick={() => act("continue_session", entry.id)}
+                  disabled={busy || active || !resumable}
+                  onClick={() => run("continue_session", entry.id)}
                 >
                   {active ? "Active" : "Continue by voice"}
                 </button>
-                <button type="button" class={`${dangerButton} ml-auto`} onClick={() => remove(entry.id)}>
+                <button
+                  type="button"
+                  class={`${dangerButton} ml-auto`}
+                  disabled={busy}
+                  onClick={() => remove(entry.id)}
+                >
                   {confirming === entry.id ? "Confirm delete" : "Delete"}
                 </button>
               </div>

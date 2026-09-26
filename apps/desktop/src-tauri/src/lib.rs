@@ -27,6 +27,8 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             open_session,
+            codex_limited,
+            trust_in_codex,
             get_settings,
             save_settings,
             list_microphones,
@@ -98,6 +100,16 @@ pub fn run() {
 #[tauri::command]
 fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
     runtime.open_session()
+}
+
+#[tauri::command]
+fn codex_limited(cwd: String) -> bool {
+    runtime::codex_limited(&cwd)
+}
+
+#[tauri::command]
+fn trust_in_codex(cwd: String) -> Result<(), String> {
+    runtime::trust_in_codex(&cwd)
 }
 
 #[derive(serde::Serialize)]

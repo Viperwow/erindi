@@ -163,6 +163,8 @@ pub struct View {
     pub session_id: Option<Uuid>,
     /// The run continues an earlier session rather than starting one.
     pub continued: bool,
+    pub agent: Agent,
+    pub limited: bool,
 }
 
 pub struct Controller {
@@ -212,6 +214,8 @@ impl Controller {
                 detail: String::new(),
                 session_id: None,
                 continued: false,
+                agent: Agent::Claude,
+                limited: false,
             },
             policy: SessionPolicy::default(),
             recent: Duration::ZERO,
@@ -368,6 +372,10 @@ impl Controller {
                     self.result = Some((ok, text));
                     vec![]
                 }
+                RunEvent::Limited => {
+                    self.view.limited = true;
+                    vec![self.show()]
+                }
                 RunEvent::SessionStarted { .. } | RunEvent::Reply { .. } => vec![],
             },
             Msg::RunExited { op, end, stderr } if current(op) => {
@@ -485,6 +493,8 @@ impl Controller {
         self.view.text = prompt.clone();
         self.view.session_id = Some(session_id(session));
         self.view.continued = continued;
+        self.view.agent = agent;
+        self.view.limited = false;
         self.view.detail.clear();
         vec![
             Effect::StartRun {
@@ -1076,6 +1086,7 @@ mod tests {
         let op = t.run();
         assert_eq!(t.c.state(), AppState::Running);
         let v = &t.c.view;
+        assert_eq!(v.agent, Agent::Claude);
         assert_eq!(v.text, "проверь, что Claude видит diff");
         assert!(v.session_id.is_some());
         let _ = op;
@@ -1135,6 +1146,24 @@ mod tests {
             },
         });
         assert_eq!(shown(&fx).unwrap().detail, "Permission denied: Bash");
+    }
+
+    #[test]
+    fn limited_run_is_marked_until_the_next_run() {
+        let mut t = T::new();
+        let op = t.run();
+        let fx = t.send(Msg::Run {
+            op,
+            event: RunEvent::Limited,
+        });
+        assert!(shown(&fx).unwrap().limited);
+        t.send(Msg::RunExited {
+            op,
+            end: RunEnd::Exited { success: true },
+            stderr: String::new(),
+        });
+        t.run();
+        assert!(!t.c.view.limited);
     }
 
     #[test]
@@ -1655,6 +1684,7 @@ mod tests {
         let (session, agent) = run_agent(&fx).unwrap();
         assert!(matches!(session, Session::New(new) if new != id(first)));
         assert_eq!(agent, Agent::Codex);
+        assert_eq!(t.c.view.agent, Agent::Codex);
     }
 
     #[test]

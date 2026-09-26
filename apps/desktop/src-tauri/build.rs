@@ -17,6 +17,8 @@ fn main() {
         "default_patterns",
         "agent_status",
         "recheck_agents",
+        "codex_limited",
+        "trust_in_codex",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(commands))
         .expect("failed to run tauri-build");

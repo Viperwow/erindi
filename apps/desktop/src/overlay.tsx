@@ -2,6 +2,7 @@ import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { useBusy } from "./controls";
 import "./style.css";
 
 type AppState =
@@ -23,6 +24,8 @@ type View = {
   detail: string;
   sessionId: string | null;
   continued: boolean;
+  agent: "claude" | "codex";
+  limited: boolean;
 };
 
 const palette: Record<AppState, [string, string]> = {
@@ -41,7 +44,6 @@ const palette: Record<AppState, [string, string]> = {
 const labels: Partial<Record<AppState, string>> = {
   Transcribing: "Transcribing…",
   Classifying: "Checking command…",
-  Running: "Claude is working",
   Cancelling: "Cancelling…",
   Succeeded: "Done",
   Failed: "Failed",
@@ -50,6 +52,7 @@ const labels: Partial<Record<AppState, string>> = {
 function Overlay() {
   const [view, setView] = useState<View | null>(null);
   const [level, setLevel] = useState(0);
+  const openSession = useBusy().run(() => invoke("open_session"));
 
   useEffect(() => {
     const offView = listen<View>("view", (e) => setView(e.payload));
@@ -64,7 +67,9 @@ function Overlay() {
   const [a, b] = palette[view.state];
   const listening = view.state === "Listening";
   const intensity = listening ? Math.min(1, 0.6 + level * 8) : 0.8;
-  const status = labels[view.state];
+  const working = `${view.agent === "codex" ? "Codex" : "Claude"} is working`;
+  const status =
+    view.state === "Running" ? (view.limited ? `${working} · limited mode` : working) : labels[view.state];
   const target =
     view.sessionId && view.state !== "Listening"
       ? view.continued
@@ -80,12 +85,12 @@ function Overlay() {
       {hasBubble && (
         <div
           class={`mb-3 max-w-2xl rounded-2xl bg-neutral-950/80 px-4 py-2 text-sm text-white shadow-lg backdrop-blur ${canOpen ? "cursor-pointer hover:bg-neutral-900/90" : ""}`}
-          onClick={canOpen ? () => invoke("open_session") : undefined}
+          onClick={canOpen ? openSession : undefined}
         >
           {view.text && <p class="leading-snug">{view.text}</p>}
           {(status || view.detail) && (
             <p class="mt-0.5 truncate text-xs text-white/60">
-              {[status, target, view.detail, canOpen && "click to open in terminal"]
+              {[status, target, view.detail, canOpen && (view.limited ? "limited mode · click to open in Codex and trust" : "click to open in terminal")]
                 .filter(Boolean)
                 .join(" · ")}
             </p>

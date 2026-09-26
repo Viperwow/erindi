@@ -23,6 +23,8 @@ pub enum RunEvent {
         ok: bool,
         text: String,
     },
+    /// The agent skips the folder's own hooks and MCP servers because it does not trust the folder.
+    Limited,
 }
 
 /// Claude's `--output-format stream-json`. Unknown, malformed or irrelevant lines yield no events.

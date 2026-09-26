@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use serde_json::Value;
 
 use crate::agent::{ModelOption, Target};
@@ -142,9 +144,110 @@ pub fn parse_models(json: &str) -> Result<Vec<ModelOption>, String> {
         .collect())
 }
 
+/// In a folder its own `config.toml` does not trust, Codex defaults to a read-only sandbox and
+/// skips the folder's `.codex/` hooks, MCP servers and config. Like Codex, this reads the folder's
+/// own entry first and falls back to its project root (the nearest `project_root_markers` match,
+/// `.git` by default); trusting a parent does not count.
+pub fn limited(folder: &Path, codex_config: &str) -> bool {
+    let Ok(config) = codex_config.parse::<toml::Table>() else {
+        return true;
+    };
+    let markers: Vec<&str> = config
+        .get("project_root_markers")
+        .and_then(|m| m.as_array())
+        .map(|m| m.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_else(|| vec![".git"]);
+    let root = folder
+        .ancestors()
+        .find(|dir| markers.iter().any(|m| dir.join(m).exists()))
+        .unwrap_or(folder);
+    let level = |dir: &Path| {
+        let wanted = same_path(&dir.to_string_lossy());
+        config
+            .get("projects")?
+            .as_table()?
+            .iter()
+            .find(|(path, _)| same_path(path) == wanted)?
+            .1
+            .get("trust_level")?
+            .as_str()
+    };
+    level(folder).or_else(|| level(root)) != Some("trusted")
+}
+
+/// Windows paths compare without case, separator style or a trailing separator.
+fn same_path(path: &str) -> String {
+    path.replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_lowercase()
+}
+
+pub fn config_path(home: Option<PathBuf>) -> Option<PathBuf> {
+    let dir = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| Some(home?.join(".codex")))?;
+    Some(dir.join("config.toml"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn limited_until_codex_trusts_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let key = folder.to_string_lossy().to_uppercase().replace('\\', "/");
+        let trusted = format!("[projects.'{key}/']\ntrust_level = \"trusted\"\n");
+        let parent = format!(
+            "[projects.'{}']\ntrust_level = \"trusted\"\n",
+            folder.parent().unwrap().display()
+        );
+
+        assert!(limited(folder, ""));
+        assert!(limited(folder, "not toml ["));
+        assert!(limited(folder, &parent));
+        assert!(!limited(folder, &trusted));
+        assert!(limited(
+            folder,
+            &trusted.replace("\"trusted\"", "\"untrusted\"")
+        ));
+    }
+
+    #[test]
+    fn a_subfolder_uses_the_trust_of_its_git_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join(".git")).unwrap();
+        let sub = root.join("app");
+        std::fs::create_dir(&sub).unwrap();
+        let trusted = format!(
+            "[projects.'{}']\ntrust_level = \"trusted\"\n",
+            root.display()
+        );
+        assert!(limited(&sub, ""));
+        assert!(!limited(&sub, &trusted));
+        let sub_untrusted = format!(
+            "{trusted}[projects.'{}']\ntrust_level = \"untrusted\"\n",
+            sub.display()
+        );
+        assert!(limited(&sub, &sub_untrusted));
+    }
+
+    #[test]
+    fn configured_root_markers_pick_the_nearest_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let outer = dir.path();
+        std::fs::create_dir(outer.join(".git")).unwrap();
+        let inner = outer.join("inner");
+        std::fs::create_dir_all(inner.join("src")).unwrap();
+        std::fs::write(inner.join(".root"), "").unwrap();
+        let config = format!(
+            "project_root_markers = [\".git\", \".root\"]\n[projects.'{}']\ntrust_level = \"trusted\"\n",
+            inner.display()
+        );
+        assert!(!limited(&inner.join("src"), &config));
+    }
 
     const FIXTURE: &str = include_str!("../tests/fixtures/codex-exec.jsonl");
 
