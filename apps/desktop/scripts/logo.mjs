@@ -10,11 +10,11 @@ const BACKGROUND = [10, 10, 20];
 // joined by lilac in the valleys.
 const LILAC = [192, 132, 252];
 const STOPS = [
-  [0.25, [34, 197, 94]], // green
+  [0.25, [59, 130, 246]], // blue: the start
   [0.375, LILAC],
   [0.5, [245, 158, 11]], // orange
   [0.625, LILAC],
-  [0.75, [59, 130, 246]], // blue
+  [0.75, [34, 197, 94]], // green: the result
 ];
 const PEAKS = [
   [0.25, 0.62],
