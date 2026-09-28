@@ -15,7 +15,7 @@
 </p>
 
 > [!NOTE]
-> Erindi is a proof of concept: Windows only, Claude Code, Codex and Pi.
+> Erindi is an early-stage project: Windows only, Claude Code, Codex and Pi.
 
 ## Features
 
