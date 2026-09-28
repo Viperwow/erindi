@@ -24,6 +24,8 @@ export type Settings = {
   silenceSecs: number;
   dictionary: [string, string][];
   modelCommands: boolean;
+  openOnLaunch: boolean;
+  launchAtLogin: boolean;
 };
 
 export type ModelStatus = {

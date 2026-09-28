@@ -100,7 +100,7 @@ function SettingsView() {
           <Field label="Project folder" hint="Agents run here. Pick only folders you trust.">
             <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
           </Field>
-          <Reveal open={limited && s.cwd === cwd && agents.some((a) => a.agent === "codex" && a.path)}>
+          <Reveal open={limited && s.cwd === cwd && s.agent === "codex" && !!agentStatus?.path}>
             <div class="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
               <span class="min-w-0 flex-1">Codex runs this folder read-only, without its hooks and MCP servers, until you trust it.</span>
               <button
@@ -120,7 +120,7 @@ function SettingsView() {
 
         <Field
           label="Agent"
-          hint="New sessions use it. Say “claude” or “codex” to pick one for a new session."
+          hint="New sessions use it. Say “claude” or “codex” to pick one for a new session. Installed or updated a CLI? Re-check finds it and reloads its models."
           error={
             agentStatus && !agentStatus.path
               ? `${agentStatus.label} CLI not found. Install it, then press Re-check.`
@@ -133,7 +133,9 @@ function SettingsView() {
                 <option value={a.agent}>{a.label}</option>
               ))}
             </select>
-            <RecheckButton recheck={recheck} />
+            <RecheckButton
+              recheck={() => recheck().then((fresh) => !!fresh.find((a) => a.agent === s.agent)?.path)}
+            />
           </div>
         </Field>
         <AgentFields
@@ -218,6 +220,25 @@ function SettingsView() {
           <li>Press once while recording or while Claude works: cancel.</li>
         </ul>
         <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
+      </Section>
+
+      <Section title="Startup" description="How Erindi starts.">
+        <label class="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={s.launchAtLogin}
+            onChange={(e) => set({ launchAtLogin: e.currentTarget.checked })}
+          />
+          Launch at login
+        </label>
+        <label class="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={s.openOnLaunch}
+            onChange={(e) => set({ openOnLaunch: e.currentTarget.checked })}
+          />
+          Open this window on launch instead of starting in the tray
+        </label>
       </Section>
 
       <SaveBar status={status} busy={busy} />
