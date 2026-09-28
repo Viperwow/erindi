@@ -130,8 +130,8 @@ function SettingsView() {
         >
           <div class="flex items-center gap-3">
             <select class={input} aria-label="Agent" value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
-              {agents.map((a) => (
-                <option value={a.agent}>{a.label}</option>
+              {Object.entries(agentLabels).map(([agent, label]) => (
+                <option value={agent}>{label}</option>
               ))}
             </select>
             <RecheckButton
