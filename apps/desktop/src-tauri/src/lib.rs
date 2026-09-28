@@ -68,6 +68,10 @@ pub fn run() {
             }
             runtime.set_cleanup(settings.read().unwrap().model_commands);
             app.manage(runtime);
+            if let Err(e) = apply_autostart(app.handle(), settings.read().unwrap().launch_at_login)
+            {
+                eprintln!("{e}");
+            }
             if settings.read().unwrap().open_on_launch
                 || !erindi_core::models::SPEECH.installed(&runtime::models_dir())
             {
@@ -322,21 +326,26 @@ fn save_settings(
     if settings.model_commands && !erindi_core::models::CLEANUP.installed(&runtime::models_dir()) {
         return Err("Download the command model first".into());
     }
-    let autostart = app.autolaunch();
-    if autostart.is_enabled().map_err(|e| e.to_string())? != settings.launch_at_login {
-        if settings.launch_at_login {
-            autostart.enable()
-        } else {
-            autostart.disable()
-        }
-        .map_err(|e| e.to_string())?;
-    }
+    apply_autostart(&app, settings.launch_at_login)?;
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
     runtime.send(settings.session_msg());
     runtime.set_cleanup(settings.model_commands);
     app.state::<agents::Agents>().recheck(&app);
     register_hotkeys(&app, &settings, &runtime)
+}
+
+/// Runs on every launch too, so a failed settings write heals and a moved exe gets its new path.
+fn apply_autostart(app: &AppHandle, on: bool) -> Result<(), String> {
+    let autostart = app.autolaunch();
+    let result = if on {
+        autostart.enable()
+    } else if autostart.is_enabled().map_err(|e| e.to_string())? {
+        autostart.disable()
+    } else {
+        Ok(())
+    };
+    result.map_err(|e| e.to_string())
 }
 
 /// Lets the settings window record a hotkey without triggering the registered ones.
