@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AgentIcon, useAgents } from "./agents";
-import { type Agent, Reveal, useBusy } from "./controls";
+import { type Agent, Reveal, agentLabels, useBusy } from "./controls";
 import { sessionLine } from "./model";
 import { ago } from "./time";
 
@@ -111,7 +111,7 @@ export function SessionsView() {
           const model = live?.model ?? entry.startedModel;
           const status = agents.find((a) => a.agent === entry.agent);
           const listed = status?.models.find((m) => m.id === model)?.label;
-          const agentLabel = status?.label ?? (entry.agent === "codex" ? "Codex" : "Claude");
+          const agentLabel = status?.label ?? agentLabels[entry.agent];
           const permission = live?.permission ?? entry.startedPermission ?? "default";
           const resumable = entry.nativeId !== null;
           return (

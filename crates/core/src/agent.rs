@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::claude::{self, ClaudeMode, ClaudeRequest, Session};
 use crate::codex;
+use crate::pi;
 use crate::stream::{self, RunEvent};
 
 #[derive(
@@ -13,15 +14,17 @@ pub enum Agent {
     #[default]
     Claude,
     Codex,
+    Pi,
 }
 
 impl Agent {
-    pub const ALL: [Agent; 2] = [Agent::Claude, Agent::Codex];
+    pub const ALL: [Agent; 3] = [Agent::Claude, Agent::Codex, Agent::Pi];
 
     pub fn label(self) -> &'static str {
         match self {
             Agent::Claude => "Claude",
             Agent::Codex => "Codex",
+            Agent::Pi => "Pi",
         }
     }
 
@@ -30,6 +33,7 @@ impl Agent {
         match self {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
+            Agent::Pi => "pi",
         }
     }
 
@@ -44,7 +48,14 @@ impl Agent {
                 "bypassPermissions",
             ],
             Agent::Codex => &["read-only", "workspace-write", "danger-full-access"],
+            // Pi has no permission modes; it always runs with all its tools.
+            Agent::Pi => &[],
         }
+    }
+
+    /// New sessions take Erindi's ID, so they can be resumed before the agent reports anything.
+    pub fn uses_erindi_id(self) -> bool {
+        matches!(self, Agent::Claude | Agent::Pi)
     }
 }
 
@@ -130,7 +141,7 @@ fn claude_request(req: &AgentRequest) -> Result<ClaudeRequest, InvalidRequest> {
     })
 }
 
-/// Native IDs are UUIDs for both agents; anything else could be read as an option.
+/// Native IDs are UUIDs for every agent; anything else could be read as an option.
 fn native_ok(id: &str) -> Result<(), InvalidRequest> {
     let ok = !id.is_empty()
         && !id.starts_with('-')
@@ -168,6 +179,18 @@ pub fn headless_args(req: &AgentRequest, cwd: &str) -> Result<Vec<String>, Inval
                 cwd,
             ))
         }
+        Agent::Pi => {
+            check(req)?;
+            let (id, new) = pi_session(&req.target)?;
+            Ok(pi::print_args(req.model.as_deref(), &id, new))
+        }
+    }
+}
+
+fn pi_session(target: &Target) -> Result<(String, bool), InvalidRequest> {
+    match target {
+        Target::New(id) => Ok((id.to_string(), true)),
+        Target::Resume(id) => native_ok(id).map(|()| (id.clone(), false)),
     }
 }
 
@@ -197,6 +220,18 @@ pub fn terminal_args(
                 req.model.as_deref(),
                 req.permission.as_deref(),
                 &req.target,
+                prompt,
+            ))
+        }
+        Agent::Pi => {
+            check(req)?;
+            let (id, new) = pi_session(&req.target)?;
+            Ok(pi::terminal_args(
+                program,
+                cwd,
+                req.model.as_deref(),
+                &id,
+                new,
                 prompt,
             ))
         }
@@ -236,6 +271,10 @@ pub fn resume_in_terminal(
             native_ok(native_id)?;
             Ok(codex::resume_in_terminal(program, cwd, native_id))
         }
+        Agent::Pi => {
+            native_ok(native_id)?;
+            Ok(pi::resume_in_terminal(program, cwd, native_id))
+        }
     }
 }
 
@@ -246,6 +285,7 @@ pub fn env(
     match agent {
         Agent::Claude => claude::claude_env(vars),
         Agent::Codex => codex::codex_env(vars),
+        Agent::Pi => pi::pi_env(vars),
     }
 }
 
@@ -253,6 +293,7 @@ pub fn env(
 pub struct EventParser {
     agent: Agent,
     reply: String,
+    pi: pi::Parser,
 }
 
 impl EventParser {
@@ -260,6 +301,7 @@ impl EventParser {
         Self {
             agent,
             reply: String::new(),
+            pi: pi::Parser::default(),
         }
     }
 
@@ -267,6 +309,7 @@ impl EventParser {
         let events = match self.agent {
             Agent::Claude => stream::parse_line(line),
             Agent::Codex => codex::parse_line(line),
+            Agent::Pi => self.pi.feed(line),
         };
         events
             .into_iter()

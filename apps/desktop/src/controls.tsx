@@ -6,7 +6,7 @@ import { accelerator, heldModifiers } from "./hotkey";
 
 export type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
 
-export type Command = "newSession" | "openTerminal" | "cancel" | "claude" | "codex";
+export type Command = "newSession" | "openTerminal" | "cancel" | "claude" | "codex" | "pi";
 
 export type Patterns = Record<Command, string[]>;
 
@@ -35,7 +35,9 @@ export type ModelStatus = {
   downloading: boolean;
 };
 
-export type Agent = "claude" | "codex";
+export type Agent = "claude" | "codex" | "pi";
+
+export const agentLabels: Record<Agent, string> = { claude: "Claude", codex: "Codex", pi: "Pi" };
 
 export type ModelChoice = { listed: string } | { custom: string } | null;
 

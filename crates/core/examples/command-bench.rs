@@ -30,6 +30,7 @@ fn name(commands: &[Command]) -> String {
             Command::Cancel => "cancel",
             Command::Claude => "claude",
             Command::Codex => "codex",
+            Command::Pi => "pi",
         })
         .collect();
     names.join("+")

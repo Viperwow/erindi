@@ -7,6 +7,7 @@ import { DictionaryView } from "./dictionary";
 import {
   type Agent,
   type AgentStatus,
+  agentLabels,
   Field,
   HotkeyInput,
   ModelRow,
@@ -30,7 +31,7 @@ import "./style.css";
 /** Shown until the first agent check answers, so the fields keep their place. */
 const checking = (agent: Agent): AgentStatus => ({
   agent,
-  label: agent === "codex" ? "Codex" : "Claude",
+  label: agentLabels[agent],
   path: "",
   models: [],
   modelsError: null,
@@ -120,7 +121,7 @@ function SettingsView() {
 
         <Field
           label="Agent"
-          hint="New sessions use it. Say “claude” or “codex” to pick one for a new session. Installed or updated a CLI? Re-check finds it and reloads its models."
+          hint="New sessions use it. Say “claude”, “codex” or “pi” to pick one for a new session. Installed or updated a CLI? Re-check finds it and reloads its models."
           error={
             agentStatus && !agentStatus.path
               ? `${agentStatus.label} CLI not found. Install it, then press Re-check.`
