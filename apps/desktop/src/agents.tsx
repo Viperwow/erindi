@@ -26,19 +26,23 @@ export function useAgents() {
       window.removeEventListener("focus", onFocus);
     };
   }, []);
-  const recheck = () => invoke<AgentStatus[]>("recheck_agents", { force: true }).then(setAgents);
+  const recheck = () =>
+    invoke<AgentStatus[]>("recheck_agents", { force: true }).then((fresh) => {
+      setAgents(fresh);
+      return fresh;
+    });
   return { agents, recheck };
 }
 
-/** Re-check with a spinner while it runs, then "Re-checked ✓" or the error for 3 s; each label fades in and out. */
-export function RecheckButton(props: { recheck: () => Promise<void> }) {
-  const [phase, setPhase] = useState<"idle" | "checking" | "done" | "failed">("idle");
+/** Re-check with a spinner while it runs, then "Installed ✓", "Not found" or "Failed" for 3 s; each label fades in and out. */
+export function RecheckButton(props: { recheck: () => Promise<boolean> }) {
+  const [phase, setPhase] = useState<"idle" | "checking" | "installed" | "missing" | "failed">("idle");
   const [visible, setVisible] = useState(true);
   const run = () => {
     setPhase("checking");
     const spinnerSeen = new Promise((done) => setTimeout(done, 400));
     Promise.all([props.recheck(), spinnerSeen])
-      .then(() => setPhase("done"), () => setPhase("failed"))
+      .then(([installed]) => setPhase(installed ? "installed" : "missing"), () => setPhase("failed"))
       .then(() => {
         setTimeout(() => setVisible(false), 3000);
         setTimeout(() => {
@@ -52,6 +56,7 @@ export function RecheckButton(props: { recheck: () => Promise<void> }) {
       type="button"
       disabled={phase !== "idle"}
       aria-live="polite"
+      title="Look for the agent CLIs again and reload their models and permission modes"
       class={`inline-flex w-32 shrink-0 items-center justify-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1.5 enabled:hover:bg-neutral-100 dark:border-neutral-700 dark:enabled:hover:bg-neutral-800 ${phase === "checking" ? "opacity-70" : ""}`}
       onClick={run}
     >
@@ -62,7 +67,8 @@ export function RecheckButton(props: { recheck: () => Promise<void> }) {
         {phase === "checking" && <Spinner />}
         {phase === "idle" && "Re-check"}
         {phase === "checking" && "Checking"}
-        {phase === "done" && <span class="text-green-700 dark:text-green-400">Re-checked ✓</span>}
+        {phase === "installed" && <span class="text-green-700 dark:text-green-400">Installed ✓</span>}
+        {phase === "missing" && <span class="text-red-600">Not found</span>}
         {phase === "failed" && <span class="text-red-600">Failed</span>}
       </span>
     </button>

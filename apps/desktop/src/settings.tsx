@@ -120,7 +120,7 @@ function SettingsView() {
 
         <Field
           label="Agent"
-          hint="New sessions use it. Say “claude” or “codex” to pick one for a new session."
+          hint="New sessions use it. Say “claude” or “codex” to pick one for a new session. Installed or updated a CLI? Re-check finds it and reloads its models."
           error={
             agentStatus && !agentStatus.path
               ? `${agentStatus.label} CLI not found. Install it, then press Re-check.`
@@ -133,7 +133,9 @@ function SettingsView() {
                 <option value={a.agent}>{a.label}</option>
               ))}
             </select>
-            <RecheckButton recheck={recheck} />
+            <RecheckButton
+              recheck={() => recheck().then((fresh) => !!fresh.find((a) => a.agent === s.agent)?.path)}
+            />
           </div>
         </Field>
         <AgentFields
