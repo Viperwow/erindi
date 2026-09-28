@@ -9,6 +9,7 @@ pub mod controller;
 pub mod job;
 pub mod llama;
 pub mod models;
+pub mod pi;
 pub mod prompt;
 pub mod run;
 pub mod session;

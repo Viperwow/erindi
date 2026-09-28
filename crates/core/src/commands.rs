@@ -11,6 +11,7 @@ pub enum Command {
     /// Only at the start: a new session with this agent.
     Claude,
     Codex,
+    Pi,
 }
 
 impl Command {
@@ -18,6 +19,7 @@ impl Command {
         match self {
             Command::Claude => Some(crate::agent::Agent::Claude),
             Command::Codex => Some(crate::agent::Agent::Codex),
+            Command::Pi => Some(crate::agent::Agent::Pi),
             _ => None,
         }
     }
@@ -32,6 +34,7 @@ pub struct Patterns {
     pub cancel: Vec<String>,
     pub claude: Vec<String>,
     pub codex: Vec<String>,
+    pub pi: Vec<String>,
 }
 
 impl Default for Patterns {
@@ -46,6 +49,8 @@ impl Default for Patterns {
             cancel: list(&[r"отмен\w*", "cancel", "scratch that"]),
             claude: list(&[r"((в|с|через) )?(клод|claude)\w*", r"((in|with) )?claude"]),
             codex: list(&[r"((в|с|через) )?(кодекс|codex)\w*", r"((in|with) )?codex"]),
+            // No `\w*` here: it would take "пишет" or "pick" for the agent.
+            pi: list(&[r"((в|с|через) )?(пай|пи|pi)", r"((in|with) )?pi"]),
         }
     }
 }
@@ -74,6 +79,7 @@ impl Parser {
             (Command::Cancel, &patterns.cancel),
             (Command::Claude, &patterns.claude),
             (Command::Codex, &patterns.codex),
+            (Command::Pi, &patterns.pi),
         ];
         let mut entries = vec![];
         for (command, list) in groups {
@@ -349,5 +355,21 @@ mod tests {
             assert_eq!(parser.parse(text).0, [Command::Codex], "{text}");
         }
         assert_eq!(parser.parse("codex").0, [Command::Codex]);
+    }
+
+    #[test]
+    fn pi_is_a_word_of_its_own() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        for text in [
+            "пай, проверь diff",
+            "Pi, check the diff",
+            "через пи проверь diff",
+        ] {
+            assert_eq!(parser.parse(text).0, [Command::Pi], "{text}");
+        }
+        for text in ["пишет тесты", "pick a model", "pip install", "пирог"] {
+            assert_eq!(parser.parse(text), (vec![], text.to_string()), "{text}");
+        }
+        assert_eq!(Command::Pi.agent(), Some(crate::agent::Agent::Pi));
     }
 }

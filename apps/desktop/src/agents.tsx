@@ -4,12 +4,15 @@ import { listen } from "@tauri-apps/api/event";
 import { type Agent, type AgentSettings, type AgentStatus, Field, Spinner, input, pair, unsafePermissions } from "./controls";
 import claudeIcon from "./icons/claude.svg";
 import openaiIcon from "./icons/openai.svg";
+import piIcon from "./icons/pi.svg";
+
+const icons: Record<Agent, string> = { claude: claudeIcon, codex: openaiIcon, pi: piIcon };
+const placeholders: Record<Agent, string> = { claude: "claude-opus-4-8", codex: "gpt-5.5", pi: "anthropic/claude-sonnet-5" };
 
 export function AgentIcon(props: { agent: Agent; class?: string }) {
-  const src = props.agent === "claude" ? claudeIcon : openaiIcon;
-  // OpenAI allows its mark only in black or white; Claude's mark keeps its brand color.
-  const tone = props.agent === "claude" ? "" : "dark:invert";
-  return <img src={src} alt="" class={`${tone} ${props.class ?? "h-4 w-4"}`} />;
+  // OpenAI allows its mark only in black or white; the other marks keep their brand colors.
+  const tone = props.agent === "codex" ? "dark:invert" : "";
+  return <img src={icons[props.agent]} alt="" class={`${tone} ${props.class ?? "h-4 w-4"}`} />;
 }
 
 /** Agent state from Rust, refreshed on `agents-changed` and re-checked when the window gains focus. */
@@ -129,7 +132,7 @@ export function AgentFields(props: {
           class={input}
           disabled={!custom}
           value={custom ? model.custom : ""}
-          placeholder={status.agent === "codex" ? "gpt-5.5" : "claude-opus-4-8"}
+          placeholder={placeholders[status.agent]}
           onInput={(e) => props.onChange({ ...value, model: { custom: e.currentTarget.value } })}
         />
       </Field>

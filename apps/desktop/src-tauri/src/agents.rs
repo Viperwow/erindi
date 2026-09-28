@@ -61,14 +61,19 @@ fn check(agent: Agent) -> AgentStatus {
     let models = match (agent, &path) {
         (Agent::Claude, _) => Ok(claude_models()),
         (Agent::Codex, None) => Ok(vec![]),
-        (Agent::Codex, Some(program)) => codex_models(program),
+        (Agent::Codex, Some(program)) => cli_output(program, &["debug", "models"])
+            .and_then(|out| erindi_core::codex::parse_models(&out)),
+        (Agent::Pi, None) => Ok(vec![]),
+        (Agent::Pi, Some(program)) => {
+            cli_output(program, &["--list-models"]).map(|out| erindi_core::pi::parse_models(&out))
+        }
     };
     status_of(agent, path.map(|p| p.display().to_string()), models)
 }
 
-fn codex_models(program: &Path) -> Result<Vec<ModelOption>, String> {
+fn cli_output(program: &Path, args: &[&str]) -> Result<String, String> {
     let mut command = std::process::Command::new(program);
-    command.args(["debug", "models"]);
+    command.args(args);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -80,7 +85,7 @@ fn codex_models(program: &Path) -> Result<Vec<ModelOption>, String> {
         let stderr = String::from_utf8_lossy(&out.stderr);
         return Err(stderr.lines().last().unwrap_or("failed").to_string());
     }
-    erindi_core::codex::parse_models(&String::from_utf8_lossy(&out.stdout))
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 impl Agents {

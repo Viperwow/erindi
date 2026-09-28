@@ -31,22 +31,36 @@ pub fn read(agent: Agent, path: &Path) -> Option<Details> {
             Agent::Claude => (
                 v["message"]["model"]
                     .as_str()
-                    .filter(|m| !m.starts_with('<')),
+                    .filter(|m| !m.starts_with('<'))
+                    .map(String::from),
                 v["permissionMode"].as_str(),
             ),
             Agent::Codex if v["type"] == "turn_context" => (
-                v["payload"]["model"].as_str(),
+                v["payload"]["model"].as_str().map(String::from),
                 v["payload"]["sandbox_policy"]["type"].as_str(),
             ),
             Agent::Codex => (None, None),
+            Agent::Pi => (pi_model(&v), None),
         };
-        details.model = details.model.or(model.map(String::from));
+        details.model = details.model.or(model);
         details.permission = details.permission.or(permission.map(String::from));
         if details.model.is_some() && details.permission.is_some() {
             break;
         }
     }
     (details.model.is_some() || details.permission.is_some()).then_some(details)
+}
+
+/// `provider/model`, as `--model` takes it, from a model change or an assistant message.
+fn pi_model(v: &Value) -> Option<String> {
+    let (provider, model) = match v["type"].as_str()? {
+        "model_change" => (&v["provider"], &v["modelId"]),
+        "message" if v["message"]["role"] == "assistant" => {
+            (&v["message"]["provider"], &v["message"]["model"])
+        }
+        _ => return None,
+    };
+    Some(format!("{}/{}", provider.as_str()?, model.as_str()?))
 }
 
 /// The last `TAIL` bytes, starting at a line boundary.
@@ -103,6 +117,22 @@ pub fn find_logs(agent: Agent, home: &Path) -> HashMap<String, PathBuf> {
                         .map(String::from);
                     if let Some(id) = id {
                         found.insert(id, entry);
+                    }
+                }
+            }
+        }
+        // One folder per project, one `<time>_<id>.jsonl` per session.
+        Agent::Pi => {
+            for dir in read_dir(&home.join(".pi/agent/sessions")) {
+                for file in read_dir(&dir) {
+                    let id = file
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .and_then(|n| n.strip_suffix(".jsonl"))
+                        .and_then(|n| n.rsplit_once('_'))
+                        .map(|(_, id)| id.to_string());
+                    if let Some(id) = id {
+                        found.insert(id, file);
                     }
                 }
             }

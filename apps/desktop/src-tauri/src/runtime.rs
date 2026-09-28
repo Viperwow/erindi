@@ -191,10 +191,10 @@ fn open_terminal(
 ) -> Result<(), String> {
     let entry = history.lock().unwrap().get(id).cloned();
     let agent = entry.as_ref().map_or(agent, |e| e.agent);
-    // A Claude session opened empty in a terminal never reached history, and uses Erindi's ID.
+    // A Claude or Pi session opened empty in a terminal never reached history, and uses Erindi's ID.
     let native = match (entry.and_then(|e| e.native_id), agent) {
         (Some(native), _) => native,
-        (None, Agent::Claude) => id.to_string(),
+        (None, agent) if agent.uses_erindi_id() => id.to_string(),
         (None, _) => return Err("This session can't be resumed".into()),
     };
     let program = erindi_core::cli::locate(agent).ok_or_else(|| missing(agent))?;
@@ -507,7 +507,7 @@ impl Executor {
                 let settings = self.settings.read().unwrap().agent_settings(agent);
                 let start = Start {
                     agent,
-                    native_id: (agent == Agent::Claude).then(|| id.to_string()),
+                    native_id: agent.uses_erindi_id().then(|| id.to_string()),
                     model: settings.model_id().map(String::from),
                     permission: settings.permission_flag().map(String::from),
                 };
@@ -515,11 +515,11 @@ impl Executor {
             }
             Session::Resume(id) => {
                 let entry = self.history.lock().unwrap().get(id).cloned();
-                // A Claude session opened empty in a terminal never reached history.
+                // A Claude or Pi session opened empty in a terminal never reached history.
                 let native = entry
                     .as_ref()
                     .and_then(|e| e.native_id.clone())
-                    .or_else(|| (agent == Agent::Claude).then(|| id.to_string()))
+                    .or_else(|| agent.uses_erindi_id().then(|| id.to_string()))
                     .ok_or("This session can't be resumed")?;
                 let started = Start {
                     agent,

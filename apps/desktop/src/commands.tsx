@@ -21,6 +21,7 @@ const commands: { id: Command; name: string; example: string; hotkey?: "newSessi
   { id: "cancel", name: "Cancel", example: "check the diff… cancel" },
   { id: "claude", name: "Claude", example: "claude, check the diff" },
   { id: "codex", name: "Codex", example: "codex, check the diff" },
+  { id: "pi", name: "Pi", example: "pi, check the diff" },
 ];
 
 const names: Record<Command, string> = {
@@ -29,6 +30,7 @@ const names: Record<Command, string> = {
   cancel: "Cancel",
   claude: "New Claude session",
   codex: "New Codex session",
+  pi: "New Pi session",
 };
 
 /** What the parser makes of a phrase, with the patterns on screen. */

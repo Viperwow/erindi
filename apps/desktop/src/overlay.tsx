@@ -2,7 +2,7 @@ import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { useBusy } from "./controls";
+import { type Agent, agentLabels, useBusy } from "./controls";
 import "./style.css";
 
 type AppState =
@@ -24,7 +24,7 @@ type View = {
   detail: string;
   sessionId: string | null;
   continued: boolean;
-  agent: "claude" | "codex";
+  agent: Agent;
   limited: boolean;
 };
 
@@ -67,7 +67,7 @@ function Overlay() {
   const [a, b] = palette[view.state];
   const listening = view.state === "Listening";
   const intensity = listening ? Math.min(1, 0.6 + level * 8) : 0.8;
-  const working = `${view.agent === "codex" ? "Codex" : "Claude"} is working`;
+  const working = `${agentLabels[view.agent]} is working`;
   const status =
     view.state === "Running" ? (view.limited ? `${working} · limited mode` : working) : labels[view.state];
   const target =
