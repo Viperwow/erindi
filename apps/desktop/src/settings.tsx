@@ -220,6 +220,25 @@ function SettingsView() {
         <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
       </Section>
 
+      <Section title="Startup" description="How Erindi starts.">
+        <label class="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={s.launchAtLogin}
+            onChange={(e) => set({ launchAtLogin: e.currentTarget.checked })}
+          />
+          Launch at login
+        </label>
+        <label class="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={s.openOnLaunch}
+            onChange={(e) => set({ openOnLaunch: e.currentTarget.checked })}
+          />
+          Open this window on launch instead of starting in the tray
+        </label>
+      </Section>
+
       <SaveBar status={status} busy={busy} />
     </form>
   );

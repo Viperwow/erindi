@@ -69,6 +69,9 @@ pub struct Settings {
     /// Ask the local model for commands the patterns miss.
     #[serde(alias = "cleanup")]
     pub model_commands: bool,
+    /// Show the window on launch instead of staying in the tray.
+    pub open_on_launch: bool,
+    pub launch_at_login: bool,
 }
 
 impl Default for Settings {
@@ -87,6 +90,8 @@ impl Default for Settings {
             recent_minutes: 30,
             dictionary: vec![],
             model_commands: false,
+            open_on_launch: false,
+            launch_at_login: false,
         }
     }
 }

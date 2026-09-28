@@ -20,6 +20,7 @@ tokio-util = { version = "0.7.19", default-features = false }
 uuid = "1.26.1"
 erindi-audio-asr = { path = "../../../crates/audio-asr" }
 erindi-core = { path = "../../../crates/core" }
+tauri-plugin-autostart = "2.5"
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -12,8 +12,9 @@ use erindi_core::agent::Agent;
 use erindi_core::controller::{Key, Msg};
 use erindi_core::transcript::{self, Details};
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::runtime::{Runtime, SharedSettings};
@@ -25,6 +26,10 @@ pub fn run() {
             show_settings(app)
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             open_session,
             codex_limited,
@@ -63,7 +68,9 @@ pub fn run() {
             }
             runtime.set_cleanup(settings.read().unwrap().model_commands);
             app.manage(runtime);
-            if !erindi_core::models::SPEECH.installed(&runtime::models_dir()) {
+            if settings.read().unwrap().open_on_launch
+                || !erindi_core::models::SPEECH.installed(&runtime::models_dir())
+            {
                 show_settings(app.handle());
             }
             app.manage(SettingsStore {
@@ -76,6 +83,17 @@ pub fn run() {
                 .icon(app.default_window_icon().cloned().expect("bundled icon"))
                 .tooltip("Erindi")
                 .menu(&Menu::with_items(app, &[&settings, &quit])?)
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_settings(tray.app_handle());
+                    }
+                })
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "settings" => show_settings(app),
                     "quit" => app.exit(0),
@@ -303,6 +321,15 @@ fn save_settings(
     settings.validate()?;
     if settings.model_commands && !erindi_core::models::CLEANUP.installed(&runtime::models_dir()) {
         return Err("Download the command model first".into());
+    }
+    let autostart = app.autolaunch();
+    if autostart.is_enabled().map_err(|e| e.to_string())? != settings.launch_at_login {
+        if settings.launch_at_login {
+            autostart.enable()
+        } else {
+            autostart.disable()
+        }
+        .map_err(|e| e.to_string())?;
     }
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
