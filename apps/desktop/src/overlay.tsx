@@ -57,7 +57,7 @@ function Tip(props: {
   useLayoutEffect(() => {
     const text = ref.current?.querySelector<HTMLElement>(".t");
     if (text) setCut(text.scrollWidth > text.clientWidth + 1 || text.scrollHeight > text.clientHeight + 1);
-  }, [props.text]);
+  }, [props.text, props.class]);
   const show = Boolean(props.outcome) || cut;
   return (
     <div ref={ref} class={`${props.class} ${show ? "has-tip" : ""}`}>

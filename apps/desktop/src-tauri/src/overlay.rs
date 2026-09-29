@@ -4,8 +4,13 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
-/// The bubble plus room for a tooltip above it.
+/// The bubble plus room for a tooltip above it, in CSS pixels.
 const HEIGHT: u32 = 260;
+
+/// The window height in physical pixels for a monitor scale, so the page keeps `HEIGHT` CSS pixels.
+fn height(scale: f64) -> u32 {
+    (f64::from(HEIGHT) * scale).round() as u32
+}
 
 /// The bubble's box in CSS pixels, relative to the overlay window, as the page reports it.
 #[derive(Clone, Copy, Default, Debug, serde::Deserialize)]
@@ -66,10 +71,11 @@ pub fn show(app: &AppHandle) {
         .or_else(|| app.primary_monitor().ok().flatten());
     if let Some(monitor) = monitor {
         let area = monitor.work_area();
-        let _ = window.set_size(PhysicalSize::new(area.size.width, HEIGHT));
+        let height = height(monitor.scale_factor());
+        let _ = window.set_size(PhysicalSize::new(area.size.width, height));
         let _ = window.set_position(PhysicalPosition::new(
             area.position.x,
-            area.position.y + area.size.height as i32 - HEIGHT as i32,
+            area.position.y + area.size.height as i32 - height as i32,
         ));
     }
     let _ = window.show();
@@ -149,6 +155,13 @@ mod tests {
             1.5,
             r
         ));
+    }
+
+    #[test]
+    fn height_scales_with_the_monitor() {
+        assert_eq!(height(1.0), 260);
+        assert_eq!(height(1.5), 390);
+        assert_eq!(height(2.0), 520);
     }
 
     #[test]

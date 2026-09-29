@@ -74,6 +74,15 @@ body.overlay {
   text-overflow: ellipsis;
 }
 
+/* A phrase being spoken or transcribed keeps its newest words: at most three lines, cut at the top. */
+.r-speak > .t,
+.r-decode > .t {
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: calc(1.35em * 3);
+  overflow: hidden;
+}
+
 .rail > .t.two {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -232,6 +241,7 @@ body.overlay {
   font-size: 12px;
   line-height: 1.45;
   white-space: normal;
+  overflow-wrap: anywhere;
   text-decoration: none;
 }
 
