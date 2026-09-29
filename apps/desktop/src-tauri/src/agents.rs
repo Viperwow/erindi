@@ -6,7 +6,7 @@ use erindi_core::agent::{Agent, ModelOption, claude_models};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-/// How old a check may be before the Settings window re-checks on focus.
+/// How old a check may be before the Settings window re-checks on focus or a tab switch.
 const STALE: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -22,6 +22,13 @@ pub struct AgentStatus {
 
 /// When the agents were last checked, and what was found.
 type Checked = Option<(Instant, Vec<AgentStatus>)>;
+
+/// A failed model list counts as stale, so every look at Settings asks again until it loads.
+fn stale(checked: &Checked) -> bool {
+    checked.as_ref().is_none_or(|(at, status)| {
+        at.elapsed() > STALE || status.iter().any(|s| s.models_error.is_some())
+    })
+}
 
 /// What Erindi last found out about each agent CLI.
 #[derive(Clone, Default)]
@@ -116,16 +123,8 @@ impl Agents {
         fresh
     }
 
-    pub fn recheck_if_stale(&self, app: &AppHandle) {
-        let stale = self
-            .0
-            .lock()
-            .unwrap()
-            .as_ref()
-            .is_none_or(|(at, _)| at.elapsed() > STALE);
-        if stale {
-            self.recheck(app);
-        }
+    pub fn is_stale(&self) -> bool {
+        stale(&self.0.lock().unwrap())
     }
 
     /// Finds the CLI now, and re-checks everything when it appeared, moved or went away.
@@ -146,6 +145,17 @@ impl Agents {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_list_error_makes_the_check_stale() {
+        let ok = status_of(Agent::Pi, Some("pi".into()), Ok(vec![]));
+        let failed = status_of(Agent::Pi, Some("pi".into()), Err("502".into()));
+        let old = Instant::now().checked_sub(STALE * 2).unwrap();
+        assert!(stale(&None));
+        assert!(!stale(&Some((Instant::now(), vec![ok.clone()]))));
+        assert!(stale(&Some((old, vec![ok.clone()]))));
+        assert!(stale(&Some((Instant::now(), vec![ok, failed]))));
+    }
 
     #[test]
     fn missing_cli_message_names_the_agent() {

@@ -44,7 +44,7 @@ function SettingsView() {
   const [status, setStatus] = useState<Status>(null);
   const [models, setModels] = useState<ModelStatus[]>([]);
   const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
-  const { agents, recheck } = useAgents();
+  const { agents, checking: checkingAgents, recheck } = useAgents();
   const [limited, setLimited] = useState(false);
   const { run: guard, busy } = useBusy();
   // The notice follows the saved folder, so typing a path shows nothing until Save.
@@ -141,6 +141,7 @@ function SettingsView() {
         </Field>
         <AgentFields
           status={agentStatus ?? checking(s.agent)}
+          checking={checkingAgents}
           value={s.agents[s.agent] ?? { model: null, permission: "default" }}
           onChange={(v) => set({ agents: { ...s.agents, [s.agent]: v } })}
         />
