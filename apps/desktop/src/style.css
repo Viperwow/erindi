@@ -5,40 +5,271 @@ body.overlay {
   overflow: hidden;
 }
 
-.aurora {
-  background:
-    radial-gradient(40% 120% at 30% 100%, var(--a), transparent 70%),
-    radial-gradient(40% 120% at 70% 100%, var(--b), transparent 70%);
-  background-size: 200% 100%;
-  filter: blur(14px);
-  transform-origin: bottom;
-  transition:
-    opacity 80ms linear,
-    transform 80ms linear;
-  animation: drift 6s ease-in-out infinite alternate;
-}
-
-.aurora-sweep {
-  animation-duration: 1.6s;
-}
-
-@keyframes drift {
-  from {
-    background-position: 0% 0%;
-  }
-  to {
-    background-position: 100% 0%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .aurora {
-    animation: none;
-  }
-}
-
 @keyframes fade-in {
   from {
     opacity: 0;
   }
+}
+
+/* Overlay bubble. Values follow docs/superpowers/specs/2026-09-29-overlay-states.html. */
+
+.bubble {
+  position: relative;
+  width: 380px;
+  background: rgba(10, 10, 10, 0.85);
+  color: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font: 13px/1.35 system-ui, sans-serif;
+}
+
+.bubble.clickable {
+  cursor: pointer;
+}
+
+.bubble > .body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 14px 12px;
+}
+
+.bubble .t {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Phrases: neutral text; a 2px rail in a fixed gutter shows the state. */
+
+.rail {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  padding-left: 11px;
+}
+
+.rail::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.28em;
+  bottom: 0.28em;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--rail);
+}
+
+.rail.live {
+  color: #fff;
+}
+
+.rail.muted {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+}
+
+.rail.muted > .t {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail > .t.two {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.r-run { --rail: #f59e0b; }
+.r-speak { --rail: #38bdf8; }
+.r-decode { --rail: #a855f7; }
+.r-ok { --rail: rgba(74, 222, 128, 0.55); }
+.r-err { --rail: #f87171; }
+.r-gone { --rail: rgba(255, 255, 255, 0.22); }
+.r-gone > .t { text-decoration: line-through; }
+.r-wait::before { background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.35) 0 2px, transparent 2px 4px); }
+
+/* Bottom row: the microphone always on the left, running work on the right. */
+
+.foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.foot.alone {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.mic-slot,
+.run-slot {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mic-slot {
+  flex: none;
+}
+
+.run-slot {
+  position: relative;
+}
+
+.run-slot > .t {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.label.light {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* A global error: crossed-out mic on the left, the text centred on the whole row. */
+.foot.global {
+  display: grid;
+  grid-template-columns: 15px 1fr 15px;
+}
+
+.foot.global > .label {
+  text-align: center;
+}
+
+/* Icons centre on the capital letters of their own line. */
+.icon,
+.dot {
+  flex: none;
+  display: block;
+  align-self: baseline;
+  width: var(--s);
+  height: var(--s);
+  transform: translateY(calc((var(--s) - 1cap) / 2));
+}
+
+.icon { --s: 15px; }
+.dot { --s: 13px; }
+.dot.ok { color: #22c55e; }
+.dot.err { color: #ef4444; }
+
+/* Three dots that appear one by one, in a fixed-width slot so the label does not move. */
+.ell {
+  display: inline-block;
+  width: 1.1em;
+  text-align: left;
+}
+
+.ell::after {
+  content: "";
+  animation: ell 1.2s steps(1, end) infinite;
+}
+
+@keyframes ell {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75% { content: "..."; }
+}
+
+/* The strip shows the microphone only. */
+
+.stripwrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 16px;
+  border-radius: 0 0 16px 16px;
+  overflow: hidden;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+}
+
+.strip {
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--a), var(--b), var(--a));
+  background-size: 200% 100%;
+  animation: slide 3s linear infinite;
+}
+
+.strip.idle { --a: #06b6d4; --b: #3b82f6; filter: brightness(0.55) saturate(0.8); animation-duration: 6s; }
+.strip.speak { --a: #06b6d4; --b: #3b82f6; animation-duration: 1.6s; }
+.strip.decode { --a: #a855f7; --b: #6366f1; animation-duration: 2s; }
+.strip.off { background: rgba(255, 255, 255, 0.08); animation: none; }
+.strip.error { --a: #ef4444; --b: #f43f5e; animation: none; }
+
+@keyframes slide {
+  to { background-position: 200% 0; }
+}
+
+/* Tooltips: only rows that hide something have one, and only those react to the mouse. */
+
+.tip {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: -8px;
+  bottom: calc(100% + 6px);
+  z-index: 10;
+  padding: 8px 10px;
+  background: #18181b;
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+  text-decoration: none;
+}
+
+.rail > .tip {
+  left: 11px;
+}
+
+.has-tip:hover > .tip {
+  display: block;
+}
+
+.has-tip:hover > .t {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.why {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.why.ok { color: #86efac; }
+.why.err { color: #fca5a5; }
+
+.tip > .full {
+  color: rgba(244, 244, 245, 0.85);
+}
+
+.tip > .hint {
+  margin-top: 6px;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip { animation: none; }
+  .ell::after { animation: none; content: "..."; }
 }
