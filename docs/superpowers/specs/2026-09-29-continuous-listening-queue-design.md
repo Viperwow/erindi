@@ -28,7 +28,7 @@ Order of work, two PRs:
 | Open in terminal while the agent works | The hotkey and the voice command join the queue and run in their turn. The bubble is clickable only when the agent is idle and the queue is empty. |
 | Turning listening off | Does not cancel the running agent or the queue; they finish. |
 | Finished phrases in the bubble | The last three stay while a series goes on. They clear when a new phrase starts after the agent went idle with an empty queue. |
-| Transcribing while speaking | The bottom row shows "Transcribing…" on the left and "Speaking" on the right; the strip is bright blue. |
+| Transcribing while speaking | The bottom row shows "Listening" with the microphone on the left and "Transcribing" on the right; the strip is bright blue. |
 
 ## Overlay bubble (PR 1)
 
@@ -46,14 +46,14 @@ The aurora no longer fills the bottom of the screen. It is a 2px strip along the
 
 ### The bottom row
 
-- Left: what is running now, with a pulsing dot. Amber means the agent works ("Claude is working · Bash cargo test"). Violet means transcribing.
-- Right: the microphone with an icon, in muted grey: "Listening", "Speaking", "Mic off" with a crossed-out microphone; "Mic unavailable" in red.
-- With nothing running on the left, the microphone takes the left slot.
-- Global errors that belong to no phrase go here with a still red dot: microphone unavailable, speech model failed to load, other Erindi errors.
+- Left, always: the microphone icon with a grey label — "Waiting" (waiting for a phrase), "Listening" (hearing speech), "Mic off" with a crossed-out microphone, "Mic unavailable" with a crossed-out microphone in light text. Every icon in the row is the same grey.
+- Right: what is running now, with a grey action icon and no dot — a pencil for "Transcribing", a terminal for the agent ("Claude is working · Bash cargo test", "Cancelling").
+- "Listening" and "Transcribing" end with three dots that appear one by one ("." → ".." → "..."), in a fixed-width slot so the label does not move; with reduced motion the dots stay as "...".
+- A global error that belongs to no phrase replaces the label: one white line next to the crossed-out microphone, centred in the row ("Microphone unavailable · check the microphone in Settings", "Speech model failed to load · open Settings to download it again"). Red lives only in the strip.
 
 ### Phrases on top
 
-- Phrase text is always neutral: the newest phrase white, earlier ones muted. No coloured text and no icons in phrase rows, so every row's text starts on the same line.
+- Phrase text is always neutral. Live phrases (the agent's task, the phrase being spoken) are white; queued and every finished phrase, the newest included, are muted. No coloured text and no icons in phrase rows, so every row's text starts on the same line.
 - A thin 2px rail in a fixed gutter on the left of each phrase shows its state:
 
   | Rail | Phrase |
@@ -77,7 +77,7 @@ The aurora no longer fills the bottom of the screen. It is a 2px strip along the
 
 ### Icon alignment
 
-Microphone icons and status dots centre on the capital letters of their own line, not on the line box: each sits on the text baseline and moves down by `(icon size − 1cap) / 2`, where `1cap` comes from the row's own font size. Dots are svg like the other icons; the alignment shift lives on the svg and the pulse on the circle inside, so the two transforms never fight.
+Microphone and action icons, and the still dots in tooltips, centre on the capital letters of their own line, not on the line box: each sits on the text baseline and moves down by `(icon size − 1cap) / 2`, where `1cap` comes from the row's own font size. Dots are svg like the other icons, so they align by the same rule. Any future animation on an icon goes on an inner element, never on the svg that carries the shift.
 
 ### Click
 
@@ -133,8 +133,8 @@ Everything stays in `crates/core`, free of Tauri, and is tested like today.
 | The agent's CLI is missing | Its phrase gets a red rail; "… CLI not found · install it, then press Re-check in Settings" in the tooltip | The next queued phrase starts |
 | One phrase could not be transcribed | The live text gets a red rail, "Couldn't transcribe this phrase" in the tooltip | Listening goes on |
 | An empty phrase (a cough, noise) | Nowhere | Ignored |
-| Microphone unavailable | Bottom row, red dot; strip red | Listening mode turns off; the agent and the queue go on |
-| Speech model failed to load | Bottom row, red dot | Listening cannot start; Settings offers the download |
+| Microphone unavailable | Bottom row: one white centred line next to the crossed-out microphone; strip red | Listening mode turns off; the agent and the queue go on |
+| Speech model failed to load | Bottom row: one white centred line next to the crossed-out microphone; strip red | Listening cannot start; Settings offers the download |
 
 ## Testing
 

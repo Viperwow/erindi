@@ -12,20 +12,21 @@
 
 ## Global Constraints
 
-- Phrase text is always neutral: newest white, earlier muted. No coloured text, no icons in phrase rows.
+- Phrase text is always neutral: live phrases (the agent's task, the phrase being spoken or transcribed) white; queued and every finished phrase muted (`rgba(255,255,255,.62)`, 12px). No coloured text, no icons in phrase rows.
 - Rails (2px, fixed 11px left gutter): amber `#f59e0b` agent works on it · blue `#38bdf8` being spoken · violet `#a855f7` being transcribed · dashed grey queued · muted green `rgba(74,222,128,.55)` done · red `#f87171` error · light grey `rgba(255,255,255,.22)` cancelled (text struck through).
 - Strip (2px, inside the bubble, clipped to its bottom corners) shows the microphone only: waiting `#06b6d4→#3b82f6` at `brightness(.55)`, 6s · hearing speech same colours, 1.6s · transcribing `#a855f7→#6366f1` · off `rgba(255,255,255,.08)`, still · error `#ef4444→#f43f5e`, still.
-- Bottom row: running work on the left with a pulsing dot (amber agent, violet transcribing); microphone on the right with an icon, grey text: "Listening", "Speaking", "Mic off" (crossed-out mic), "Mic unavailable" (red). With nothing running the microphone takes the left slot. Global errors (no phrase) sit on the left with a still red dot.
+- Bottom row, all icons and labels grey `rgba(255,255,255,.62)`: the microphone always on the left — "Waiting", "Listening" (hearing speech), "Mic off" (crossed-out mic), "Mic unavailable" (crossed-out mic, light text `rgba(255,255,255,.9)`); running work on the right with an action icon, no dot — pencil + "Transcribing", terminal + "{Agent} is working · {detail}" / "Cancelling". "Listening" and "Transcribing" end with three dots appearing one by one in a fixed-width slot (`.ell`, `@keyframes ell` over `content`), static "..." with reduced motion.
+- A global error (failure with no phrase) replaces the microphone label: crossed-out mic on the left, one white line centred in the row (grid `15px 1fr 15px`); the strip is red. No red dot.
 - Tooltips: a finished or failed phrase always has one (still dot + outcome or reason, a divider, the full phrase, and "Click to open in terminal" when clickable). Any other line gets one only when it really overflows. A line without a tooltip does not react to the mouse.
-- Icons and dots centre on the capital letters of their own line: `align-self: baseline; transform: translateY(calc((var(--s) - 1cap) / 2))`, with the row's own font size. Dots are svg; the shift is on the svg, the pulse on the inner `<circle>`.
+- Icons centre on the capital letters of their own line: `align-self: baseline; transform: translateY(calc((var(--s) - 1cap) / 2))`, with the row's own font size (`--s: 15px` for mic/pencil/terminal, `13px` for the still dots in tooltips). The pencil's `viewBox` is `-3 -3 30 30` so it reads the same size as the microphone.
 - The bubble is clickable only for a finished run with a session (today: `Succeeded` or `Failed` with `sessionId`).
-- No marker next to the active phrase, no shimmer, no level bars.
+- No marker next to the active phrase, no shimmer, no level bars, no pulsing dots.
 
 ## Review Focus
 
 - The cursor hovers the bubble while a result auto-dismisses (8 s): the tooltip must disappear with the bubble, and the window must go back to ignoring the cursor. → Task 3 test `hover_stops_when_the_op_changes`.
 - A very long phrase with no spaces (a path or URL): it must truncate with an ellipsis, not widen the bubble. → Task 1 test `long unbroken text stays one phrase` and the `min-width:0` / `overflow-wrap:anywhere` rules in Task 2.
-- A failure before any text exists (microphone can't open): no empty phrase row, a global error on the left and a red strip. → Task 1 test `failure without a phrase is a global error`.
+- A failure before any text exists (microphone can't open): no empty phrase row, a global error line next to the crossed-out mic and a red strip. → Task 1 test `failure without a phrase is a global error`.
 - Codex in limited mode: the working status says so, and a finished limited run's click hint says "Click to open in Codex and trust". → Task 1 tests `limited mode shows in the status` and `limited click hint`.
 - Two monitors with different DPI: the hover rectangle must use the overlay window's own scale factor. → Task 3 test `inside_uses_the_window_scale`.
 
@@ -43,10 +44,11 @@
   ```ts
   export type Rail = "run" | "speak" | "decode" | "wait" | "ok" | "err" | "gone";
   export type Phrase = { text: string; rail: Rail; outcome: string | null; clickHint: string | null; newest: boolean };
-  export type Running = { kind: "agent" | "decode"; text: string } | null;
-  export type Mic = "listening" | "speaking" | "off" | "error" | null;
+  export type Running = { icon: "terminal" | "pencil"; text: string; dots: boolean } | null;
+  export type Mic = "waiting" | "listening" | "off" | "error";
   export type Strip = "idle" | "speak" | "decode" | "off" | "error";
   export type Bubble = { phrases: Phrase[]; running: Running; globalError: string | null; mic: Mic; strip: Strip; clickable: boolean };
+  // `Phrase.newest` is kept for PR 2; on today's logic every phrase is the newest.
   export const SPEECH_LEVEL = 0.02;
   export function bubble(view: View, level: number): Bubble;
   ```
@@ -56,33 +58,33 @@
   ```ts
   test("listening in silence waits", () => {
     const b = bubble(view({ state: "Listening" }), 0);
-    assert.deepEqual([b.strip, b.mic, b.running, b.phrases.length], ["idle", "listening", null, 0]);
+    assert.deepEqual([b.strip, b.mic, b.running, b.phrases.length], ["idle", "waiting", null, 0]);
   });
   test("speech above the level speaks", () => {
     const b = bubble(view({ state: "Listening", text: "проверь diff" }), SPEECH_LEVEL);
-    assert.deepEqual([b.strip, b.mic, b.phrases[0].rail], ["speak", "speaking", "speak"]);
+    assert.deepEqual([b.strip, b.mic, b.phrases[0].rail], ["speak", "listening", "speak"]);
   });
-  test("transcribing hides the mic", () => {
+  test("transcribing shows the pencil", () => {
     const b = bubble(view({ state: "Transcribing", text: "проверь diff" }), 0);
-    assert.deepEqual([b.strip, b.mic, b.running, b.phrases[0].rail], ["decode", null, { kind: "decode", text: "Transcribing…" }, "decode"]);
+    assert.deepEqual([b.strip, b.mic, b.running, b.phrases[0].rail], ["decode", "off", { icon: "pencil", text: "Transcribing", dots: true }, "decode"]);
   });
   test("classifying reads as transcribing", () => {
-    assert.deepEqual(bubble(view({ state: "Classifying", text: "x" }), 0).running, { kind: "decode", text: "Checking command…" });
+    assert.deepEqual(bubble(view({ state: "Classifying", text: "x" }), 0).running, { icon: "pencil", text: "Checking command", dots: true });
   });
   test("running shows the agent and the tool", () => {
     const b = bubble(view({ state: "Running", text: "x", detail: "Bash cargo test", agent: "codex" }), 0);
-    assert.deepEqual([b.running, b.mic, b.strip, b.phrases[0].rail], [{ kind: "agent", text: "Codex is working · Bash cargo test" }, "off", "off", "run"]);
+    assert.deepEqual([b.running, b.mic, b.strip, b.phrases[0].rail], [{ icon: "terminal", text: "Codex is working · Bash cargo test", dots: false }, "off", "off", "run"]);
   });
   test("limited mode shows in the status", () => {
     assert.equal(bubble(view({ state: "Running", text: "x", agent: "codex", limited: true }), 0).running?.text, "Codex is working · limited mode");
   });
   test("cancelling strikes the phrase", () => {
     const b = bubble(view({ state: "Cancelling", text: "x" }), 0);
-    assert.deepEqual([b.phrases[0].rail, b.running?.text], ["gone", "Cancelling…"]);
+    assert.deepEqual([b.phrases[0].rail, b.running], ["gone", { icon: "terminal", text: "Cancelling", dots: false }]);
   });
   test("done goes on the phrase", () => {
     const b = bubble(view({ state: "Succeeded", text: "x", detail: "no lint errors", sessionId: "s" }), 0);
-    assert.deepEqual([b.phrases[0].rail, b.phrases[0].outcome, b.phrases[0].clickHint, b.running, b.clickable], ["ok", "Done · no lint errors", "Click to open in terminal", null, true]);
+    assert.deepEqual([b.phrases[0].rail, b.phrases[0].outcome, b.phrases[0].clickHint, b.running, b.mic, b.clickable], ["ok", "Done · no lint errors", "Click to open in terminal", null, "off", true]);
   });
   test("failure goes on the phrase", () => {
     const b = bubble(view({ state: "Failed", text: "x", detail: "rate limit reached", sessionId: "s" }), 0);
@@ -112,7 +114,7 @@
 
 - [ ] **Step 3: Implement `bubble(view, level)` in `bubble.ts`**
 
-  One `switch (view.state)`. Hidden states (`Idle`, `LoadingModel`, `NoModel`) return an empty bubble with `strip: "off"`, `mic: null`. Every phrase has `newest: true` (only one phrase exists on today's logic). Outcome and hint strings exactly as in the tests; a missing `detail` drops the `" · …"` part.
+  One `switch (view.state)`. Hidden states (`Idle`, `LoadingModel`, `NoModel`) return an empty bubble with `strip: "off"`, `mic: "off"`. Every phrase has `newest: true` (only one phrase exists on today's logic). Outcome and hint strings exactly as in the tests; a missing `detail` drops the `" · …"` part.
 
 - [ ] **Step 4: Run to see them pass**
 
@@ -137,13 +139,13 @@
 - Produces: the DOM element with `id="bubble"` wrapping the bubble; Task 3 measures it.
 
 - [ ] **Step 1: Render the model** in `overlay.tsx` as four small components in the same file: `PhraseRow`, `BottomRow`, `Strip`, `Tip`.
-  - `PhraseRow`: `div.rail.r-{rail}` with the text in `span.t`; the newest phrase in white, others muted (`text-white/60`, 12px); `r-gone` also strikes the text; `r-run` clamps to two lines (`-webkit-line-clamp:2`).
-  - `BottomRow`: left = running status (svg dot, `violet` for `decode`) or the global error (still red svg dot, red text); right = mic label with icon (`mic`, `micoff`); if the left is empty, render the mic on the left.
+  - `PhraseRow`: `div.rail.r-{rail}` with the text in `span.t`; `run`, `speak` and `decode` phrases white, all others muted (12px); `r-gone` also strikes the text; `r-run` clamps to two lines (`-webkit-line-clamp:2`).
+  - `BottomRow`: left = the microphone (icon `mic` or `micoff`, grey label "Waiting" / "Listening" with `.ell` / "Mic off" / "Mic unavailable" in light text); right = running work (icon `terminal` or `pencil`, grey text, `.ell` when `dots`). With a `globalError`, the row is one grid `15px 1fr 15px`: crossed-out mic, the white error text centred, an empty cell.
   - `Strip`: `div.stripwrap > div.strip.{strip}`.
   - `Tip`: wraps a row; it renders its tooltip when `outcome` is set, or when a `useLayoutEffect` measures `scrollWidth > clientWidth + 1 || scrollHeight > clientHeight + 1` on the text element. Tooltip content: still dot + outcome (only when set), divider, full text, then `clickHint` (only when set).
   - The bubble root gets `onClick` only when `clickable`.
 
-- [ ] **Step 2: Add the styles** to `style.css`, copying values from the reference file: `.rail`/`.r-*` (the `::before` rail, `left:0; top:.28em; bottom:.28em; width:2px`), `.stripwrap`/`.strip.*` with `@keyframes slide`, the cap-alignment rule for `.mic`, `.micoff`, `.dotsvg` (`--s: 15px` for the mic, `13px` for dots), `.dotsvg circle` pulse (`@keyframes dotpulse{50%{opacity:.3;transform:scale(.8)}}`, `transform-box:fill-box; transform-origin:center`), the tooltip (`.tip`, `.why` with the divider `border-bottom:1px solid rgba(255,255,255,.12)`), `min-width:0` and `overflow-wrap:anywhere` on phrase text, and `prefers-reduced-motion` turning off `slide` and `dotpulse`.
+- [ ] **Step 2: Add the styles** to `style.css`, copying values from the reference file: `.rail`/`.r-*` (the `::before` rail, `left:0; top:.28em; bottom:.28em; width:2px`), `.stripwrap`/`.strip.*` with `@keyframes slide`, the cap-alignment rule for the icons (`--s: 15px` for mic, pencil and terminal, `13px` for the still tooltip dots), `.ell` with `@keyframes ell{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}` (`width:1.1em; display:inline-block`), the tooltip (`.tip`, `.why` with the divider `border-bottom:1px solid rgba(255,255,255,.12)`), `min-width:0` and `overflow-wrap:anywhere` on phrase text, and `prefers-reduced-motion` turning off `slide` and showing a static "..." in `.ell`.
 
 - [ ] **Step 3: Type-check and test**
 
