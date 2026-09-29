@@ -12,6 +12,7 @@ pub mod models;
 pub mod pi;
 pub mod prompt;
 pub mod run;
+pub mod series;
 pub mod session;
 pub mod state;
 pub mod stream;
