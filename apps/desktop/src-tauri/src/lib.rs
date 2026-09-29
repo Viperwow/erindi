@@ -32,6 +32,7 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             open_session,
+            overlay::set_bubble_rect,
             codex_limited,
             trust_in_codex,
             get_settings,
@@ -50,6 +51,7 @@ pub fn run() {
             recheck_agents
         ])
         .setup(|app| {
+            app.manage(overlay::BubbleRect::default());
             overlay::create(app.handle())?;
             let path = app.path().app_config_dir()?.join("settings.json");
             let history_path = app.path().app_data_dir()?.join("sessions.json");
@@ -424,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn overlay_can_only_listen_and_open_the_session() {
+    fn overlay_can_only_listen_open_the_session_and_report_its_bubble() {
         let cap = capability(include_str!("../capabilities/overlay.json"));
         assert_eq!(cap["windows"], json!(["overlay"]));
         assert_eq!(
@@ -432,7 +434,8 @@ mod tests {
             json!([
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
-                "allow-open-session"
+                "allow-open-session",
+                "allow-set-bubble-rect"
             ])
         );
     }

@@ -154,12 +154,28 @@ function Overlay() {
     };
   }, []);
 
+  // Rust takes the mouse only over this box, so tooltips and clicks work on the bubble alone.
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bubbleRef.current;
+    if (!el) return;
+    const report = () => {
+      const r = el.getBoundingClientRect();
+      invoke("set_bubble_rect", { rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom } });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [view]);
+
   if (!view) return null;
   const b = bubble(view, level);
   return (
     <div class="fixed inset-0 flex items-end justify-center pb-3 select-none">
       <div
         id="bubble"
+        ref={bubbleRef}
         class={`bubble ${b.clickable ? "clickable" : ""}`}
         onClick={b.clickable ? openSession : undefined}
       >

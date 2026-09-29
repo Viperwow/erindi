@@ -1,11 +1,38 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
-/// Aurora strip plus room for the transcript bubble above it.
-const HEIGHT: u32 = 200;
+/// The bubble plus room for a tooltip above it.
+const HEIGHT: u32 = 260;
+
+/// The bubble's box in CSS pixels, relative to the overlay window, as the page reports it.
+#[derive(Clone, Copy, Default, Debug, serde::Deserialize)]
+pub struct Rect {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+}
+
+#[derive(Clone, Default)]
+pub struct BubbleRect(pub Arc<Mutex<Rect>>);
+
+#[tauri::command]
+pub fn set_bubble_rect(rect: Rect, state: tauri::State<BubbleRect>) {
+    *state.0.lock().unwrap() = rect;
+}
+
+/// Whether a cursor in physical pixels is over the bubble of a window at `window` with `scale`.
+fn inside(cursor: (f64, f64), window: (f64, f64), scale: f64, rect: Rect) -> bool {
+    let (x, y) = ((cursor.0 - window.0) / scale, (cursor.1 - window.1) / scale);
+    x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+}
+
+fn keep_tracking(active: &AtomicU64, op: u64) -> bool {
+    active.load(Ordering::SeqCst) == op
+}
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
@@ -48,35 +75,31 @@ pub fn show(app: &AppHandle) {
     let _ = window.show();
 }
 
-/// Region of the transcript bubble, measured from the bottom center of the overlay.
-const BUBBLE_HALF_WIDTH: f64 = 400.0;
-const BUBBLE_BOTTOM: f64 = 48.0;
-const BUBBLE_TOP: f64 = 190.0;
-
-/// Accepts clicks only while the cursor is over the bubble, so the transparent rest of the
-/// overlay never swallows clicks meant for other apps. Stops once `active` moves off `op`.
+/// Takes the mouse only while the cursor is over the bubble, so tooltips and clicks work there
+/// and the transparent rest of the overlay never swallows clicks meant for other apps.
+/// Stops once `active` moves off `op`.
 pub fn track_bubble_hover(app: &AppHandle, active: Arc<AtomicU64>, op: u64) {
     let app = app.clone();
     std::thread::spawn(move || {
         let Some(window) = app.get_webview_window("overlay") else {
             return;
         };
-        while active.load(Ordering::SeqCst) == op {
-            let inside = (|| {
+        let rect = app.state::<BubbleRect>().inner().clone();
+        while keep_tracking(&active, op) {
+            let over = (|| {
                 let cursor = app.cursor_position().ok()?;
-                let pos = window.outer_position().ok()?;
-                let size = window.outer_size().ok()?;
+                let pos = window.inner_position().ok()?;
                 let scale = window.scale_factor().ok()?;
-                let center = pos.x as f64 + size.width as f64 / 2.0;
-                let bottom = pos.y as f64 + size.height as f64;
-                Some(
-                    (cursor.x - center).abs() <= BUBBLE_HALF_WIDTH * scale
-                        && cursor.y <= bottom - BUBBLE_BOTTOM * scale
-                        && cursor.y >= bottom - BUBBLE_TOP * scale,
-                )
+                let bubble = *rect.0.lock().unwrap();
+                Some(inside(
+                    (cursor.x, cursor.y),
+                    (pos.x as f64, pos.y as f64),
+                    scale,
+                    bubble,
+                ))
             })()
             .unwrap_or(false);
-            let _ = window.set_ignore_cursor_events(!inside);
+            let _ = window.set_ignore_cursor_events(!over);
             std::thread::sleep(Duration::from_millis(50));
         }
         let _ = window.set_ignore_cursor_events(true);
@@ -86,5 +109,53 @@ pub fn track_bubble_hover(app: &AppHandle, active: Arc<AtomicU64>, op: u64) {
 pub fn hide(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("overlay") {
         let _ = window.hide();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inside_the_bubble_only() {
+        let r = Rect {
+            left: 100.0,
+            top: 50.0,
+            right: 460.0,
+            bottom: 190.0,
+        };
+        assert!(inside((200.0, 100.0), (0.0, 0.0), 1.0, r));
+        assert!(!inside((50.0, 100.0), (0.0, 0.0), 1.0, r));
+        assert!(!inside((200.0, 195.0), (0.0, 0.0), 1.0, r));
+    }
+
+    #[test]
+    fn inside_uses_the_window_scale() {
+        let r = Rect {
+            left: 100.0,
+            top: 50.0,
+            right: 460.0,
+            bottom: 190.0,
+        };
+        assert!(inside(
+            (1000.0 + 300.0, 500.0 + 150.0),
+            (1000.0, 500.0),
+            1.5,
+            r
+        ));
+        assert!(!inside(
+            (1000.0 + 700.0, 500.0 + 150.0),
+            (1000.0, 500.0),
+            1.5,
+            r
+        ));
+    }
+
+    #[test]
+    fn hover_stops_when_the_op_changes() {
+        let active = Arc::new(AtomicU64::new(7));
+        assert!(keep_tracking(&active, 7));
+        active.store(8, Ordering::SeqCst);
+        assert!(!keep_tracking(&active, 7));
     }
 }

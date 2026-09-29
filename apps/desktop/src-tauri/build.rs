@@ -3,6 +3,7 @@ fn main() {
     println!("cargo:rerun-if-changed=icons");
     let commands = tauri_build::AppManifest::new().commands(&[
         "open_session",
+        "set_bubble_rect",
         "get_settings",
         "save_settings",
         "list_microphones",

@@ -76,7 +76,7 @@ impl Runtime {
             capture: None,
             cancel: None,
             last_session: last_session.clone(),
-            clickable_op: Arc::new(AtomicU64::new(0)),
+            hover_op: Arc::new(AtomicU64::new(0)),
             history: history.clone(),
             active: active.clone(),
             refiner: refiner.clone(),
@@ -338,7 +338,7 @@ struct Executor {
     capture: Option<Capture>,
     cancel: Option<CancellationToken>,
     last_session: Arc<Mutex<Option<LastRun>>>,
-    clickable_op: Arc<AtomicU64>,
+    hover_op: Arc<AtomicU64>,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
     refiner: Refiner,
@@ -403,19 +403,21 @@ impl Executor {
             }
             Effect::Show(view) => {
                 let _ = self.app.emit_to("overlay", "view", &view);
-                match view.state {
-                    AppState::Idle | AppState::LoadingModel | AppState::NoModel => {
-                        overlay::hide(&self.app)
-                    }
-                    _ => overlay::show(&self.app),
+                let shown = !matches!(
+                    view.state,
+                    AppState::Idle | AppState::LoadingModel | AppState::NoModel
+                );
+                if shown {
+                    overlay::show(&self.app);
+                } else {
+                    overlay::hide(&self.app);
+                }
+                // Tooltips need the mouse whenever the bubble is up; one tracker per op.
+                let op = if shown { view.op } else { 0 };
+                if self.hover_op.swap(op, Ordering::SeqCst) != op && op != 0 {
+                    overlay::track_bubble_hover(&self.app, self.hover_op.clone(), op);
                 }
                 let finished = matches!(view.state, AppState::Succeeded | AppState::Failed);
-                let clickable = finished && view.session_id.is_some();
-                self.clickable_op
-                    .store(if clickable { view.op } else { 0 }, Ordering::SeqCst);
-                if clickable {
-                    overlay::track_bubble_hover(&self.app, self.clickable_op.clone(), view.op);
-                }
                 if finished {
                     let tx = self.tx.clone();
                     std::thread::spawn(move || {
