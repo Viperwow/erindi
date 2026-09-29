@@ -47,22 +47,37 @@ The aurora no longer fills the bottom of the screen. It is a 2px strip along the
 ### The bottom row
 
 - Left: what is running now, with a pulsing dot. Amber means the agent works ("Claude is working · Bash cargo test"). Violet means transcribing.
-- Right: the microphone with an icon: "Listening", "Speaking", "Mic off" with a crossed-out microphone, "Mic unavailable" in red.
+- Right: the microphone with an icon, in muted grey: "Listening", "Speaking", "Mic off" with a crossed-out microphone; "Mic unavailable" in red.
 - With nothing running on the left, the microphone takes the left slot.
 - Global errors that belong to no phrase go here with a still red dot: microphone unavailable, speech model failed to load, other Erindi errors.
 
 ### Phrases on top
 
-- The phrase the agent works on takes up to two lines.
-- Queued phrases are muted, one line each, with a clock icon.
-- Outcomes belong to phrases, never to the bottom row. A finished phrase turns green (done) or red (error), with no dot. A cancelled phrase is struck through. "CLI not found" and "Couldn't transcribe" are phrase errors too.
-- The last finished phrase keeps normal size. Earlier ones shrink to one muted-size line in their colour.
+- Phrase text is always neutral: the newest phrase white, earlier ones muted. No coloured text and no icons in phrase rows, so every row's text starts on the same line.
+- A thin 2px rail in a fixed gutter on the left of each phrase shows its state:
+
+  | Rail | Phrase |
+  |------|--------|
+  | Amber | The agent works on it |
+  | Blue | Being spoken now |
+  | Violet | Being transcribed |
+  | Dashed grey | Waiting in the queue |
+  | Green, muted | Done |
+  | Red | Error |
+  | Light grey | Cancelled; the text is struck through |
+
+- The phrase the agent works on takes up to two lines. Queued and earlier finished phrases take one line each.
+- Outcomes belong to phrases, never to the bottom row. "CLI not found" and "Couldn't transcribe" are phrase errors too.
 
 ### Tooltips
 
-- A finished or failed phrase always has a tooltip: the outcome or the error reason with a still dot, a divider, then the full phrase. The last one adds "Click to open in terminal" when the agent is idle.
+- A finished or failed phrase always has a tooltip: the outcome or the error reason after a still green or red dot, a divider, then the full phrase. The last one adds "Click to open in terminal" when the agent is idle.
 - Any other line gets a tooltip only when it is cut off, measured by real overflow, not text length.
 - A line without a tooltip does not react to the mouse.
+
+### Icon alignment
+
+Microphone icons and status dots centre on the capital letters of their own line, not on the line box: each sits on the text baseline and moves down by `(icon size − 1cap) / 2`, where `1cap` comes from the row's own font size. Dots are svg like the other icons; the alignment shift lives on the svg and the pulse on the circle inside, so the two transforms never fight.
 
 ### Click
 
@@ -114,9 +129,9 @@ Everything stays in `crates/core`, free of Tauri, and is tested like today.
 
 | Error | Where it shows | What happens next |
 |-------|----------------|-------------------|
-| The agent failed (rate limit, network, CLI error) | Its phrase turns red; reason in the tooltip | The next queued phrase starts |
-| The agent's CLI is missing | Its phrase turns red with "… CLI not found · install it, then press Re-check in Settings" | The next queued phrase starts |
-| One phrase could not be transcribed | The live text turns red, "Couldn't transcribe this phrase" in the tooltip | Listening goes on |
+| The agent failed (rate limit, network, CLI error) | Its phrase gets a red rail; reason in the tooltip | The next queued phrase starts |
+| The agent's CLI is missing | Its phrase gets a red rail; "… CLI not found · install it, then press Re-check in Settings" in the tooltip | The next queued phrase starts |
+| One phrase could not be transcribed | The live text gets a red rail, "Couldn't transcribe this phrase" in the tooltip | Listening goes on |
 | An empty phrase (a cough, noise) | Nowhere | Ignored |
 | Microphone unavailable | Bottom row, red dot; strip red | Listening mode turns off; the agent and the queue go on |
 | Speech model failed to load | Bottom row, red dot | Listening cannot start; Settings offers the download |
