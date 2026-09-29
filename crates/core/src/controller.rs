@@ -92,6 +92,8 @@ pub enum Msg {
         id: Uuid,
         cwd: String,
         agent: Agent,
+        /// How long ago the session was last used, for "continue if used recently".
+        idle: Duration,
     },
     /// The session was removed from history, so it can no longer be the active one.
     Forget {
@@ -420,10 +422,15 @@ impl Controller {
             Msg::Forget { id } if self.active.as_ref().is_some_and(|a| a.id == id) => {
                 self.set_active(None)
             }
-            Msg::SetActive { id, cwd, agent } => self.set_active(Some(Active {
+            Msg::SetActive {
                 id,
                 cwd,
-                last_used: now,
+                agent,
+                idle,
+            } => self.set_active(Some(Active {
+                id,
+                cwd,
+                last_used: now.checked_sub(idle).unwrap_or(now),
                 agent,
             })),
             Msg::Failed { op, error } if current(op) => {
@@ -1384,6 +1391,26 @@ mod tests {
     }
 
     #[test]
+    fn a_restored_session_keeps_its_age() {
+        let mut t = T::new();
+        t.send(settings(SessionPolicy::ContinueIfRecent, "C:/p"));
+        t.now += Duration::from_secs(3600);
+        let restored = |idle| Msg::SetActive {
+            id: Uuid::from_u128(42),
+            cwd: "C:/p".into(),
+            agent: Agent::Claude,
+            idle,
+        };
+        t.send(restored(Duration::from_secs(601)));
+        assert!(matches!(t.finish_saying("ещё раз"), Session::New(_)));
+        t.send(restored(Duration::from_secs(60)));
+        assert_eq!(
+            t.finish_saying("ещё раз"),
+            Session::Resume(Uuid::from_u128(42))
+        );
+    }
+
+    #[test]
     fn recent_policy_expires() {
         let mut t = T::new();
         t.send(settings(SessionPolicy::ContinueIfRecent, "C:/p"));
@@ -1447,6 +1474,7 @@ mod tests {
             id: picked,
             cwd: "D:/elsewhere".into(),
             agent: Agent::Claude,
+            idle: Duration::ZERO,
         });
         assert_eq!(active_changes(&fx), [Some(picked)]);
 
@@ -1486,6 +1514,7 @@ mod tests {
             id: picked,
             cwd: "D:/elsewhere".into(),
             agent: Agent::Claude,
+            idle: Duration::ZERO,
         });
         assert_eq!(
             t.send(Msg::Forget {
@@ -1712,6 +1741,7 @@ mod tests {
             id: Uuid::from_u128(9),
             cwd: "C:/q".into(),
             agent: Agent::Codex,
+            idle: Duration::ZERO,
         });
         let (session, agent) = run_agent(&say(&mut t, "продолжай")).unwrap();
         assert_eq!(session, Session::Resume(Uuid::from_u128(9)));

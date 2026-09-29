@@ -33,6 +33,9 @@ pub struct Entry {
     pub started_model: Option<String>,
     #[serde(default)]
     pub started_permission: Option<String>,
+    /// The next utterance continues this session; at most one entry has it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub active: bool,
 }
 
 impl Entry {
@@ -115,6 +118,7 @@ impl History {
                 native_id: start.native_id.clone(),
                 started_model: start.model.clone(),
                 started_permission: start.permission.clone(),
+                active: false,
             },
         };
         self.entries.insert(0, entry);
@@ -128,6 +132,21 @@ impl History {
             e.native_id = Some(native_id.to_string());
         }
         self.save()
+    }
+
+    pub fn active(&self) -> Option<&Entry> {
+        self.entries.iter().find(|e| e.active)
+    }
+
+    /// Marks session `id` as the active one, or none, and saves the file when that changed.
+    pub fn set_active(&mut self, id: Option<Uuid>) -> Result<(), String> {
+        let mut changed = false;
+        for e in &mut self.entries {
+            let active = Some(e.id) == id;
+            changed |= e.active != active;
+            e.active = active;
+        }
+        if changed { self.save() } else { Ok(()) }
     }
 
     fn save(&self) -> Result<(), String> {
@@ -174,6 +193,23 @@ mod tests {
         let e = h.get(id(1)).unwrap();
         assert_eq!(e.agent, Agent::Claude);
         assert_eq!(e.native(), Some(id(1).to_string().as_str()));
+    }
+
+    #[test]
+    fn the_active_marker_survives_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.json");
+        let mut h = History::load(&path);
+        h.record(id(1), "C:/a", plain("a"), 10, &claude_start(id(1)))
+            .unwrap();
+        h.record(id(2), "C:/a", plain("b"), 20, &claude_start(id(2)))
+            .unwrap();
+        h.set_active(Some(id(1))).unwrap();
+        let mut h = History::load(&path);
+        assert_eq!(h.active().map(|e| e.id), Some(id(1)));
+        assert!(!h.get(id(2)).unwrap().active);
+        h.set_active(None).unwrap();
+        assert_eq!(History::load(&path).active(), None);
     }
 
     #[test]
