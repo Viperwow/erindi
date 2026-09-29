@@ -383,9 +383,10 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     ] {
         let runtime = runtime.clone();
         let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {
+            let now = std::time::Instant::now();
             runtime.send(match event.state() {
-                ShortcutState::Pressed => Msg::KeyDown(key),
-                ShortcutState::Released => Msg::KeyUp(key),
+                ShortcutState::Pressed => Msg::KeyDown(key, now),
+                ShortcutState::Released => Msg::KeyUp(key, now),
             })
         });
         if let Err(e) = registered {
