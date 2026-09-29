@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bubble, SPEECH_LEVEL, type View } from "./bubble.ts";
+import { bubble, type View } from "./bubble.ts";
 
 const view = (overrides: Partial<View>): View => ({
   op: 1,
@@ -14,18 +14,18 @@ const view = (overrides: Partial<View>): View => ({
   ...overrides,
 });
 
-test("listening in silence waits", () => {
-  const b = bubble(view({ state: "Listening" }), 0);
-  assert.deepEqual([b.strip, b.mic, b.running, b.phrases.length], ["idle", "waiting", null, 0]);
+test("listening without fresh words waits", () => {
+  const b = bubble(view({ state: "Listening", text: "проверь" }), false);
+  assert.deepEqual([b.strip, b.mic, b.running, b.phrases.length], ["idle", "waiting", null, 1]);
 });
 
-test("speech above the level speaks", () => {
-  const b = bubble(view({ state: "Listening", text: "проверь diff" }), SPEECH_LEVEL);
+test("fresh words listen", () => {
+  const b = bubble(view({ state: "Listening", text: "проверь diff" }), true);
   assert.deepEqual([b.strip, b.mic, b.phrases[0].rail], ["speak", "listening", "speak"]);
 });
 
 test("transcribing shows the pencil", () => {
-  const b = bubble(view({ state: "Transcribing", text: "проверь diff" }), 0);
+  const b = bubble(view({ state: "Transcribing", text: "проверь diff" }), false);
   assert.deepEqual(
     [b.strip, b.mic, b.running, b.phrases[0].rail],
     ["decode", "off", { icon: "pencil", text: "Transcribing", dots: true }, "decode"],
@@ -33,7 +33,7 @@ test("transcribing shows the pencil", () => {
 });
 
 test("classifying reads as transcribing", () => {
-  assert.deepEqual(bubble(view({ state: "Classifying", text: "x" }), 0).running, {
+  assert.deepEqual(bubble(view({ state: "Classifying", text: "x" }), false).running, {
     icon: "pencil",
     text: "Checking command",
     dots: true,
@@ -41,7 +41,7 @@ test("classifying reads as transcribing", () => {
 });
 
 test("running shows the agent and the tool", () => {
-  const b = bubble(view({ state: "Running", text: "x", detail: "Bash cargo test", agent: "codex" }), 0);
+  const b = bubble(view({ state: "Running", text: "x", detail: "Bash cargo test", agent: "codex" }), false);
   assert.deepEqual(
     [b.running, b.mic, b.strip, b.phrases[0].rail],
     [{ icon: "terminal", text: "Codex is working · Bash cargo test", dots: false }, "off", "off", "run"],
@@ -50,18 +50,18 @@ test("running shows the agent and the tool", () => {
 
 test("limited mode shows in the status", () => {
   assert.equal(
-    bubble(view({ state: "Running", text: "x", agent: "codex", limited: true }), 0).running?.text,
+    bubble(view({ state: "Running", text: "x", agent: "codex", limited: true }), false).running?.text,
     "Codex is working · limited mode",
   );
 });
 
 test("cancelling strikes the phrase", () => {
-  const b = bubble(view({ state: "Cancelling", text: "x" }), 0);
+  const b = bubble(view({ state: "Cancelling", text: "x" }), false);
   assert.deepEqual([b.phrases[0].rail, b.running], ["gone", { icon: "terminal", text: "Cancelling", dots: false }]);
 });
 
 test("done goes on the phrase", () => {
-  const b = bubble(view({ state: "Succeeded", text: "x", detail: "no lint errors", sessionId: "s" }), 0);
+  const b = bubble(view({ state: "Succeeded", text: "x", detail: "no lint errors", sessionId: "s" }), false);
   assert.deepEqual(
     [b.phrases[0].rail, b.phrases[0].outcome, b.phrases[0].clickHint, b.running, b.mic, b.clickable],
     ["ok", "Done · no lint errors", "Click to open in terminal", null, "off", true],
@@ -69,7 +69,7 @@ test("done goes on the phrase", () => {
 });
 
 test("failure goes on the phrase", () => {
-  const b = bubble(view({ state: "Failed", text: "x", detail: "rate limit reached", sessionId: "s" }), 0);
+  const b = bubble(view({ state: "Failed", text: "x", detail: "rate limit reached", sessionId: "s" }), false);
   assert.deepEqual(
     [b.phrases[0].rail, b.phrases[0].outcome, b.globalError],
     ["err", "Claude failed · rate limit reached", null],
@@ -77,12 +77,12 @@ test("failure goes on the phrase", () => {
 });
 
 test("limited click hint", () => {
-  const b = bubble(view({ state: "Failed", text: "x", agent: "codex", limited: true, sessionId: "s" }), 0);
+  const b = bubble(view({ state: "Failed", text: "x", agent: "codex", limited: true, sessionId: "s" }), false);
   assert.equal(b.phrases[0].clickHint, "Click to open in Codex and trust");
 });
 
 test("failure without a phrase is a global error", () => {
-  const b = bubble(view({ state: "Failed", detail: "Microphone unavailable" }), 0);
+  const b = bubble(view({ state: "Failed", detail: "Microphone unavailable" }), false);
   assert.deepEqual(
     [b.phrases.length, b.globalError, b.strip, b.mic, b.clickable],
     [0, "Microphone unavailable", "error", "error", false],
@@ -90,10 +90,10 @@ test("failure without a phrase is a global error", () => {
 });
 
 test("no session, no click", () => {
-  assert.equal(bubble(view({ state: "Succeeded", text: "x" }), 0).clickable, false);
+  assert.equal(bubble(view({ state: "Succeeded", text: "x" }), false).clickable, false);
 });
 
 test("long unbroken text stays one phrase", () => {
-  const b = bubble(view({ state: "Running", text: "C:/a/".repeat(80) }), 0);
+  const b = bubble(view({ state: "Running", text: "C:/a/".repeat(80) }), false);
   assert.equal(b.phrases.length, 1);
 });

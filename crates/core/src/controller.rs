@@ -261,6 +261,12 @@ impl Controller {
                 if key == Key::Terminal {
                     return self.open_terminal();
                 }
+                // Double-press means something only while listening; elsewhere a press cancels without waiting.
+                if matches!(state, S::Transcribing | S::Classifying | S::Running) {
+                    self.tap = None;
+                    self.swallow_up = true;
+                    return self.single_press();
+                }
                 if self.tap.is_some_and(|(k, _)| k == key) {
                     self.tap = None;
                     self.swallow_up = true;
@@ -952,7 +958,7 @@ mod tests {
         let mut t = T::new();
         let op = t.listen(Key::Talk);
         t.release(Key::Talk);
-        t.tap(Key::Talk);
+        t.send(Msg::KeyDown(Key::Talk));
         assert_eq!(t.c.state(), AppState::Idle);
         let fx = t.send(Msg::Transcribed {
             op,
@@ -962,25 +968,20 @@ mod tests {
     }
 
     #[test]
-    fn slow_press_while_running_cancels() {
+    fn press_while_running_cancels_at_once() {
         let mut t = T::new();
         t.run();
-        t.send(Msg::KeyDown(Key::Talk));
-        let fx = t.release(Key::Talk);
-        let Some(Effect::GestureTimer { seq }) = fx.first() else {
-            panic!("{fx:?}")
-        };
-        let fx = t.send(Msg::GestureTimeout { seq: *seq });
+        let fx = t.send(Msg::KeyDown(Key::Talk));
         assert!(fx.contains(&Effect::CancelRun));
+        assert_eq!(t.send(Msg::KeyUp(Key::Talk)), []);
     }
 
     #[test]
-    fn double_press_while_running_does_nothing() {
+    fn double_press_while_running_cancels_once() {
         let mut t = T::new();
         t.run();
         let fx = t.double(Key::Talk);
-        assert!(!fx.contains(&Effect::CancelRun));
-        assert_eq!(t.c.state(), AppState::Running);
+        assert_eq!(fx.iter().filter(|e| **e == Effect::CancelRun).count(), 1);
     }
 
     #[test]
@@ -1258,7 +1259,7 @@ mod tests {
     fn key_during_run_cancels() {
         let mut t = T::new();
         let op = t.run();
-        let fx = t.tap(Key::Talk);
+        let fx = t.quick(Key::Talk);
         assert!(fx.contains(&Effect::CancelRun));
         assert_eq!(t.c.state(), AppState::Cancelling);
         let fx = t.send(Msg::RunExited {

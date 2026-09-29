@@ -37,12 +37,10 @@ export type Bubble = {
   clickable: boolean;
 };
 
-/** The audio level above which the microphone counts as hearing speech. */
-export const SPEECH_LEVEL = 0.02;
-
 const withDetail = (text: string, detail: string) => (detail ? `${text} · ${detail}` : text);
 
-export function bubble(view: View, level: number): Bubble {
+/** `speaking` is true while new words keep arriving in the live transcript. */
+export function bubble(view: View, speaking: boolean): Bubble {
   const label = agentLabels[view.agent];
   const empty: Bubble = { phrases: [], running: null, globalError: null, mic: "off", strip: "off", clickable: false };
   const phrase = (rail: Rail, outcome: string | null = null, clickHint: string | null = null): Phrase[] =>
@@ -52,7 +50,6 @@ export function bubble(view: View, level: number): Bubble {
 
   switch (view.state) {
     case "Listening": {
-      const speaking = level >= SPEECH_LEVEL;
       return { ...empty, phrases: phrase("speak"), mic: speaking ? "listening" : "waiting", strip: speaking ? "speak" : "idle" };
     }
     case "Transcribing":

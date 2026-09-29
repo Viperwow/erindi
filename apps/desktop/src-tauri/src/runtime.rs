@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use erindi_audio_asr::asr::Asr;
 use erindi_audio_asr::capture::{self, Capture};
-use erindi_audio_asr::dsp::{To16k, rms};
+use erindi_audio_asr::dsp::To16k;
 use erindi_audio_asr::vad::{Endpoint, Endpointer};
 use erindi_core::agent::{self, Agent, AgentRequest, EventParser, Target};
 use erindi_core::claude::Session;
@@ -28,7 +28,6 @@ use crate::settings::Settings;
 
 const RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const DISMISS_AFTER: Duration = Duration::from_secs(8);
-const LEVEL_INTERVAL: Duration = Duration::from_millis(33);
 const REFINE_BUDGET: Duration = Duration::from_millis(1500);
 
 pub type SharedSettings = Arc<RwLock<Settings>>;
@@ -459,16 +458,11 @@ impl Executor {
         };
         self.capture = Some(capture);
 
-        let (tx, app) = (self.tx.clone(), self.app.clone());
+        let tx = self.tx.clone();
         std::thread::spawn(move || {
             let mut resampler = To16k::new(rate);
-            let mut last_level = Instant::now();
             let mut ended = false;
             for chunk in raw_rx {
-                if last_level.elapsed() >= LEVEL_INTERVAL {
-                    last_level = Instant::now();
-                    let _ = app.emit_to("overlay", "level", rms(&chunk));
-                }
                 let samples = resampler.push(&chunk);
                 let endpoint = match (&mut endpointer, ended) {
                     (Some(e), false) => e.push(&samples),
