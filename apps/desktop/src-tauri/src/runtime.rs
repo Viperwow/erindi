@@ -461,7 +461,6 @@ impl Executor {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let mut resampler = To16k::new(rate);
-            let mut ended = false;
             let mut speaking = false;
             for chunk in raw_rx {
                 let samples = resampler.push(&chunk);
@@ -476,17 +475,11 @@ impl Executor {
                     speaking = !speaking;
                     let _ = tx.send(Msg::Speaking { op, speaking });
                 }
-                match endpoint {
-                    _ if ended => {}
-                    Endpoint::SpeechEnded => {
-                        ended = true;
-                        let _ = tx.send(Msg::SpeechEnded { op });
+                if endpoint == Endpoint::SpeechEnded {
+                    let _ = tx.send(Msg::SpeechEnded { op });
+                    if let Some(e) = &mut endpointer {
+                        e.reset();
                     }
-                    Endpoint::NoSpeech => {
-                        ended = true;
-                        let _ = tx.send(Msg::NoSpeech { op });
-                    }
-                    Endpoint::Continue => {}
                 }
             }
         });
