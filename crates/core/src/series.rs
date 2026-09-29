@@ -54,10 +54,16 @@ pub struct Series {
 }
 
 impl Series {
+    /// Adds a phrase, starting a new series when nothing is in progress.
     pub fn start(&mut self, kind: Kind, status: Status, new_session: bool) -> PhraseId {
         if !self.active() {
             self.clear_finished();
         }
+        self.add(kind, status, new_session)
+    }
+
+    /// Adds a phrase to the current series.
+    pub fn add(&mut self, kind: Kind, status: Status, new_session: bool) -> PhraseId {
         self.next += 1;
         self.phrases.push(Phrase {
             id: self.next,

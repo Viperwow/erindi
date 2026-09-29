@@ -379,8 +379,9 @@ impl Controller {
                     .capture
                     .as_ref()
                     .is_some_and(|c| !c.hands_free && c.key == key);
-                if now.duration_since(down) >= HOLD && holding {
-                    return self.end_capture();
+                // A long press is never a tap.
+                if now.duration_since(down) >= HOLD {
+                    return if holding { self.end_capture() } else { vec![] };
                 }
                 self.seq += 1;
                 self.tap = Some((key, self.seq));
@@ -403,6 +404,8 @@ impl Controller {
                         self.series
                             .start(Kind::Speech, Status::Speaking, new_session),
                     );
+                    // Only the first phrase opens the new session; the rest continue it.
+                    c.key = Key::Talk;
                 }
                 vec![self.show()]
             }
@@ -554,9 +557,10 @@ impl Controller {
     }
 
     fn start_hold(&mut self, key: Key, now: Instant) -> Vec<Effect> {
+        // A tap may be about to cancel something, so earlier results stay until the phrase is sent.
         let id = self
             .series
-            .start(Kind::Speech, Status::Speaking, key == Key::NewSession);
+            .add(Kind::Speech, Status::Speaking, key == Key::NewSession);
         self.capture = Some(Capture {
             op: id,
             key,
@@ -634,6 +638,14 @@ impl Controller {
 
     /// Sends a phrase to the speech model, or queues it behind the one in flight.
     fn transcribe(&mut self, id: PhraseId, samples: Vec<f32>) -> Vec<Effect> {
+        let alone = self
+            .series
+            .phrases()
+            .iter()
+            .all(|p| p.id == id || p.status.finished());
+        if alone {
+            self.series.clear_finished();
+        }
         if let Some(p) = self.series.get_mut(id) {
             p.status = Status::Transcribing;
         }
@@ -780,7 +792,9 @@ impl Controller {
             // The first press opened a hold phrase; in listening mode speech starts phrases.
             Some(c) if !c.hands_free => {
                 c.hands_free = true;
-                if let Some(id) = c.phrase.take() {
+                if !self.speaking
+                    && let Some(id) = c.phrase.take()
+                {
                     self.series.remove(id);
                 }
                 vec![self.show()]
@@ -1479,13 +1493,86 @@ mod tests {
         let mut t = T::new();
         t.hands_free(Key::Talk);
         t.now += Duration::from_secs(1);
+        let cap = t.c.capture.as_ref().map_or(0, |c| c.op);
+        speak(&mut t, cap, 1600);
+        let before = t.statuses();
         let mut fx = t.down(Key::Talk);
         fx.extend(t.release(Key::Talk));
+        let timers: Vec<u64> = fx
+            .iter()
+            .filter_map(|e| match e {
+                Effect::GestureTimer { seq } => Some(*seq),
+                _ => None,
+            })
+            .collect();
+        t.now += DOUBLE;
+        for seq in timers {
+            fx.extend(t.send(Msg::GestureTimeout { seq }));
+        }
         assert!(!fx.iter().any(|e| matches!(
             e,
-            Effect::StartCapture { .. } | Effect::StopCapture | Effect::Transcribe { .. }
+            Effect::StartCapture { .. }
+                | Effect::StopCapture
+                | Effect::Transcribe { .. }
+                | Effect::CancelRun
         )));
         assert!(t.hands_free_on());
+        assert_eq!(t.statuses(), before);
+    }
+
+    #[test]
+    fn listening_with_the_new_session_key_starts_one_session() {
+        let mut t = T::new();
+        let cap = t.hands_free(Key::NewSession);
+        let p1 = speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        t.send(Msg::Transcribed {
+            op: p1,
+            text: "найди баг".into(),
+        });
+        t.send(Msg::Run {
+            op: p1,
+            event: RunEvent::Result {
+                ok: true,
+                text: "done".into(),
+            },
+        });
+        t.finish_run(p1, true);
+        let first = t.c.view().session_id.expect("session");
+        let p2 = speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        let fx = t.send(Msg::Transcribed {
+            op: p2,
+            text: "теперь почини".into(),
+        });
+        assert!(fx.iter().any(|e| matches!(
+            e,
+            Effect::StartRun { session: Session::Resume(id), .. } if *id == first
+        )));
+    }
+
+    #[test]
+    fn a_tap_with_nothing_running_keeps_the_results() {
+        let mut t = T::new();
+        let a = t.say("проверь diff");
+        t.finish_run(a, true);
+        t.tap(Key::Talk);
+        assert_eq!(t.statuses(), [Status::Done]);
+    }
+
+    #[test]
+    fn speech_under_way_at_the_double_press_is_kept() {
+        let mut t = T::new();
+        t.quick(Key::Talk);
+        let cap = t.c.capture.as_ref().map_or(0, |c| c.op);
+        t.send(Msg::Speaking {
+            op: cap,
+            speaking: true,
+        });
+        t.quick(Key::Talk);
+        assert!(t.hands_free_on());
+        let fx = pause(&mut t, cap);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
     }
 
     #[test]

@@ -136,3 +136,14 @@ test("long unbroken text stays one phrase", () => {
   const b = bubble(view({ phrases: [phrase("running", "C:/a/".repeat(80))] }));
   assert.equal(b.phrases.length, 1);
 });
+
+test("a failed transcription without words still shows its reason", () => {
+  const b = bubble(view({ sessionId: "s", phrases: [phrase("done"), phrase("failed", "", { outcome: "Couldn't transcribe this phrase" })] }));
+  assert.deepEqual(
+    b.phrases.map((p) => [p.rail, p.text, p.clickHint]),
+    [
+      ["ok", "x", null],
+      ["err", "Couldn't transcribe this phrase", "Click to open in terminal"],
+    ],
+  );
+});

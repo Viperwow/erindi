@@ -77,9 +77,11 @@ export function bubble(view: View): Bubble {
   const hint = clickable ? (view.limited ? "Click to open in Codex and trust" : "Click to open in terminal") : null;
   const newest = view.phrases.filter(finished).at(-1);
 
+  // A finished phrase without words (a failed transcription) shows its outcome as its text.
   const phrases = view.phrases
-    .filter((p) => p.text)
-    .map((p) => ({ text: p.text, rail: rails[p.status], outcome: outcome(p), clickHint: p === newest ? hint : null }));
+    .map((p) => ({ p, text: p.text || (finished(p) ? (outcome(p) ?? "") : "") }))
+    .filter(({ text }) => text)
+    .map(({ p, text }) => ({ text, rail: rails[p.status], outcome: outcome(p), clickHint: p === newest ? hint : null }));
 
   let running: Running = null;
   if (agent?.status === "running") {
