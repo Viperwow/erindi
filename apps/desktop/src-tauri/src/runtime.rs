@@ -15,7 +15,7 @@ use erindi_core::controller::{Controller, Effect, Msg};
 use erindi_core::llama::LlamaServer;
 use erindi_core::prompt::{Dictionary, PromptTransformer};
 use erindi_core::run::{RunEnd, RunSpec, run};
-use erindi_core::state::{AppState, OpId};
+use erindi_core::state::OpId;
 use erindi_core::stream::RunEvent;
 use erindi_core::transcript::Details;
 use tauri::{AppHandle, Emitter};
@@ -41,12 +41,13 @@ pub struct Runtime {
     last_session: Arc<Mutex<Option<LastRun>>>,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
+    /// The series on screen plus one, or zero while the overlay is hidden.
+    shown: Arc<AtomicU64>,
 }
 
 /// The most recent agent run, which the overlay can reopen in a terminal.
 #[derive(Clone)]
 struct LastRun {
-    op: OpId,
     id: uuid::Uuid,
     cwd: String,
     agent: Agent,
@@ -65,6 +66,7 @@ impl Runtime {
         let history = Arc::new(Mutex::new(History::load(history_path)));
         let restore = restore_active(&history.lock().unwrap(), now_ms());
         let active = Arc::new(Mutex::new(None));
+        let shown = Arc::new(AtomicU64::new(0));
         let refiner = Refiner::default();
 
         let mut executor = Executor {
@@ -75,7 +77,7 @@ impl Runtime {
             capture: None,
             cancel: None,
             last_session: last_session.clone(),
-            hover_op: Arc::new(AtomicU64::new(0)),
+            hover_op: shown.clone(),
             history: history.clone(),
             active: active.clone(),
             refiner: refiner.clone(),
@@ -102,6 +104,7 @@ impl Runtime {
             last_session,
             history,
             active,
+            shown,
         };
         runtime.load_speech();
         runtime
@@ -184,7 +187,9 @@ impl Runtime {
         let session = self.last_session.lock().unwrap().clone();
         let session = session.ok_or("No session yet")?;
         open_terminal(&self.history, &session.cwd, session.id, session.agent)?;
-        self.send(Msg::Dismiss { op: session.op });
+        if let Some(series) = self.shown.load(Ordering::SeqCst).checked_sub(1) {
+            self.send(Msg::Dismiss { series });
+        }
         Ok(())
     }
 }
@@ -402,26 +407,23 @@ impl Executor {
             }
             Effect::Show(view) => {
                 let _ = self.app.emit_to("overlay", "view", &view);
-                let shown = !matches!(
-                    view.state,
-                    AppState::Idle | AppState::LoadingModel | AppState::NoModel
-                );
-                if shown {
+                if view.visible {
                     overlay::show(&self.app);
                 } else {
                     overlay::hide(&self.app);
                 }
-                // Tooltips need the mouse whenever the bubble is up; one tracker per op.
-                let op = if shown { view.op } else { 0 };
-                if self.hover_op.swap(op, Ordering::SeqCst) != op && op != 0 {
-                    overlay::track_bubble_hover(&self.app, self.hover_op.clone(), op);
+                // Tooltips need the mouse whenever the bubble is up; one tracker per series.
+                let key = if view.visible { view.series + 1 } else { 0 };
+                if self.hover_op.swap(key, Ordering::SeqCst) != key && key != 0 {
+                    overlay::track_bubble_hover(&self.app, self.hover_op.clone(), key);
                 }
-                let finished = matches!(view.state, AppState::Succeeded | AppState::Failed);
-                if finished {
+                if view.visible && view.idle {
                     let tx = self.tx.clone();
                     std::thread::spawn(move || {
                         std::thread::sleep(DISMISS_AFTER);
-                        let _ = tx.send(Msg::Dismiss { op: view.op });
+                        let _ = tx.send(Msg::Dismiss {
+                            series: view.series,
+                        });
                     });
                 }
             }
@@ -438,7 +440,7 @@ impl Executor {
             match Endpointer::new(&models_dir(), silence) {
                 Ok(e) => endpointer = Some(e),
                 Err(error) => {
-                    let _ = self.tx.send(Msg::Failed { op, error });
+                    let _ = self.tx.send(Msg::MicFailed { op, error });
                     return;
                 }
             }
@@ -452,7 +454,7 @@ impl Executor {
         let (capture, rate) = match started {
             Ok(started) => started,
             Err(error) => {
-                let _ = self.tx.send(Msg::Failed { op, error });
+                let _ = self.tx.send(Msg::MicFailed { op, error });
                 return;
             }
         };
@@ -640,7 +642,6 @@ impl Executor {
             Session::New(id) | Session::Resume(id) => id,
         };
         *self.last_session.lock().unwrap() = Some(LastRun {
-            op,
             id,
             cwd: cwd.clone(),
             agent,

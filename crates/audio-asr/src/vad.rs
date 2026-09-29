@@ -37,10 +37,7 @@ impl Endpointer {
         config.num_threads = 1;
         let vad =
             VoiceActivityDetector::create(&config, 30.0).ok_or("failed to load Silero VAD")?;
-        Ok(Self {
-            vad,
-            heard: false,
-        })
+        Ok(Self { vad, heard: false })
     }
 
     pub fn heard_speech(&self) -> bool {
@@ -142,5 +139,4 @@ mod tests {
         let mut e = Endpointer::new(&models_dir(), Duration::from_secs(2)).unwrap();
         assert_eq!(feed(&mut e, &speech()), []);
     }
-
 }

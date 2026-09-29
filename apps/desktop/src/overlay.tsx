@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useBusy } from "./controls";
-import { type Bubble, type Mic, type Phrase, type Running, type View, bubble } from "./bubble.ts";
+import { type Bubble, type Mic, type Row, type Running, type View, bubble } from "./bubble.ts";
 import "./style.css";
 
 const svg = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" } as const;
@@ -80,7 +80,7 @@ function Tip(props: {
 
 const live = new Set(["run", "speak", "decode"]);
 
-function PhraseRow({ phrase }: { phrase: Phrase }) {
+function PhraseRow({ phrase }: { phrase: Row }) {
   const kind = phrase.rail === "ok" ? "ok" : phrase.rail === "err" ? "err" : undefined;
   return (
     <Tip

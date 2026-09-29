@@ -5,7 +5,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
 /// The bubble plus room for a tooltip above it, in CSS pixels.
-const HEIGHT: u32 = 260;
+const HEIGHT: u32 = 360;
 
 /// The window height in physical pixels for a monitor scale, so the page keeps `HEIGHT` CSS pixels.
 fn height(scale: f64) -> u32 {
@@ -159,9 +159,9 @@ mod tests {
 
     #[test]
     fn height_scales_with_the_monitor() {
-        assert_eq!(height(1.0), 260);
-        assert_eq!(height(1.5), 390);
-        assert_eq!(height(2.0), 520);
+        assert_eq!(height(1.0), 360);
+        assert_eq!(height(1.5), 540);
+        assert_eq!(height(2.0), 720);
     }
 
     #[test]

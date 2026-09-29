@@ -195,7 +195,7 @@ function SettingsView() {
               ))}
             </select>
           </Field>
-          <Field label="Silence before sending (s)" hint="Hands-free mode only.">
+          <Field label="Silence before sending (s)" hint="A pause this long sends the phrase in hands-free mode.">
             <input
               class={input}
               type="number"
@@ -217,9 +217,8 @@ function SettingsView() {
         </div>
         <ul class="list-disc space-y-0.5 pl-5 text-xs text-neutral-500">
           <li>Hold: talk while holding, release to send.</li>
-          <li>Double-press: hands-free; sends after a pause.</li>
-          <li>Double-press while recording hands-free: send now.</li>
-          <li>Press once while recording or while Claude works: cancel.</li>
+          <li>Double-press: hands-free listening on or off; each pause sends a phrase.</li>
+          <li>Press once: cancel the phrase you are saying, otherwise the running agent.</li>
         </ul>
         <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
       </Section>
