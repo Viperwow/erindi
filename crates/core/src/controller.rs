@@ -284,11 +284,13 @@ impl Controller {
                 if held == Key::Terminal || std::mem::take(&mut self.swallow_up) {
                     return vec![];
                 }
-                if now.duration_since(down) >= HOLD {
-                    if state == S::Listening && !self.hands_free && self.mode == key {
-                        return self.stop_listening();
-                    }
-                    return vec![];
+                // Only a hold-to-talk release ends on duration; any other slow press still counts as a press.
+                if now.duration_since(down) >= HOLD
+                    && state == S::Listening
+                    && !self.hands_free
+                    && self.mode == key
+                {
+                    return self.stop_listening();
                 }
                 self.seq += 1;
                 self.tap = Some((key, self.seq));
@@ -957,6 +959,19 @@ mod tests {
             text: "проверь diff".into(),
         });
         assert_eq!(fx, []);
+    }
+
+    #[test]
+    fn slow_press_while_running_cancels() {
+        let mut t = T::new();
+        t.run();
+        t.send(Msg::KeyDown(Key::Talk));
+        let fx = t.release(Key::Talk);
+        let Some(Effect::GestureTimer { seq }) = fx.first() else {
+            panic!("{fx:?}")
+        };
+        let fx = t.send(Msg::GestureTimeout { seq: *seq });
+        assert!(fx.contains(&Effect::CancelRun));
     }
 
     #[test]

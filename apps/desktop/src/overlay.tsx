@@ -3,7 +3,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useBusy } from "./controls";
-import { type Bubble, type Mic, type Phrase, type Running, type View, bubble } from "./bubble.ts";
+import { type Bubble, type Mic, type Phrase, type Running, type View, SPEECH_LEVEL, bubble } from "./bubble.ts";
+
+const SPEECH_HOLD_MS = 800;
 import "./style.css";
 
 const svg = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" } as const;
@@ -147,8 +149,16 @@ function Overlay() {
 
   useEffect(() => {
     const offView = listen<View>("view", (e) => setView(e.payload));
-    const offLevel = listen<number>("level", (e) => setLevel(e.payload));
+    // Pauses between words dip below the speech level; the label stays on "Listening" through them.
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const offLevel = listen<number>("level", (e) => {
+      if (e.payload < SPEECH_LEVEL) return;
+      setLevel(e.payload);
+      clearTimeout(quiet);
+      quiet = setTimeout(() => setLevel(0), SPEECH_HOLD_MS);
+    });
     return () => {
+      clearTimeout(quiet);
       offView.then((f) => f());
       offLevel.then((f) => f());
     };
