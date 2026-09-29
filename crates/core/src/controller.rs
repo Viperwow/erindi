@@ -871,7 +871,10 @@ mod tests {
     #[test]
     fn keys_before_model_ready_are_ignored() {
         let mut c = Controller::new(Box::new(Dictionary::default()));
-        assert_eq!(c.handle(Msg::KeyDown(Key::Talk, Instant::now()), Instant::now()), []);
+        assert_eq!(
+            c.handle(Msg::KeyDown(Key::Talk, Instant::now()), Instant::now()),
+            []
+        );
     }
 
     #[test]
@@ -1141,7 +1144,10 @@ mod tests {
         let op = t.listen(Key::Talk);
         let fx = t.send(Msg::Speaking { op, speaking: true });
         assert!(shown(&fx).unwrap().speaking);
-        let fx = t.send(Msg::Speaking { op, speaking: false });
+        let fx = t.send(Msg::Speaking {
+            op,
+            speaking: false,
+        });
         assert!(!shown(&fx).unwrap().speaking);
     }
 
