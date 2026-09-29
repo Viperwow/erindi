@@ -21,6 +21,7 @@ export type View = {
   continued: boolean;
   agent: Agent;
   limited: boolean;
+  speaking: boolean;
 };
 
 export type Rail = "run" | "speak" | "decode" | "wait" | "ok" | "err" | "gone";
@@ -39,8 +40,7 @@ export type Bubble = {
 
 const withDetail = (text: string, detail: string) => (detail ? `${text} · ${detail}` : text);
 
-/** `speaking` is true while new words keep arriving in the live transcript. */
-export function bubble(view: View, speaking: boolean): Bubble {
+export function bubble(view: View): Bubble {
   const label = agentLabels[view.agent];
   const empty: Bubble = { phrases: [], running: null, globalError: null, mic: "off", strip: "off", clickable: false };
   const phrase = (rail: Rail, outcome: string | null = null, clickHint: string | null = null): Phrase[] =>
@@ -50,6 +50,7 @@ export function bubble(view: View, speaking: boolean): Bubble {
 
   switch (view.state) {
     case "Listening": {
+      const speaking = view.speaking;
       return { ...empty, phrases: phrase("speak"), mic: speaking ? "listening" : "waiting", strip: speaking ? "speak" : "idle" };
     }
     case "Transcribing":

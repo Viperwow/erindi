@@ -49,6 +49,11 @@ pub enum Msg {
     NoSpeech {
         op: OpId,
     },
+    /// The voice detector started or stopped hearing speech.
+    Speaking {
+        op: OpId,
+        speaking: bool,
+    },
     Live {
         op: OpId,
         text: String,
@@ -168,6 +173,7 @@ pub struct View {
     pub continued: bool,
     pub agent: Agent,
     pub limited: bool,
+    pub speaking: bool,
 }
 
 pub struct Controller {
@@ -219,6 +225,7 @@ impl Controller {
                 continued: false,
                 agent: Agent::Claude,
                 limited: false,
+                speaking: false,
             },
             policy: SessionPolicy::default(),
             recent: Duration::ZERO,
@@ -253,11 +260,14 @@ impl Controller {
             }
             Msg::ModelMissing => self.apply(Event::ModelMissing),
             Msg::KeyDown(..) if state == S::NoModel => vec![Effect::OpenSettings],
+            // Hotkeys never auto-repeat, and the release is polled: a second press while still
+            // held means the release in between was missed.
+            Msg::KeyDown(key, at) if self.held.is_some_and(|(k, _)| k == key) => {
+                let mut fx = self.handle(Msg::KeyUp(key, at), now);
+                fx.extend(self.handle(Msg::KeyDown(key, at), now));
+                fx
+            }
             Msg::KeyDown(key, now) => {
-                // Auto-repeat while held.
-                if self.held.is_some_and(|(k, _)| k == key) {
-                    return vec![];
-                }
                 self.held = Some((key, now));
                 if key == Key::Terminal {
                     return self.open_terminal();
@@ -315,7 +325,7 @@ impl Controller {
                 let due = self
                     .last_live
                     .is_none_or(|t| now.duration_since(t) >= LIVE_INTERVAL);
-                if self.live_in_flight || !due {
+                if self.live_in_flight || !due || !self.view.speaking {
                     return vec![];
                 }
                 self.live_in_flight = true;
@@ -332,6 +342,10 @@ impl Controller {
                 let mut fx = vec![Effect::StopCapture];
                 fx.extend(self.apply(Event::CancelListening));
                 fx
+            }
+            Msg::Speaking { op, speaking } if current(op) && state == S::Listening => {
+                self.view.speaking = speaking;
+                vec![self.show()]
             }
             Msg::Live { op, text }
                 if current(op) && matches!(state, S::Listening | S::Transcribing) =>
@@ -662,6 +676,7 @@ impl Controller {
         self.live_in_flight = false;
         self.view.text.clear();
         self.view.detail.clear();
+        self.view.speaking = false;
         self.view.session_id = None;
         self.view.continued = false;
         vec![
@@ -942,6 +957,16 @@ mod tests {
     }
 
     #[test]
+    fn second_press_before_the_release_was_seen_is_a_double_press() {
+        let mut t = T::new();
+        t.down(Key::Talk);
+        t.now += Duration::from_millis(150);
+        t.down(Key::Talk);
+        assert_eq!(t.c.state(), AppState::Listening);
+        assert!(t.c.hands_free);
+    }
+
+    #[test]
     fn single_press_while_hands_free_cancels() {
         let mut t = T::new();
         t.hands_free(Key::Talk);
@@ -957,22 +982,6 @@ mod tests {
         let op = t.listen(Key::Talk);
         assert_eq!(t.send(Msg::SpeechEnded { op }), []);
         assert_eq!(t.c.state(), AppState::Listening);
-    }
-
-    #[test]
-    fn auto_repeat_is_not_a_double_press() {
-        let mut t = T::new();
-        let op = t.listen(Key::Talk);
-        for _ in 0..3 {
-            t.now += Duration::from_millis(30);
-            assert_eq!(t.down(Key::Talk), []);
-        }
-        t.send(Msg::Audio {
-            op,
-            samples: vec![0.1; 10],
-        });
-        let fx = t.release(Key::Talk);
-        assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
     }
 
     #[test]
@@ -1083,6 +1092,7 @@ mod tests {
         let mut t = T::new();
         let op = t.listen(Key::Talk);
         let live = |fx: &[Effect]| fx.iter().any(|e| matches!(e, Effect::LiveDecode { .. }));
+        t.send(Msg::Speaking { op, speaking: true });
 
         assert!(!live(&t.send(Msg::Audio {
             op,
@@ -1111,6 +1121,28 @@ mod tests {
             op,
             samples: vec![0.1; 10]
         })));
+    }
+
+    #[test]
+    fn live_decode_waits_for_speech() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        t.now += LIVE_INTERVAL;
+        let fx = t.send(Msg::Audio {
+            op,
+            samples: vec![0.1; 10],
+        });
+        assert!(!fx.iter().any(|e| matches!(e, Effect::LiveDecode { .. })));
+    }
+
+    #[test]
+    fn speech_shows_on_the_overlay() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        let fx = t.send(Msg::Speaking { op, speaking: true });
+        assert!(shown(&fx).unwrap().speaking);
+        let fx = t.send(Msg::Speaking { op, speaking: false });
+        assert!(!shown(&fx).unwrap().speaking);
     }
 
     #[test]

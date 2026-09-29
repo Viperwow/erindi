@@ -462,14 +462,22 @@ impl Executor {
         std::thread::spawn(move || {
             let mut resampler = To16k::new(rate);
             let mut ended = false;
+            let mut speaking = false;
             for chunk in raw_rx {
                 let samples = resampler.push(&chunk);
-                let endpoint = match (&mut endpointer, ended) {
-                    (Some(e), false) => e.push(&samples),
-                    _ => Endpoint::Continue,
+                let endpoint = match &mut endpointer {
+                    Some(e) => e.push(&samples),
+                    None => Endpoint::Continue,
                 };
                 let _ = tx.send(Msg::Audio { op, samples });
+                if let Some(e) = &endpointer
+                    && e.in_speech() != speaking
+                {
+                    speaking = !speaking;
+                    let _ = tx.send(Msg::Speaking { op, speaking });
+                }
                 match endpoint {
+                    _ if ended => {}
                     Endpoint::SpeechEnded => {
                         ended = true;
                         let _ = tx.send(Msg::SpeechEnded { op });

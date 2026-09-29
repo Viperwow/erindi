@@ -4,8 +4,6 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useBusy } from "./controls";
 import { type Bubble, type Mic, type Phrase, type Running, type View, bubble } from "./bubble.ts";
-
-const SPEECH_HOLD_MS = 2000;
 import "./style.css";
 
 const svg = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" } as const;
@@ -144,29 +142,12 @@ function BottomRow({ b }: { b: Bubble }) {
 
 function Overlay() {
   const [view, setView] = useState<View | null>(null);
-  const [speaking, setSpeaking] = useState(false);
   const openSession = useBusy().run(() => invoke("open_session"));
 
   useEffect(() => {
-    // Live words arrive in bursts; the label stays on "Listening" between them.
-    let text = "";
-    let quiet: ReturnType<typeof setTimeout> | undefined;
-    const offView = listen<View>("view", (e) => {
-      setView(e.payload);
-      const fresh = e.payload.state === "Listening" && e.payload.text !== "" && e.payload.text !== text;
-      text = e.payload.text;
-      if (fresh) {
-        setSpeaking(true);
-        clearTimeout(quiet);
-        quiet = setTimeout(() => setSpeaking(false), SPEECH_HOLD_MS);
-      } else if (e.payload.state !== "Listening") {
-        clearTimeout(quiet);
-        setSpeaking(false);
-      }
-    });
+    const off = listen<View>("view", (e) => setView(e.payload));
     return () => {
-      clearTimeout(quiet);
-      offView.then((f) => f());
+      off.then((f) => f());
     };
   }, []);
 
@@ -186,7 +167,7 @@ function Overlay() {
   }, [view]);
 
   if (!view) return null;
-  const b = bubble(view, speaking);
+  const b = bubble(view);
   return (
     <div class="fixed inset-0 flex items-end justify-center pb-3 select-none">
       <div
