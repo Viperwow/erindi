@@ -64,6 +64,7 @@ impl Runtime {
         let asr = Arc::new(OnceLock::new());
         let last_session = Arc::new(Mutex::new(None));
         let history = Arc::new(Mutex::new(History::load(history_path)));
+        let restore = restore_active(&history.lock().unwrap(), now_ms());
         let active = Arc::new(Mutex::new(None));
         let refiner = Refiner::default();
 
@@ -84,8 +85,10 @@ impl Runtime {
         std::thread::spawn(move || {
             let mut controller = Controller::new(Box::new(SettingsDictionary(settings.clone())));
             let first = settings.read().unwrap().session_msg();
-            for effect in controller.handle(first, Instant::now()) {
-                executor.execute(effect);
+            for msg in std::iter::once(first).chain(restore) {
+                for effect in controller.handle(msg, Instant::now()) {
+                    executor.execute(effect);
+                }
             }
             for msg in rx {
                 for effect in controller.handle(msg, Instant::now()) {
@@ -149,7 +152,12 @@ impl Runtime {
         {
             return Err("This session can't be resumed".into());
         }
-        self.send(Msg::SetActive { id, cwd, agent });
+        self.send(Msg::SetActive {
+            id,
+            cwd,
+            agent,
+            idle: Duration::ZERO,
+        });
         Ok(())
     }
 
@@ -382,6 +390,9 @@ impl Executor {
             }
             Effect::ActiveChanged(id) => {
                 *self.active.lock().unwrap() = id;
+                if let Err(e) = self.history.lock().unwrap().set_active(id) {
+                    eprintln!("cannot save session history: {e}");
+                }
                 let _ = self.app.emit_to("settings", "sessions-changed", ());
             }
             Effect::OpenSettings => crate::show_settings(&self.app),
@@ -583,9 +594,7 @@ impl Executor {
         let id = match session {
             Session::New(id) | Session::Resume(id) => id,
         };
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
+        let now_ms = now_ms();
         let entry = Prompt::Plain(prompt);
         if let Err(e) = self
             .history
@@ -740,6 +749,23 @@ fn session_details(agent: Agent, native_id: &str) -> Option<Details> {
     erindi_core::transcript::read(agent, logs.get(native_id)?)
 }
 
+/// The session that was active when Erindi last ran, if it can still be continued.
+fn restore_active(history: &History, now_ms: u64) -> Option<Msg> {
+    let e = history.active().filter(|e| e.native().is_some())?;
+    Some(Msg::SetActive {
+        id: e.id,
+        cwd: e.cwd.clone(),
+        agent: e.agent,
+        idle: Duration::from_millis(now_ms.saturating_sub(e.updated_ms)),
+    })
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
 /// A new Codex session that never reported its ID cannot be continued, so it must not stay active.
 fn forget_after_run(agent: Agent, new: bool, native_seen: bool) -> bool {
     agent == Agent::Codex && new && !native_seen
@@ -760,6 +786,36 @@ fn run_env(
 mod tests {
     use super::*;
     use crate::history;
+
+    #[test]
+    fn restores_the_marked_session_with_its_age() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = History::load(&dir.path().join("s.json"));
+        let id = uuid::Uuid::from_u128(1);
+        let start = Start {
+            agent: Agent::Pi,
+            native_id: Some(id.to_string()),
+            model: None,
+            permission: None,
+        };
+        h.record(id, "C:/a", Prompt::Plain("x".into()), 1_000, &start)
+            .unwrap();
+        assert!(restore_active(&h, 5_000).is_none());
+        h.set_active(Some(id)).unwrap();
+        let Some(Msg::SetActive {
+            id: got,
+            cwd,
+            agent,
+            idle,
+        }) = restore_active(&h, 5_000)
+        else {
+            panic!("nothing restored")
+        };
+        assert_eq!(
+            (got, cwd.as_str(), agent, idle),
+            (id, "C:/a", Agent::Pi, Duration::from_secs(4))
+        );
+    }
 
     fn details(model: Option<&str>, permission: Option<&str>) -> Details {
         Details {
