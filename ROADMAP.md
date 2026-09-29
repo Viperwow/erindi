@@ -52,6 +52,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 ### UI and UX
 
+- [x] **Overlay bubble.** The aurora moved into a small bubble: a thin strip shows the microphone, rails beside each phrase show its state, and a bottom row shows the microphone and the running work.
 - [ ] **Redesign.** Modern look, dark by default, with accent colors.
 - [ ] **Themes.** Light, dark and system modes, with main colors set as hex codes.
 - [x] **Dictionary tab.** Move the dictionary to its own tab; the main page keeps only what matters most.

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { accelerator, heldModifiers } from "./hotkey";
+import type { Agent } from "./agent.ts";
 
 export type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
 
@@ -35,9 +36,7 @@ export type ModelStatus = {
   downloading: boolean;
 };
 
-export type Agent = "claude" | "codex" | "pi";
-
-export const agentLabels: Record<Agent, string> = { claude: "Claude", codex: "Codex", pi: "Pi" };
+export { type Agent, agentLabels } from "./agent.ts";
 
 export type ModelChoice = { listed: string } | { custom: string } | null;
 

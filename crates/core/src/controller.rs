@@ -36,8 +36,9 @@ pub enum Msg {
     ModelReady,
     ModelFailed(String),
     ModelMissing,
-    KeyDown(Key),
-    KeyUp(Key),
+    /// A key event with the moment the hotkey saw it, which can be well before it is handled.
+    KeyDown(Key, Instant),
+    KeyUp(Key, Instant),
     Audio {
         op: OpId,
         samples: Vec<f32>,
@@ -47,6 +48,11 @@ pub enum Msg {
     },
     NoSpeech {
         op: OpId,
+    },
+    /// The voice detector started or stopped hearing speech.
+    Speaking {
+        op: OpId,
+        speaking: bool,
     },
     Live {
         op: OpId,
@@ -167,6 +173,7 @@ pub struct View {
     pub continued: bool,
     pub agent: Agent,
     pub limited: bool,
+    pub speaking: bool,
 }
 
 pub struct Controller {
@@ -218,6 +225,7 @@ impl Controller {
                 continued: false,
                 agent: Agent::Claude,
                 limited: false,
+                speaking: false,
             },
             policy: SessionPolicy::default(),
             recent: Duration::ZERO,
@@ -251,15 +259,24 @@ impl Controller {
                 self.apply(Event::ModelFailed)
             }
             Msg::ModelMissing => self.apply(Event::ModelMissing),
-            Msg::KeyDown(_) if state == S::NoModel => vec![Effect::OpenSettings],
-            Msg::KeyDown(key) => {
-                // Auto-repeat while held.
-                if self.held.is_some_and(|(k, _)| k == key) {
-                    return vec![];
-                }
+            Msg::KeyDown(..) if state == S::NoModel => vec![Effect::OpenSettings],
+            // Hotkeys never auto-repeat, and the release is polled: a second press while still
+            // held means the release in between was missed.
+            Msg::KeyDown(key, at) if self.held.is_some_and(|(k, _)| k == key) => {
+                let mut fx = self.handle(Msg::KeyUp(key, at), now);
+                fx.extend(self.handle(Msg::KeyDown(key, at), now));
+                fx
+            }
+            Msg::KeyDown(key, now) => {
                 self.held = Some((key, now));
                 if key == Key::Terminal {
                     return self.open_terminal();
+                }
+                // Double-press means something only while listening; elsewhere a press cancels without waiting.
+                if matches!(state, S::Transcribing | S::Classifying | S::Running) {
+                    self.tap = None;
+                    self.swallow_up = true;
+                    return self.single_press();
                 }
                 if self.tap.is_some_and(|(k, _)| k == key) {
                     self.tap = None;
@@ -276,7 +293,7 @@ impl Controller {
                     _ => vec![],
                 }
             }
-            Msg::KeyUp(key) => {
+            Msg::KeyUp(key, now) => {
                 let Some((held, down)) = self.held.filter(|(k, _)| *k == key) else {
                     return vec![];
                 };
@@ -284,11 +301,13 @@ impl Controller {
                 if held == Key::Terminal || std::mem::take(&mut self.swallow_up) {
                     return vec![];
                 }
-                if now.duration_since(down) >= HOLD {
-                    if state == S::Listening && !self.hands_free && self.mode == key {
-                        return self.stop_listening();
-                    }
-                    return vec![];
+                // Only a hold-to-talk release ends on duration; any other slow press still counts as a press.
+                if now.duration_since(down) >= HOLD
+                    && state == S::Listening
+                    && !self.hands_free
+                    && self.mode == key
+                {
+                    return self.stop_listening();
                 }
                 self.seq += 1;
                 self.tap = Some((key, self.seq));
@@ -306,7 +325,7 @@ impl Controller {
                 let due = self
                     .last_live
                     .is_none_or(|t| now.duration_since(t) >= LIVE_INTERVAL);
-                if self.live_in_flight || !due {
+                if self.live_in_flight || !due || !self.view.speaking {
                     return vec![];
                 }
                 self.live_in_flight = true;
@@ -323,6 +342,10 @@ impl Controller {
                 let mut fx = vec![Effect::StopCapture];
                 fx.extend(self.apply(Event::CancelListening));
                 fx
+            }
+            Msg::Speaking { op, speaking } if current(op) && state == S::Listening => {
+                self.view.speaking = speaking;
+                vec![self.show()]
             }
             Msg::Live { op, text }
                 if current(op) && matches!(state, S::Listening | S::Transcribing) =>
@@ -653,6 +676,7 @@ impl Controller {
         self.live_in_flight = false;
         self.view.text.clear();
         self.view.detail.clear();
+        self.view.speaking = false;
         self.view.session_id = None;
         self.view.continued = false;
         vec![
@@ -712,25 +736,33 @@ mod tests {
             self.c.handle(msg, self.now)
         }
 
+        fn down(&mut self, key: Key) -> Vec<Effect> {
+            self.send(Msg::KeyDown(key, self.now))
+        }
+
+        fn up(&mut self, key: Key) -> Vec<Effect> {
+            self.send(Msg::KeyUp(key, self.now))
+        }
+
         fn op(&self) -> OpId {
             self.c.view.op
         }
 
         fn listen(&mut self, key: Key) -> OpId {
-            self.send(Msg::KeyDown(key));
+            self.down(key);
             self.op()
         }
 
         /// Ends a hold that has lasted long enough to count as one.
         fn release(&mut self, key: Key) -> Vec<Effect> {
             self.now += HOLD;
-            self.send(Msg::KeyUp(key))
+            self.up(key)
         }
 
         fn quick(&mut self, key: Key) -> Vec<Effect> {
-            let mut fx = self.send(Msg::KeyDown(key));
+            let mut fx = self.down(key);
             self.now += Duration::from_millis(50);
-            fx.extend(self.send(Msg::KeyUp(key)));
+            fx.extend(self.up(key));
             self.now += Duration::from_millis(50);
             fx
         }
@@ -839,7 +871,10 @@ mod tests {
     #[test]
     fn keys_before_model_ready_are_ignored() {
         let mut c = Controller::new(Box::new(Dictionary::default()));
-        assert_eq!(c.handle(Msg::KeyDown(Key::Talk), Instant::now()), []);
+        assert_eq!(
+            c.handle(Msg::KeyDown(Key::Talk, Instant::now()), Instant::now()),
+            []
+        );
     }
 
     #[test]
@@ -854,7 +889,7 @@ mod tests {
     #[test]
     fn hold_records_until_release_then_transcribes() {
         let mut t = T::new();
-        let fx = t.send(Msg::KeyDown(Key::Talk));
+        let fx = t.down(Key::Talk);
         let op = t.op();
         assert_eq!(fx[0], Effect::StartCapture { op });
         assert_eq!(shown(&fx).unwrap().state, AppState::Listening);
@@ -912,6 +947,29 @@ mod tests {
     }
 
     #[test]
+    fn double_press_counts_when_keys_were_seen_not_when_handled() {
+        let mut t = T::new();
+        let seen = t.now;
+        t.down(Key::Talk);
+        // Opening the microphone held up the queue; both events are handled only now.
+        t.now += Duration::from_millis(600);
+        t.send(Msg::KeyUp(Key::Talk, seen + Duration::from_millis(80)));
+        t.send(Msg::KeyDown(Key::Talk, seen + Duration::from_millis(200)));
+        assert_eq!(t.c.state(), AppState::Listening);
+        assert!(t.c.hands_free);
+    }
+
+    #[test]
+    fn second_press_before_the_release_was_seen_is_a_double_press() {
+        let mut t = T::new();
+        t.down(Key::Talk);
+        t.now += Duration::from_millis(150);
+        t.down(Key::Talk);
+        assert_eq!(t.c.state(), AppState::Listening);
+        assert!(t.c.hands_free);
+    }
+
+    #[test]
     fn single_press_while_hands_free_cancels() {
         let mut t = T::new();
         t.hands_free(Key::Talk);
@@ -930,27 +988,11 @@ mod tests {
     }
 
     #[test]
-    fn auto_repeat_is_not_a_double_press() {
-        let mut t = T::new();
-        let op = t.listen(Key::Talk);
-        for _ in 0..3 {
-            t.now += Duration::from_millis(30);
-            assert_eq!(t.send(Msg::KeyDown(Key::Talk)), []);
-        }
-        t.send(Msg::Audio {
-            op,
-            samples: vec![0.1; 10],
-        });
-        let fx = t.release(Key::Talk);
-        assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
-    }
-
-    #[test]
     fn press_during_transcription_cancels() {
         let mut t = T::new();
         let op = t.listen(Key::Talk);
         t.release(Key::Talk);
-        t.tap(Key::Talk);
+        t.down(Key::Talk);
         assert_eq!(t.c.state(), AppState::Idle);
         let fx = t.send(Msg::Transcribed {
             op,
@@ -960,19 +1002,27 @@ mod tests {
     }
 
     #[test]
-    fn double_press_while_running_does_nothing() {
+    fn press_while_running_cancels_at_once() {
+        let mut t = T::new();
+        t.run();
+        let fx = t.down(Key::Talk);
+        assert!(fx.contains(&Effect::CancelRun));
+        assert_eq!(t.up(Key::Talk), []);
+    }
+
+    #[test]
+    fn double_press_while_running_cancels_once() {
         let mut t = T::new();
         t.run();
         let fx = t.double(Key::Talk);
-        assert!(!fx.contains(&Effect::CancelRun));
-        assert_eq!(t.c.state(), AppState::Running);
+        assert_eq!(fx.iter().filter(|e| **e == Effect::CancelRun).count(), 1);
     }
 
     #[test]
     fn terminal_key_opens_the_active_session() {
         let mut t = T::new();
         let session = t.finish_saying("проверь diff");
-        let fx = t.send(Msg::KeyDown(Key::Terminal));
+        let fx = t.down(Key::Terminal);
         assert_eq!(
             fx,
             [Effect::OpenTerminal {
@@ -981,13 +1031,13 @@ mod tests {
                 agent: Agent::Claude,
             }]
         );
-        assert_eq!(t.send(Msg::KeyUp(Key::Terminal)), []);
+        assert_eq!(t.up(Key::Terminal), []);
     }
 
     #[test]
     fn terminal_without_active_session_does_nothing() {
         let mut t = T::new();
-        assert_eq!(t.send(Msg::KeyDown(Key::Terminal)), []);
+        assert_eq!(t.down(Key::Terminal), []);
     }
 
     #[test]
@@ -1045,6 +1095,7 @@ mod tests {
         let mut t = T::new();
         let op = t.listen(Key::Talk);
         let live = |fx: &[Effect]| fx.iter().any(|e| matches!(e, Effect::LiveDecode { .. }));
+        t.send(Msg::Speaking { op, speaking: true });
 
         assert!(!live(&t.send(Msg::Audio {
             op,
@@ -1073,6 +1124,31 @@ mod tests {
             op,
             samples: vec![0.1; 10]
         })));
+    }
+
+    #[test]
+    fn live_decode_waits_for_speech() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        t.now += LIVE_INTERVAL;
+        let fx = t.send(Msg::Audio {
+            op,
+            samples: vec![0.1; 10],
+        });
+        assert!(!fx.iter().any(|e| matches!(e, Effect::LiveDecode { .. })));
+    }
+
+    #[test]
+    fn speech_shows_on_the_overlay() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        let fx = t.send(Msg::Speaking { op, speaking: true });
+        assert!(shown(&fx).unwrap().speaking);
+        let fx = t.send(Msg::Speaking {
+            op,
+            speaking: false,
+        });
+        assert!(!shown(&fx).unwrap().speaking);
     }
 
     #[test]
@@ -1243,7 +1319,7 @@ mod tests {
     fn key_during_run_cancels() {
         let mut t = T::new();
         let op = t.run();
-        let fx = t.tap(Key::Talk);
+        let fx = t.quick(Key::Talk);
         assert!(fx.contains(&Effect::CancelRun));
         assert_eq!(t.c.state(), AppState::Cancelling);
         let fx = t.send(Msg::RunExited {
@@ -1263,7 +1339,7 @@ mod tests {
             end: RunEnd::Exited { success: true },
             stderr: String::new(),
         });
-        let fx = t.send(Msg::KeyDown(Key::Talk));
+        let fx = t.down(Key::Talk);
         assert!(matches!(fx[0], Effect::StartCapture { .. }));
         assert_ne!(t.op(), op);
         assert_eq!(t.send(Msg::Dismiss { op }), [], "stale dismiss");
@@ -1534,7 +1610,7 @@ mod tests {
         c.handle(Msg::ModelMissing, now);
         assert_eq!(c.state(), AppState::NoModel);
         assert_eq!(
-            c.handle(Msg::KeyDown(Key::Talk), now),
+            c.handle(Msg::KeyDown(Key::Talk, now), now),
             [Effect::OpenSettings]
         );
         c.handle(Msg::ModelReady, now);

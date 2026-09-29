@@ -1,111 +1,191 @@
-import { render } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { type ComponentChildren, render } from "preact";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { type Agent, agentLabels, useBusy } from "./controls";
+import { useBusy } from "./controls";
+import { type Bubble, type Mic, type Phrase, type Running, type View, bubble } from "./bubble.ts";
 import "./style.css";
 
-type AppState =
-  | "LoadingModel"
-  | "NoModel"
-  | "Idle"
-  | "Listening"
-  | "Transcribing"
-  | "Classifying"
-  | "Running"
-  | "Cancelling"
-  | "Succeeded"
-  | "Failed";
+const svg = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" } as const;
 
-type View = {
-  op: number;
-  state: AppState;
+const MicIcon = () => (
+  <svg class="icon" {...svg}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+  </svg>
+);
+
+const MicOffIcon = () => (
+  <svg class="icon" {...svg}>
+    <path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.9 5M19 11a7 7 0 0 1-.4 2.3M12 18v3M3 3l18 18" />
+  </svg>
+);
+
+// The pencil fills its square diagonally; a padded view box makes it read the same size as the microphone.
+const PencilIcon = () => (
+  <svg class="icon" {...svg} viewBox="-3 -3 30 30">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </svg>
+);
+
+const TerminalIcon = () => (
+  <svg class="icon" {...svg}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="m7 10 3 2-3 2" />
+    <path d="M13 15h4" />
+  </svg>
+);
+
+const Dot = ({ kind }: { kind: "ok" | "err" }) => (
+  <svg class={`dot ${kind}`} viewBox="0 0 13 13">
+    <circle cx="6.5" cy="6.5" r="3.5" fill="currentColor" />
+  </svg>
+);
+
+/** A row that shows a tooltip when it carries an outcome or when its text is cut off. */
+function Tip(props: {
   text: string;
-  detail: string;
-  sessionId: string | null;
-  continued: boolean;
-  agent: Agent;
-  limited: boolean;
-};
+  outcome?: string | null;
+  kind?: "ok" | "err";
+  clickHint?: string | null;
+  class: string;
+  children: ComponentChildren;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const text = ref.current?.querySelector<HTMLElement>(".t");
+    if (text) setCut(text.scrollWidth > text.clientWidth + 1 || text.scrollHeight > text.clientHeight + 1);
+  }, [props.text, props.class]);
+  const show = Boolean(props.outcome) || cut;
+  return (
+    <div ref={ref} class={`${props.class} ${show ? "has-tip" : ""}`}>
+      {props.children}
+      {show && (
+        <div class="tip">
+          {props.outcome && props.kind && (
+            <div class={`why ${props.kind}`}>
+              <Dot kind={props.kind} />
+              {props.outcome}
+            </div>
+          )}
+          <div class="full">{props.text}</div>
+          {props.clickHint && <div class="hint">{props.clickHint}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
-const palette: Record<AppState, [string, string]> = {
-  LoadingModel: ["#64748b", "#94a3b8"],
-  NoModel: ["#64748b", "#94a3b8"],
-  Idle: ["#64748b", "#94a3b8"],
-  Listening: ["#06b6d4", "#3b82f6"],
-  Transcribing: ["#a855f7", "#6366f1"],
-  Classifying: ["#a855f7", "#f59e0b"],
-  Running: ["#f59e0b", "#eab308"],
-  Cancelling: ["#f59e0b", "#78716c"],
-  Succeeded: ["#22c55e", "#10b981"],
-  Failed: ["#ef4444", "#f43f5e"],
-};
+const live = new Set(["run", "speak", "decode"]);
 
-const labels: Partial<Record<AppState, string>> = {
-  Transcribing: "Transcribing…",
-  Classifying: "Checking command…",
-  Cancelling: "Cancelling…",
-  Succeeded: "Done",
-  Failed: "Failed",
-};
+function PhraseRow({ phrase }: { phrase: Phrase }) {
+  const kind = phrase.rail === "ok" ? "ok" : phrase.rail === "err" ? "err" : undefined;
+  return (
+    <Tip
+      text={phrase.text}
+      outcome={phrase.outcome}
+      kind={kind}
+      clickHint={phrase.clickHint}
+      class={`rail r-${phrase.rail} ${live.has(phrase.rail) ? "live" : "muted"}`}
+    >
+      <span class={`t ${phrase.rail === "run" ? "two" : ""}`}>{phrase.text}</span>
+    </Tip>
+  );
+}
+
+const micLabel: Record<Mic, string> = { waiting: "Waiting", listening: "Listening", off: "Mic off", error: "Mic unavailable" };
+
+function MicSlot({ mic }: { mic: Mic }) {
+  return (
+    <div class="mic-slot">
+      {mic === "off" || mic === "error" ? <MicOffIcon /> : <MicIcon />}
+      <span class={`label ${mic === "error" ? "light" : ""}`}>
+        {micLabel[mic]}
+        {mic === "listening" && <span class="ell" />}
+      </span>
+    </div>
+  );
+}
+
+function RunningSlot({ running }: { running: NonNullable<Running> }) {
+  return (
+    <Tip text={running.text} class="run-slot">
+      {running.icon === "pencil" ? <PencilIcon /> : <TerminalIcon />}
+      <span class="t label">
+        {running.text}
+        {running.dots && <span class="ell" />}
+      </span>
+    </Tip>
+  );
+}
+
+function BottomRow({ b }: { b: Bubble }) {
+  const alone = b.phrases.length === 0 ? "alone" : "";
+  if (b.globalError) {
+    return (
+      <div class={`foot global ${alone}`}>
+        <MicOffIcon />
+        <span class="label light">{b.globalError}</span>
+        <span />
+      </div>
+    );
+  }
+  return (
+    <div class={`foot ${alone}`}>
+      <MicSlot mic={b.mic} />
+      {b.running && <RunningSlot running={b.running} />}
+    </div>
+  );
+}
 
 function Overlay() {
   const [view, setView] = useState<View | null>(null);
-  const [level, setLevel] = useState(0);
   const openSession = useBusy().run(() => invoke("open_session"));
 
   useEffect(() => {
-    const offView = listen<View>("view", (e) => setView(e.payload));
-    const offLevel = listen<number>("level", (e) => setLevel(e.payload));
+    const off = listen<View>("view", (e) => setView(e.payload));
     return () => {
-      offView.then((f) => f());
-      offLevel.then((f) => f());
+      off.then((f) => f());
     };
   }, []);
 
-  if (!view) return null;
-  const [a, b] = palette[view.state];
-  const listening = view.state === "Listening";
-  const intensity = listening ? Math.min(1, 0.6 + level * 8) : 0.8;
-  const working = `${agentLabels[view.agent]} is working`;
-  const status =
-    view.state === "Running" ? (view.limited ? `${working} · limited mode` : working) : labels[view.state];
-  const target =
-    view.sessionId && view.state !== "Listening"
-      ? view.continued
-        ? `↩ ${view.sessionId.slice(0, 6)}`
-        : "+ new session"
-      : null;
-  const hasBubble = view.text || view.detail || status;
-  const canOpen =
-    view.sessionId && (view.state === "Succeeded" || view.state === "Failed");
+  // Rust takes the mouse only over this box, so tooltips and clicks work on the bubble alone.
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bubbleRef.current;
+    if (!el) return;
+    const report = () => {
+      const r = el.getBoundingClientRect();
+      invoke("set_bubble_rect", { rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom } });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [view]);
 
+  if (!view) return null;
+  const b = bubble(view);
   return (
-    <div class="fixed inset-0 flex flex-col items-center justify-end select-none">
-      {hasBubble && (
-        <div
-          class={`mb-3 max-w-2xl rounded-2xl bg-neutral-950/80 px-4 py-2 text-sm text-white shadow-lg backdrop-blur ${canOpen ? "cursor-pointer hover:bg-neutral-900/90" : ""}`}
-          onClick={canOpen ? openSession : undefined}
-        >
-          {view.text && <p class="leading-snug">{view.text}</p>}
-          {(status || view.detail) && (
-            <p class="mt-0.5 truncate text-xs text-white/60">
-              {[status, target, view.detail, canOpen && (view.limited ? "limited mode · click to open in Codex and trust" : "click to open in terminal")]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-          )}
-        </div>
-      )}
+    <div class="fixed inset-0 flex items-end justify-center pb-3 select-none">
       <div
-        class={`aurora h-12 w-full ${listening ? "" : "aurora-sweep"}`}
-        style={{
-          "--a": a,
-          "--b": b,
-          opacity: intensity,
-          transform: `scaleY(${listening ? 0.6 + intensity * 0.4 : 1})`,
-        }}
-      />
+        id="bubble"
+        ref={bubbleRef}
+        class={`bubble ${b.clickable ? "clickable" : ""}`}
+        onClick={b.clickable ? openSession : undefined}
+      >
+        <div class="body">
+          {b.phrases.map((phrase) => (
+            <PhraseRow phrase={phrase} />
+          ))}
+          <BottomRow b={b} />
+        </div>
+        <div class="stripwrap">
+          <div class={`strip ${b.strip}`} />
+        </div>
+      </div>
     </div>
   );
 }
