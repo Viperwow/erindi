@@ -20,7 +20,7 @@
 ## Features
 
 - **Talk from any app.** Hold a hotkey to talk, or double-press it for hands-free mode that sends after a pause.
-- **Local speech recognition.** Russian and English, with a live transcript above the aurora overlay.
+- **Local speech recognition.** Many languages, even mixed in one phrase, with a live transcript above the aurora overlay.
 - **Claude Code, Codex or Pi.** Pick the default agent in Settings, or say "claude", "codex" or "pi" to start a session with one. Each session keeps its agent.
 - **Runs in the background.** Cancel a run with one press, or open the session in Windows Terminal.
 - **Sessions.** New utterances continue the active session; the Sessions tab lists past ones and reopens them.
