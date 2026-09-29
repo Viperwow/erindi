@@ -23,6 +23,8 @@ pub const MAX_RECORDING: usize = 16_000 * 300;
 pub const HOLD: Duration = Duration::from_millis(300);
 /// A second tap within this time makes a double-press.
 pub const DOUBLE: Duration = Duration::from_millis(300);
+/// Audio kept before the first speech of a hands-free phrase (16 kHz samples).
+pub const PRE_ROLL: usize = 16_000;
 
 pub const TRANSCRIBE_FAILED: &str = "Couldn't transcribe this phrase";
 pub const MIC_FAILED: &str = "Microphone unavailable · check the microphone in Settings";
@@ -391,8 +393,20 @@ impl Controller {
             Msg::Audio { op, samples } if self.capturing(op) => self.audio(samples, now),
             Msg::Speaking { op, speaking } if self.capturing(op) => {
                 self.speaking = speaking;
+                if let Some(c) = &mut self.capture
+                    && speaking
+                    && c.hands_free
+                    && c.phrase.is_none()
+                {
+                    let new_session = c.key == Key::NewSession;
+                    c.phrase = Some(
+                        self.series
+                            .start(Kind::Speech, Status::Speaking, new_session),
+                    );
+                }
                 vec![self.show()]
             }
+            Msg::SpeechEnded { op } if self.capturing(op) => self.cut(),
             Msg::Live { op, text } => {
                 self.live_in_flight = false;
                 let text = self.transformer.transform(&text);
@@ -405,7 +419,9 @@ impl Controller {
                 }
             }
             Msg::Transcribed { op, text } => self.transcribed(op, text, now),
-            Msg::Classified { op, answer } if self.agent_phrase(op) == Some(Status::Classifying) => {
+            Msg::Classified { op, answer }
+                if self.agent_phrase(op) == Some(Status::Classifying) =>
+            {
                 let Some(text) = self.pending.take() else {
                     return vec![];
                 };
@@ -419,27 +435,26 @@ impl Controller {
                 fx.push(self.show());
                 fx
             }
-            Msg::Run { op, event } if self.agent_phrase(op) == Some(Status::Running) => {
-                match event {
-                    RunEvent::ToolUse { name } => {
-                        self.detail = name;
-                        vec![self.show()]
-                    }
-                    RunEvent::PermissionDenied { tool } => {
-                        self.detail = format!("Permission denied: {tool}");
-                        vec![self.show()]
-                    }
-                    RunEvent::Result { ok, text } => {
-                        self.result = Some((ok, text));
-                        vec![]
-                    }
-                    RunEvent::Limited => {
-                        self.limited = true;
-                        vec![self.show()]
-                    }
-                    RunEvent::SessionStarted { .. } | RunEvent::Reply { .. } => vec![],
+            Msg::Run { op, event } if self.agent_phrase(op) == Some(Status::Running) => match event
+            {
+                RunEvent::ToolUse { name } => {
+                    self.detail = name;
+                    vec![self.show()]
                 }
-            }
+                RunEvent::PermissionDenied { tool } => {
+                    self.detail = format!("Permission denied: {tool}");
+                    vec![self.show()]
+                }
+                RunEvent::Result { ok, text } => {
+                    self.result = Some((ok, text));
+                    vec![]
+                }
+                RunEvent::Limited => {
+                    self.limited = true;
+                    vec![self.show()]
+                }
+                RunEvent::SessionStarted { .. } | RunEvent::Reply { .. } => vec![],
+            },
             Msg::RunExited { op, end, stderr } => {
                 let Some(status) = self.agent_phrase(op) else {
                     return vec![];
@@ -520,7 +535,8 @@ impl Controller {
                 let mut fx = self.decoded(op);
                 match self.series.get(op).map(|p| p.status) {
                     Some(Status::Transcribing) => {
-                        self.series.finish(op, Status::Failed, TRANSCRIBE_FAILED.into())
+                        self.series
+                            .finish(op, Status::Failed, TRANSCRIBE_FAILED.into())
                     }
                     Some(Status::Classifying | Status::Running | Status::Cancelling) => {
                         self.running = None;
@@ -576,12 +592,18 @@ impl Controller {
             return vec![];
         };
         capture.buffer.extend_from_slice(&samples);
-        if capture.buffer.len() >= MAX_RECORDING {
-            return self.end_capture();
-        }
         let Some(id) = capture.phrase else {
+            let extra = capture.buffer.len().saturating_sub(PRE_ROLL);
+            capture.buffer.drain(..extra);
             return vec![];
         };
+        if capture.buffer.len() >= MAX_RECORDING {
+            return if capture.hands_free {
+                self.cut()
+            } else {
+                self.end_capture()
+            };
+        }
         let due = self
             .last_live
             .is_none_or(|t| now.duration_since(t) >= LIVE_INTERVAL);
@@ -594,6 +616,20 @@ impl Controller {
             op: id,
             samples: capture.buffer.clone(),
         }]
+    }
+
+    /// Ends the phrase of a hands-free capture and keeps listening for the next one.
+    fn cut(&mut self) -> Vec<Effect> {
+        let Some(c) = self.capture.as_mut().filter(|c| c.hands_free) else {
+            return vec![];
+        };
+        let Some(id) = c.phrase.take() else {
+            return vec![];
+        };
+        let samples = std::mem::take(&mut c.buffer);
+        let mut fx = self.transcribe(id, samples);
+        fx.push(self.show());
+        fx
     }
 
     /// Sends a phrase to the speech model, or queues it behind the one in flight.
@@ -741,8 +777,12 @@ impl Controller {
     /// Turns listening mode on for the capture the first press opened, or off.
     fn double_press(&mut self) -> Vec<Effect> {
         match &mut self.capture {
+            // The first press opened a hold phrase; in listening mode speech starts phrases.
             Some(c) if !c.hands_free => {
                 c.hands_free = true;
+                if let Some(id) = c.phrase.take() {
+                    self.series.remove(id);
+                }
                 vec![self.show()]
             }
             Some(_) => self.end_capture(),
@@ -1022,10 +1062,10 @@ mod tests {
             fx
         }
 
-        /// Starts a hands-free recording.
+        /// Turns listening on and returns the capture op.
         fn hands_free(&mut self, key: Key) -> OpId {
             self.double(key);
-            self.op()
+            self.c.capture.as_ref().map_or(0, |c| c.op)
         }
 
         fn run(&mut self) -> OpId {
@@ -1168,9 +1208,10 @@ mod tests {
         t.say("потом тесты");
         let fx = t.finish_run(a, true);
         assert_eq!(t.statuses(), [Status::Done, Status::Running]);
-        assert!(fx.iter().any(
-            |e| matches!(e, Effect::StartRun { prompt, .. } if prompt == "потом тесты")
-        ));
+        assert!(
+            fx.iter()
+                .any(|e| matches!(e, Effect::StartRun { prompt, .. } if prompt == "потом тесты"))
+        );
     }
 
     #[test]
@@ -1304,6 +1345,240 @@ mod tests {
         assert!(!v.visible);
     }
 
+    /// Speech on the hands-free capture `cap`; returns the phrase it started.
+    fn speak(t: &mut T, cap: OpId, samples: usize) -> PhraseId {
+        t.send(Msg::Speaking {
+            op: cap,
+            speaking: true,
+        });
+        t.send(Msg::Audio {
+            op: cap,
+            samples: vec![0.1; samples],
+        });
+        t.op()
+    }
+
+    fn pause(t: &mut T, cap: OpId) -> Vec<Effect> {
+        t.send(Msg::Speaking {
+            op: cap,
+            speaking: false,
+        });
+        t.send(Msg::SpeechEnded { op: cap })
+    }
+
+    fn transcribes(fx: &[Effect], id: PhraseId) -> bool {
+        fx.iter()
+            .any(|e| matches!(e, Effect::Transcribe { op, .. } if *op == id))
+    }
+
+    #[test]
+    fn double_press_turns_listening_on_and_off() {
+        let mut t = T::new();
+        t.double(Key::Talk);
+        assert!(t.hands_free_on());
+        t.now += Duration::from_secs(1);
+        let fx = t.double(Key::Talk);
+        assert!(fx.contains(&Effect::StopCapture));
+        assert_eq!(t.c.view().mic, Mic::Off);
+    }
+
+    #[test]
+    fn a_pause_sends_the_phrase_and_listening_goes_on() {
+        let mut t = T::new();
+        let cap = t.hands_free(Key::Talk);
+        let p = speak(&mut t, cap, 1600);
+        let fx = pause(&mut t, cap);
+        assert!(transcribes(&fx, p));
+        assert!(!fx.contains(&Effect::StopCapture));
+        assert_eq!(t.statuses(), [Status::Transcribing]);
+        speak(&mut t, cap, 160);
+        assert_eq!(t.statuses(), [Status::Transcribing, Status::Speaking]);
+    }
+
+    #[test]
+    fn a_phrase_finished_while_the_agent_runs_joins_the_queue() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        let cap = t.hands_free(Key::Talk);
+        let p = speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        t.send(Msg::Transcribed {
+            op: p,
+            text: "потом тесты".into(),
+        });
+        assert_eq!(t.statuses(), [Status::Running, Status::Queued]);
+    }
+
+    #[test]
+    fn transcriptions_run_one_at_a_time_in_order() {
+        let mut t = T::new();
+        let cap = t.hands_free(Key::Talk);
+        let p1 = speak(&mut t, cap, 1600);
+        assert!(transcribes(&pause(&mut t, cap), p1));
+        let p2 = speak(&mut t, cap, 1600);
+        assert!(!transcribes(&pause(&mut t, cap), p2));
+        let fx = t.send(Msg::Transcribed {
+            op: p1,
+            text: "проверь diff".into(),
+        });
+        assert!(transcribes(&fx, p2));
+    }
+
+    #[test]
+    fn a_dropped_phrase_still_lets_the_next_transcription_start() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        let cap = t.hands_free(Key::Talk);
+        let p1 = speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        t.tap(Key::Talk);
+        assert_eq!(t.statuses(), [Status::Running]);
+        let p2 = speak(&mut t, cap, 1600);
+        assert!(!transcribes(&pause(&mut t, cap), p2));
+        let fx = t.send(Msg::Transcribed {
+            op: p1,
+            text: "проверь diff".into(),
+        });
+        assert!(transcribes(&fx, p2));
+        assert_eq!(t.statuses(), [Status::Running, Status::Transcribing]);
+    }
+
+    #[test]
+    fn single_press_drops_the_phrase_being_spoken() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        let cap = t.hands_free(Key::Talk);
+        speak(&mut t, cap, 1600);
+        let fx = t.tap(Key::Talk);
+        assert!(!fx.contains(&Effect::CancelRun));
+        assert!(!fx.contains(&Effect::StopCapture));
+        assert_eq!(t.statuses(), [Status::Running]);
+        assert_ne!(t.c.view().mic, Mic::Off);
+    }
+
+    #[test]
+    fn silence_before_speech_keeps_only_the_pre_roll() {
+        let mut t = T::new();
+        let cap = t.hands_free(Key::Talk);
+        t.send(Msg::Audio {
+            op: cap,
+            samples: vec![0.0; 3 * PRE_ROLL],
+        });
+        speak(&mut t, cap, 1000);
+        let fx = pause(&mut t, cap);
+        let Some(Effect::Transcribe { samples, .. }) =
+            fx.iter().find(|e| matches!(e, Effect::Transcribe { .. }))
+        else {
+            panic!("{fx:?}")
+        };
+        assert_eq!(samples.len(), PRE_ROLL + 1000);
+    }
+
+    #[test]
+    fn holding_the_key_while_listening_does_nothing() {
+        let mut t = T::new();
+        t.hands_free(Key::Talk);
+        t.now += Duration::from_secs(1);
+        let mut fx = t.down(Key::Talk);
+        fx.extend(t.release(Key::Talk));
+        assert!(!fx.iter().any(|e| matches!(
+            e,
+            Effect::StartCapture { .. } | Effect::StopCapture | Effect::Transcribe { .. }
+        )));
+        assert!(t.hands_free_on());
+    }
+
+    #[test]
+    fn turning_listening_off_leaves_the_run_and_queue() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        t.say("потом тесты");
+        let cap = t.hands_free(Key::Talk);
+        let p = speak(&mut t, cap, 1600);
+        t.now += Duration::from_secs(1);
+        let fx = t.double(Key::Talk);
+        assert!(!fx.contains(&Effect::CancelRun));
+        assert!(fx.contains(&Effect::StopCapture));
+        assert!(transcribes(&fx, p));
+        assert_eq!(
+            t.statuses(),
+            [Status::Running, Status::Queued, Status::Transcribing]
+        );
+    }
+
+    #[test]
+    fn turning_listening_off_without_speech_drops_nothing_else() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        t.hands_free(Key::Talk);
+        t.now += Duration::from_secs(1);
+        t.double(Key::Talk);
+        assert_eq!(t.statuses(), [Status::Running]);
+        assert_eq!(t.c.view().mic, Mic::Off);
+    }
+
+    #[test]
+    fn live_decode_is_for_the_phrase_being_spoken_and_waits_for_a_final_one() {
+        let mut t = T::new();
+        let cap = t.hands_free(Key::Talk);
+        let p1 = speak(&mut t, cap, 160);
+        t.now += LIVE_INTERVAL;
+        let fx = t.send(Msg::Audio {
+            op: cap,
+            samples: vec![0.1; 160],
+        });
+        assert!(
+            fx.iter()
+                .any(|e| matches!(e, Effect::LiveDecode { op, .. } if *op == p1))
+        );
+        t.send(Msg::Live {
+            op: p1,
+            text: "проверь".into(),
+        });
+        pause(&mut t, cap);
+        speak(&mut t, cap, 160);
+        t.now += LIVE_INTERVAL;
+        let fx = t.send(Msg::Audio {
+            op: cap,
+            samples: vec![0.1; 160],
+        });
+        assert!(!fx.iter().any(|e| matches!(e, Effect::LiveDecode { .. })));
+    }
+
+    #[test]
+    fn microphone_failure_turns_listening_off_only() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        let cap = t.hands_free(Key::Talk);
+        let fx = t.send(Msg::MicFailed {
+            op: cap,
+            error: "gone".into(),
+        });
+        assert!(fx.contains(&Effect::StopCapture));
+        let v = shown(&fx).unwrap();
+        assert_eq!(v.mic, Mic::Error);
+        assert_eq!(v.global_error.as_deref(), Some(MIC_FAILED));
+        assert_eq!(t.statuses(), [Status::Running]);
+    }
+
+    #[test]
+    fn new_session_key_listens_into_a_new_session() {
+        let mut t = T::new();
+        let first = t.finish_saying("проверь diff");
+        t.now += Duration::from_secs(1);
+        let cap = t.hands_free(Key::NewSession);
+        let p = speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        let fx = t.send(Msg::Transcribed {
+            op: p,
+            text: "найди баг".into(),
+        });
+        assert!(fx.iter().any(|e| matches!(
+            e,
+            Effect::StartRun { session: Session::New(new), .. } if *new != id(first)
+        )));
+    }
+
     #[test]
     fn keys_before_model_ready_are_ignored() {
         let mut c = Controller::new(Box::new(Dictionary::default()));
@@ -1365,11 +1640,7 @@ mod tests {
         assert_eq!(t.state(), S::Listening);
         t.now += Duration::from_secs(2);
         t.send(Msg::GestureTimeout { seq: 1 });
-        assert_eq!(
-            t.state(),
-            S::Listening,
-            "the first tap's timer is spent"
-        );
+        assert_eq!(t.state(), S::Listening, "the first tap's timer is spent");
     }
 
     #[test]
