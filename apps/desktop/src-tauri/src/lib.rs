@@ -173,18 +173,17 @@ fn agent_status(agents: tauri::State<agents::Agents>) -> Vec<agents::AgentStatus
     agents.status()
 }
 
-/// `force` re-checks now and returns the result; otherwise it re-checks in the background only
-/// when the last check is stale, as on window focus, and returns what is known.
+/// `force` re-checks now; otherwise, as on window focus or a tab switch, only a stale check is
+/// redone. Either way the answer is current.
 #[tauri::command(async)]
 fn recheck_agents(
     app: AppHandle,
     agents: tauri::State<agents::Agents>,
     force: bool,
 ) -> Vec<agents::AgentStatus> {
-    if force {
+    if force || agents.is_stale() {
         agents.check_now(&app)
     } else {
-        agents.recheck_if_stale(&app);
         agents.status()
     }
 }

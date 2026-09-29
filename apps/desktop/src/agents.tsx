@@ -15,13 +15,20 @@ export function AgentIcon(props: { agent: Agent; class?: string }) {
   return <img src={icons[props.agent]} alt="" class={`${tone} ${props.class ?? "h-4 w-4"}`} />;
 }
 
-/** Agent state from Rust, refreshed on `agents-changed` and re-checked when the window gains focus. */
+/** Agent state from Rust, refreshed on `agents-changed` and re-checked when a tab opens or the window gains focus. */
 export function useAgents() {
   const [agents, setAgents] = useState<AgentStatus[]>([]);
+  const [pending, setPending] = useState(0);
   useEffect(() => {
-    invoke<AgentStatus[]>("agent_status").then(setAgents);
+    // The cache shows at once; it never replaces an answer that came first.
+    invoke<AgentStatus[]>("agent_status").then((cached) => setAgents((now) => (now.length ? now : cached)));
     const off = listen<AgentStatus[]>("agents-changed", (e) => setAgents(e.payload));
-    const onFocus = () => invoke<AgentStatus[]>("recheck_agents", { force: false }).then(setAgents);
+    const onFocus = () => {
+      setPending((n) => n + 1);
+      invoke<AgentStatus[]>("recheck_agents", { force: false })
+        .then(setAgents)
+        .finally(() => setPending((n) => n - 1));
+    };
     window.addEventListener("focus", onFocus);
     onFocus();
     return () => {
@@ -34,7 +41,7 @@ export function useAgents() {
       setAgents(fresh);
       return fresh;
     });
-  return { agents, recheck };
+  return { agents, checking: pending > 0, recheck };
 }
 
 /** Re-check with a spinner while it runs, then "Installed ✓", "Not found" or "Failed" for 3 s; each label fades in and out. */
@@ -83,6 +90,8 @@ const DEFAULT = "";
 
 export function AgentFields(props: {
   status: AgentStatus;
+  /** The model list is being asked for again. */
+  checking: boolean;
   value: AgentSettings;
   onChange: (v: AgentSettings) => void;
 }) {
@@ -95,17 +104,26 @@ export function AgentFields(props: {
       model: id === DEFAULT ? null : id === CUSTOM ? { custom: "" } : { listed: id },
     });
   const custom = model !== null && "custom" in model;
+  // Only a list that is missing or failed shows the spinner, so a quick answer from the cache does not flash one.
+  const loading = props.checking && (status.modelsError !== null || status.models.length === 0);
   return (
     <div class="space-y-3">
       <div class={pair}>
-        <Field label="Model" error={status.modelsError ?? undefined}>
-          <select class={input} value={selected} onChange={(e) => pick(e.currentTarget.value)}>
-            <option value={DEFAULT}>Default ({status.label})</option>
-            {status.models.map((m) => (
-              <option value={m.id}>{m.label}</option>
-            ))}
-            <option value={CUSTOM}>Custom model ID…</option>
-          </select>
+        <Field label="Model" error={loading ? undefined : (status.modelsError ?? undefined)}>
+          <div class="relative">
+            <select class={input} value={selected} aria-busy={loading} onChange={(e) => pick(e.currentTarget.value)}>
+              <option value={DEFAULT}>Default ({status.label})</option>
+              {status.models.map((m) => (
+                <option value={m.id}>{m.label}</option>
+              ))}
+              <option value={CUSTOM}>Custom model ID…</option>
+            </select>
+            {loading && (
+              <span class="pointer-events-none absolute inset-y-0 right-7 flex items-center text-neutral-500">
+                <Spinner />
+              </span>
+            )}
+          </div>
         </Field>
         <Field
           label="Permission"
