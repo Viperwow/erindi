@@ -32,7 +32,11 @@ fn stale(checked: &Checked) -> bool {
 
 /// What Erindi last found out about each agent CLI.
 #[derive(Clone, Default)]
-pub struct Agents(Arc<Mutex<Checked>>);
+pub struct Agents {
+    checked: Arc<Mutex<Checked>>,
+    /// Held while a check runs, so a request that arrives meanwhile waits and takes its result.
+    running: Arc<Mutex<()>>,
+}
 
 pub fn missing(agent: Agent) -> String {
     format!(
@@ -97,7 +101,7 @@ fn cli_output(program: &Path, args: &[&str]) -> Result<String, String> {
 
 impl Agents {
     pub fn status(&self) -> Vec<AgentStatus> {
-        self.0
+        self.checked
             .lock()
             .unwrap()
             .as_ref()
@@ -114,17 +118,31 @@ impl Agents {
     /// Checks every agent on this thread, emits `agents-changed` when anything changed, and
     /// returns what it found.
     pub fn check_now(&self, app: &AppHandle) -> Vec<AgentStatus> {
-        let fresh: Vec<_> = Agent::ALL.into_iter().map(check).collect();
-        let changed = self.status() != fresh;
-        *self.0.lock().unwrap() = Some((Instant::now(), fresh.clone()));
+        let (fresh, changed) = self.check_once(|| Agent::ALL.into_iter().map(check).collect());
         if changed {
             let _ = app.emit_to("settings", "agents-changed", fresh.clone());
         }
         fresh
     }
 
+    /// Runs `check_all` unless a check that finished after this call began already answered.
+    /// Returns the status and whether this call changed it.
+    fn check_once(&self, check_all: impl FnOnce() -> Vec<AgentStatus>) -> (Vec<AgentStatus>, bool) {
+        let asked = Instant::now();
+        let _running = self.running.lock().unwrap();
+        if let Some((at, status)) = self.checked.lock().unwrap().as_ref()
+            && *at >= asked
+        {
+            return (status.clone(), false);
+        }
+        let fresh = check_all();
+        let changed = self.status() != fresh;
+        *self.checked.lock().unwrap() = Some((Instant::now(), fresh.clone()));
+        (fresh, changed)
+    }
+
     pub fn is_stale(&self) -> bool {
-        stale(&self.0.lock().unwrap())
+        stale(&self.checked.lock().unwrap())
     }
 
     /// Finds the CLI now, and re-checks everything when it appeared, moved or went away.
@@ -145,6 +163,29 @@ impl Agents {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlapping_checks_share_one_run() {
+        let agents = Agents::default();
+        let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let threads: Vec<_> = (0..4)
+            .map(|_| {
+                let (agents, runs) = (agents.clone(), runs.clone());
+                std::thread::spawn(move || {
+                    agents.check_once(|| {
+                        runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        std::thread::sleep(Duration::from_millis(200));
+                        vec![status_of(Agent::Pi, None, Ok(vec![]))]
+                    })
+                })
+            })
+            .collect();
+        for t in threads {
+            assert_eq!(t.join().unwrap().0.len(), 1);
+        }
+        assert!(runs.load(std::sync::atomic::Ordering::SeqCst) <= 2);
+        assert_eq!(agents.check_once(Vec::new).0.len(), 0);
+    }
 
     #[test]
     fn a_model_list_error_makes_the_check_stale() {

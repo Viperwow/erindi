@@ -18,15 +18,16 @@ export function AgentIcon(props: { agent: Agent; class?: string }) {
 /** Agent state from Rust, refreshed on `agents-changed` and re-checked when a tab opens or the window gains focus. */
 export function useAgents() {
   const [agents, setAgents] = useState<AgentStatus[]>([]);
-  const [checking, setChecking] = useState(false);
+  const [pending, setPending] = useState(0);
   useEffect(() => {
-    invoke<AgentStatus[]>("agent_status").then(setAgents);
+    // The cache shows at once; it never replaces an answer that came first.
+    invoke<AgentStatus[]>("agent_status").then((cached) => setAgents((now) => (now.length ? now : cached)));
     const off = listen<AgentStatus[]>("agents-changed", (e) => setAgents(e.payload));
     const onFocus = () => {
-      setChecking(true);
+      setPending((n) => n + 1);
       invoke<AgentStatus[]>("recheck_agents", { force: false })
         .then(setAgents)
-        .finally(() => setChecking(false));
+        .finally(() => setPending((n) => n - 1));
     };
     window.addEventListener("focus", onFocus);
     onFocus();
@@ -40,7 +41,7 @@ export function useAgents() {
       setAgents(fresh);
       return fresh;
     });
-  return { agents, checking, recheck };
+  return { agents, checking: pending > 0, recheck };
 }
 
 /** Re-check with a spinner while it runs, then "Installed ✓", "Not found" or "Failed" for 3 s; each label fades in and out. */
