@@ -51,6 +51,11 @@ impl Endpointer {
         self.heard
     }
 
+    /// Speech is going on, or stopped less than the configured silence ago.
+    pub fn in_speech(&self) -> bool {
+        self.vad.detected()
+    }
+
     pub fn push(&mut self, samples: &[f32]) -> Endpoint {
         self.vad.accept_waveform(samples);
         self.samples += samples.len();

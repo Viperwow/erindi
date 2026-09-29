@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use erindi_audio_asr::asr::Asr;
 use erindi_audio_asr::capture::{self, Capture};
-use erindi_audio_asr::dsp::{To16k, rms};
+use erindi_audio_asr::dsp::To16k;
 use erindi_audio_asr::vad::{Endpoint, Endpointer};
 use erindi_core::agent::{self, Agent, AgentRequest, EventParser, Target};
 use erindi_core::claude::Session;
@@ -28,7 +28,6 @@ use crate::settings::Settings;
 
 const RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const DISMISS_AFTER: Duration = Duration::from_secs(8);
-const LEVEL_INTERVAL: Duration = Duration::from_millis(33);
 const REFINE_BUDGET: Duration = Duration::from_millis(1500);
 
 pub type SharedSettings = Arc<RwLock<Settings>>;
@@ -76,7 +75,7 @@ impl Runtime {
             capture: None,
             cancel: None,
             last_session: last_session.clone(),
-            clickable_op: Arc::new(AtomicU64::new(0)),
+            hover_op: Arc::new(AtomicU64::new(0)),
             history: history.clone(),
             active: active.clone(),
             refiner: refiner.clone(),
@@ -338,7 +337,7 @@ struct Executor {
     capture: Option<Capture>,
     cancel: Option<CancellationToken>,
     last_session: Arc<Mutex<Option<LastRun>>>,
-    clickable_op: Arc<AtomicU64>,
+    hover_op: Arc<AtomicU64>,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
     refiner: Refiner,
@@ -403,19 +402,21 @@ impl Executor {
             }
             Effect::Show(view) => {
                 let _ = self.app.emit_to("overlay", "view", &view);
-                match view.state {
-                    AppState::Idle | AppState::LoadingModel | AppState::NoModel => {
-                        overlay::hide(&self.app)
-                    }
-                    _ => overlay::show(&self.app),
+                let shown = !matches!(
+                    view.state,
+                    AppState::Idle | AppState::LoadingModel | AppState::NoModel
+                );
+                if shown {
+                    overlay::show(&self.app);
+                } else {
+                    overlay::hide(&self.app);
+                }
+                // Tooltips need the mouse whenever the bubble is up; one tracker per op.
+                let op = if shown { view.op } else { 0 };
+                if self.hover_op.swap(op, Ordering::SeqCst) != op && op != 0 {
+                    overlay::track_bubble_hover(&self.app, self.hover_op.clone(), op);
                 }
                 let finished = matches!(view.state, AppState::Succeeded | AppState::Failed);
-                let clickable = finished && view.session_id.is_some();
-                self.clickable_op
-                    .store(if clickable { view.op } else { 0 }, Ordering::SeqCst);
-                if clickable {
-                    overlay::track_bubble_hover(&self.app, self.clickable_op.clone(), view.op);
-                }
                 if finished {
                     let tx = self.tx.clone();
                     std::thread::spawn(move || {
@@ -457,23 +458,26 @@ impl Executor {
         };
         self.capture = Some(capture);
 
-        let (tx, app) = (self.tx.clone(), self.app.clone());
+        let tx = self.tx.clone();
         std::thread::spawn(move || {
             let mut resampler = To16k::new(rate);
-            let mut last_level = Instant::now();
             let mut ended = false;
+            let mut speaking = false;
             for chunk in raw_rx {
-                if last_level.elapsed() >= LEVEL_INTERVAL {
-                    last_level = Instant::now();
-                    let _ = app.emit_to("overlay", "level", rms(&chunk));
-                }
                 let samples = resampler.push(&chunk);
-                let endpoint = match (&mut endpointer, ended) {
-                    (Some(e), false) => e.push(&samples),
-                    _ => Endpoint::Continue,
+                let endpoint = match &mut endpointer {
+                    Some(e) => e.push(&samples),
+                    None => Endpoint::Continue,
                 };
                 let _ = tx.send(Msg::Audio { op, samples });
+                if let Some(e) = &endpointer
+                    && e.in_speech() != speaking
+                {
+                    speaking = !speaking;
+                    let _ = tx.send(Msg::Speaking { op, speaking });
+                }
                 match endpoint {
+                    _ if ended => {}
                     Endpoint::SpeechEnded => {
                         ended = true;
                         let _ = tx.send(Msg::SpeechEnded { op });
