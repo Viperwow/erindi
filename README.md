@@ -5,7 +5,7 @@
 <h1 align="center">Erindi</h1>
 
 <p align="center">
-  Speak a task, and Claude Code runs it. Speech recognition stays on your computer.
+  Speak a task, and Erindi runs it in your coding agent. Speech recognition stays on your computer.
 </p>
 
 <p align="center">
