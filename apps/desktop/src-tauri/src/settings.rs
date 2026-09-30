@@ -64,6 +64,10 @@ pub struct Settings {
     pub silence_secs: f32,
     /// How long an idle bubble stays up before it hides.
     pub hide_secs: f32,
+    /// How soon a second press must follow to make a double-press.
+    pub double_secs: f32,
+    /// Where the debug log goes; empty turns it off.
+    pub log_path: String,
     pub session_policy: SessionPolicy,
     /// Used by `SessionPolicy::ContinueIfRecent`.
     pub recent_minutes: u32,
@@ -89,6 +93,11 @@ impl Default for Settings {
             microphone: String::new(),
             silence_secs: 2.0,
             hide_secs: 5.0,
+            double_secs: 1.0,
+            log_path: std::env::temp_dir()
+                .join("erindi-trace.log")
+                .to_string_lossy()
+                .into_owned(),
             session_policy: SessionPolicy::Continue,
             recent_minutes: 30,
             dictionary: vec![],
@@ -158,6 +167,7 @@ impl Settings {
             model_commands: self.model_commands,
             agent: self.agent,
             hide_after: std::time::Duration::from_secs_f32(self.hide_secs),
+            double: std::time::Duration::from_millis((self.double_secs * 1000.0).round() as u64),
         }
     }
 
@@ -205,6 +215,9 @@ impl Settings {
         }
         if !(2.0..=120.0).contains(&self.hide_secs) {
             return Err("Hide delay must be between 2 and 120 seconds".into());
+        }
+        if !(0.2..=2.0).contains(&self.double_secs) {
+            return Err("Double-press window must be between 0.2 and 2 seconds".into());
         }
         if self
             .dictionary
@@ -367,6 +380,10 @@ mod tests {
                 ..ok.clone()
             },
             Settings {
+                double_secs: 5.0,
+                ..ok.clone()
+            },
+            Settings {
                 new_session_hotkey: ok.talk_hotkey.clone(),
                 ..ok.clone()
             },
@@ -400,6 +417,28 @@ mod tests {
         ] {
             assert!(combo.parse::<Shortcut>().is_ok(), "{combo}");
         }
+    }
+
+    #[test]
+    fn double_press_window_reaches_the_controller() {
+        let s = Settings {
+            double_secs: 0.8,
+            ..Settings::default()
+        };
+        assert!(matches!(
+            s.session_msg(),
+            Msg::Settings { double, .. } if double == std::time::Duration::from_millis(800)
+        ));
+        assert_eq!(Settings::default().double_secs, 1.0);
+    }
+
+    #[test]
+    fn the_debug_log_is_on_by_default_in_temp() {
+        let s = Settings::default();
+        assert_eq!(
+            std::path::PathBuf::from(&s.log_path),
+            std::env::temp_dir().join("erindi-trace.log")
+        );
     }
 
     #[test]

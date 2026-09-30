@@ -89,7 +89,9 @@ impl Runtime {
                 }
             }
             for msg in rx {
+                crate::trace::msg(&msg);
                 for effect in controller.handle(msg, Instant::now()) {
+                    crate::trace::effect(&effect);
                     executor.execute(effect);
                 }
             }
@@ -349,10 +351,10 @@ impl Executor {
     fn execute(&mut self, effect: Effect) {
         match effect {
             Effect::StartCapture { op } => self.start_capture(op, true),
-            Effect::GestureTimer { seq } => {
+            Effect::GestureTimer { seq, after } => {
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(erindi_core::controller::DOUBLE);
+                    std::thread::sleep(after);
                     let _ = tx.send(Msg::GestureTimeout { seq });
                 });
             }
@@ -429,6 +431,7 @@ impl Executor {
     }
 
     fn start_capture(&mut self, op: OpId, endpointing: bool) {
+        let opening = Instant::now();
         let settings = self.settings.read().unwrap().clone();
         let microphone = (!settings.microphone.is_empty()).then_some(settings.microphone.as_str());
 
@@ -457,6 +460,10 @@ impl Executor {
             }
         };
         self.capture = Some(capture);
+        crate::trace::line(format!(
+            "capture {op} open after {} ms",
+            opening.elapsed().as_millis()
+        ));
 
         let tx = self.tx.clone();
         std::thread::spawn(move || {

@@ -217,6 +217,20 @@ function SettingsView() {
               onInput={(e) => set({ hideSecs: Number(e.currentTarget.value) })}
             />
           </Field>
+          <Field label="Double-press window (s)" hint="How soon the second press must follow; a single press waits this long before it cancels.">
+            <input
+              class={input}
+              type="number"
+              min="0.2"
+              max="2"
+              step="0.1"
+              value={s.doubleSecs}
+              onInput={(e) => set({ doubleSecs: Number(e.currentTarget.value) })}
+            />
+          </Field>
+          <Field label="Debug log" hint="Hotkeys, timing and transcripts, for diagnosing problems. Empty turns it off.">
+            <input class={input} value={s.logPath} onInput={(e) => set({ logPath: e.currentTarget.value })} />
+          </Field>
         </div>
 
       </Section>

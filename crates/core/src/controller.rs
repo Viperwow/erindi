@@ -21,8 +21,8 @@ pub const LIVE_INTERVAL: Duration = Duration::from_millis(700);
 pub const MAX_RECORDING: usize = 16_000 * 300;
 /// A press shorter than this is a tap; longer is a hold.
 pub const HOLD: Duration = Duration::from_millis(500);
-/// A second tap within this time makes a double-press.
-pub const DOUBLE: Duration = Duration::from_millis(300);
+/// A second tap within this time makes a double-press, by default; a chord pressed twice is slow.
+pub const DOUBLE: Duration = Duration::from_millis(1000);
 /// How long an idle bubble stays up by default before it hides.
 pub const HIDE_AFTER: Duration = Duration::from_secs(5);
 /// Audio kept before the first speech of a hands-free phrase (16 kHz samples).
@@ -99,8 +99,10 @@ pub enum Msg {
         agent: Agent,
         /// How long an idle bubble stays up.
         hide_after: Duration,
+        /// How soon a second press must follow to make a double-press.
+        double: Duration,
     },
-    /// `DOUBLE` has passed since the tap numbered `seq`.
+    /// The double-press window has passed since the tap numbered `seq`.
     GestureTimeout {
         seq: u64,
     },
@@ -133,9 +135,10 @@ pub enum Effect {
     StartCapture {
         op: OpId,
     },
-    /// Send `GestureTimeout { seq }` after `DOUBLE`.
+    /// Send `GestureTimeout { seq }` after `after`.
     GestureTimer {
         seq: u64,
+        after: Duration,
     },
     OpenTerminal {
         id: Uuid,
@@ -248,6 +251,7 @@ pub struct Controller {
     rest: u64,
     was_idle: bool,
     hide_after: Duration,
+    double: Duration,
     policy: SessionPolicy,
     recent: Duration,
     cwd: String,
@@ -288,6 +292,7 @@ impl Controller {
             rest: 0,
             was_idle: false,
             hide_after: HIDE_AFTER,
+            double: DOUBLE,
             policy: SessionPolicy::default(),
             recent: Duration::ZERO,
             cwd: String::new(),
@@ -419,7 +424,10 @@ impl Controller {
                 }
                 self.seq += 1;
                 self.tap = Some((key, self.seq));
-                vec![Effect::GestureTimer { seq: self.seq }]
+                vec![Effect::GestureTimer {
+                    seq: self.seq,
+                    after: self.double,
+                }]
             }
             Msg::GestureTimeout { seq } if self.tap.is_some_and(|(_, s)| s == seq) => {
                 self.tap = None;
@@ -536,9 +544,11 @@ impl Controller {
                 model_commands,
                 agent,
                 hide_after,
+                double,
             } => {
                 self.agent = agent;
                 self.hide_after = hide_after;
+                self.double = double;
                 if let Ok(parser) = Parser::new(&patterns) {
                     self.parser = parser;
                 }
@@ -1113,7 +1123,7 @@ mod tests {
             let seq = fx
                 .iter()
                 .find_map(|e| match e {
-                    Effect::GestureTimer { seq } => Some(*seq),
+                    Effect::GestureTimer { seq, .. } => Some(*seq),
                     _ => None,
                 })
                 .expect("a tap starts the gesture timer");
@@ -1193,6 +1203,7 @@ mod tests {
             model_commands: false,
             agent: Agent::Claude,
             hide_after: HIDE_AFTER,
+            double: DOUBLE,
         }
     }
 
@@ -1560,7 +1571,7 @@ mod tests {
         let timers: Vec<u64> = fx
             .iter()
             .filter_map(|e| match e {
-                Effect::GestureTimer { seq } => Some(*seq),
+                Effect::GestureTimer { seq, .. } => Some(*seq),
                 _ => None,
             })
             .collect();
@@ -1807,7 +1818,7 @@ mod tests {
         t.down(Key::Talk);
         t.now += Duration::from_millis(400);
         let fx = t.up(Key::Talk);
-        let Some(Effect::GestureTimer { seq }) = fx.first().cloned() else {
+        let Some(Effect::GestureTimer { seq, .. }) = fx.first().cloned() else {
             panic!("{fx:?}")
         };
         t.now += DOUBLE;
@@ -1849,6 +1860,26 @@ mod tests {
             text: String::new(),
         });
         assert!(t.statuses().is_empty());
+    }
+
+    #[test]
+    fn the_double_press_window_comes_from_settings() {
+        let mut t = T::new();
+        t.send(Msg::Settings {
+            policy: SessionPolicy::Continue,
+            recent: Duration::from_secs(600),
+            cwd: "C:/p".into(),
+            patterns: Patterns::default(),
+            model_commands: false,
+            agent: Agent::Claude,
+            hide_after: HIDE_AFTER,
+            double: Duration::from_millis(700),
+        });
+        let fx = t.quick(Key::Talk);
+        assert!(fx.contains(&Effect::GestureTimer {
+            seq: 1,
+            after: Duration::from_millis(700)
+        }));
     }
 
     #[test]
@@ -2538,6 +2569,7 @@ mod tests {
             model_commands: true,
             agent: Agent::Claude,
             hide_after: HIDE_AFTER,
+            double: DOUBLE,
         });
         t
     }
@@ -2684,6 +2716,7 @@ mod tests {
             model_commands: false,
             agent,
             hide_after: HIDE_AFTER,
+            double: DOUBLE,
         });
     }
 

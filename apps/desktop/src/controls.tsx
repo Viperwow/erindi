@@ -24,6 +24,8 @@ export type Settings = {
   microphone: string;
   silenceSecs: number;
   hideSecs: number;
+  doubleSecs: number;
+  logPath: string;
   dictionary: [string, string][];
   modelCommands: boolean;
   openOnLaunch: boolean;

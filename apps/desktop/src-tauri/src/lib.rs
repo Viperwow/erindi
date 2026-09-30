@@ -3,6 +3,7 @@ mod history;
 mod overlay;
 mod runtime;
 mod settings;
+mod trace;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -56,6 +57,7 @@ pub fn run() {
             let path = app.path().app_config_dir()?.join("settings.json");
             let history_path = app.path().app_data_dir()?.join("sessions.json");
             let settings = Arc::new(RwLock::new(Settings::load(&path)));
+            trace::set_path(&settings.read().unwrap().log_path);
             let agents = agents::Agents::default();
             agents.recheck(app.handle());
             app.manage(agents.clone());
@@ -330,6 +332,7 @@ fn save_settings(
     apply_autostart(&app, settings.launch_at_login)?;
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
+    trace::set_path(&settings.log_path);
     runtime.send(settings.session_msg());
     runtime.set_cleanup(settings.model_commands);
     app.state::<agents::Agents>().recheck(&app);
@@ -384,6 +387,7 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
         let runtime = runtime.clone();
         let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {
             let now = std::time::Instant::now();
+            trace::line(format!("hotkey {key:?} {:?}", event.state()));
             runtime.send(match event.state() {
                 ShortcutState::Pressed => Msg::KeyDown(key, now),
                 ShortcutState::Released => Msg::KeyUp(key, now),
