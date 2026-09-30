@@ -96,9 +96,9 @@ impl Default for Settings {
             talk_gesture: Gesture::Hold,
             cancel_hotkey: "Ctrl+Alt+Space".into(),
             cancel_gesture: Gesture::Tap,
-            hands_free_hotkey: "Ctrl+Super+Space".into(),
+            hands_free_hotkey: "Ctrl+Super+H".into(),
             hands_free_gesture: Gesture::DoubleTap,
-            new_session_hands_free_hotkey: "Ctrl+Super+N".into(),
+            new_session_hands_free_hotkey: "Ctrl+Super+J".into(),
             new_session_hands_free_gesture: Gesture::DoubleTap,
             new_session_hotkey: "Ctrl+Alt+N".into(),
             new_session_gesture: Gesture::Hold,
@@ -517,8 +517,8 @@ mod tests {
                 "Ctrl+Alt+Space",
                 "Ctrl+Alt+N",
                 "Ctrl+Alt+T",
-                "Ctrl+Super+Space",
-                "Ctrl+Super+N"
+                "Ctrl+Super+H",
+                "Ctrl+Super+J"
             ]
         );
         assert_eq!(

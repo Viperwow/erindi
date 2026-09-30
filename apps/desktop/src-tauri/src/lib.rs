@@ -390,7 +390,9 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
             })
         });
         if let Err(e) = registered {
-            errors.push(format!("Hotkey {combo} is unavailable: {e}"));
+            errors.push(format!(
+                "Hotkey {combo} is taken by Windows or another app; choose another: {e}"
+            ));
         }
     }
     if errors.is_empty() {
