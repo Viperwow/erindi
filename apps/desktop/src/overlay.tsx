@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useBusy } from "./controls";
-import { type Bubble, type Mic, type Phrase, type Running, type View, bubble } from "./bubble.ts";
+import { type Bubble, type Mic, type Row, type Running, type View, bubble } from "./bubble.ts";
 import "./style.css";
 
 const svg = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" } as const;
@@ -80,7 +80,7 @@ function Tip(props: {
 
 const live = new Set(["run", "speak", "decode"]);
 
-function PhraseRow({ phrase }: { phrase: Phrase }) {
+function PhraseRow({ phrase }: { phrase: Row }) {
   const kind = phrase.rail === "ok" ? "ok" : phrase.rail === "err" ? "err" : undefined;
   return (
     <Tip
@@ -136,6 +136,7 @@ function BottomRow({ b }: { b: Bubble }) {
     <div class={`foot ${alone}`}>
       <MicSlot mic={b.mic} />
       {b.running && <RunningSlot running={b.running} />}
+      {b.countdown && <span class="label">{b.countdown}</span>}
     </div>
   );
 }
@@ -150,6 +151,21 @@ function Overlay() {
       off.then((f) => f());
     };
   }, []);
+
+  // Counts down from the moment the idle stretch started; a new stretch restarts it.
+  const [hidesIn, setHidesIn] = useState<number | null>(null);
+  const hideAfter = view?.hideAfterMs ?? null;
+  useEffect(() => {
+    if (hideAfter === null) {
+      setHidesIn(null);
+      return;
+    }
+    const end = Date.now() + hideAfter;
+    const tick = () => setHidesIn(Math.max(0, Math.ceil((end - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [view?.rest, hideAfter]);
 
   // Rust takes the mouse only over this box, so tooltips and clicks work on the bubble alone.
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -167,7 +183,7 @@ function Overlay() {
   }, [view]);
 
   if (!view) return null;
-  const b = bubble(view);
+  const b = bubble(view, hidesIn);
   return (
     <div class="fixed inset-0 flex items-end justify-center pb-3 select-none">
       <div

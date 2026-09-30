@@ -5,22 +5,17 @@ use sherpa_onnx::{VadModelConfig, VoiceActivityDetector};
 
 use crate::dsp::TARGET_RATE;
 
-/// Recording stops if nobody speaks for this long after the hotkey.
-pub const NO_SPEECH_TIMEOUT: Duration = Duration::from_secs(10);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endpoint {
     Continue,
     /// Speech was heard and then silence lasted for the configured time.
     SpeechEnded,
-    NoSpeech,
 }
 
 /// Decides when a toggle-mode recording is over, using Silero VAD on 16 kHz audio.
 pub struct Endpointer {
     vad: VoiceActivityDetector,
     heard: bool,
-    samples: usize,
 }
 
 impl Endpointer {
@@ -32,7 +27,8 @@ impl Endpointer {
         let mut config = VadModelConfig::default();
         config.silero_vad.model = Some(model.to_string_lossy().into_owned());
         config.silero_vad.threshold = 0.5;
-        config.silero_vad.min_speech_duration = 0.25;
+        // Short enough for a one-word answer such as "yes".
+        config.silero_vad.min_speech_duration = 0.15;
         config.silero_vad.min_silence_duration = silence.as_secs_f32();
         config.silero_vad.window_size = 512;
         config.silero_vad.max_speech_duration = 600.0;
@@ -40,15 +36,17 @@ impl Endpointer {
         config.num_threads = 1;
         let vad =
             VoiceActivityDetector::create(&config, 30.0).ok_or("failed to load Silero VAD")?;
-        Ok(Self {
-            vad,
-            heard: false,
-            samples: 0,
-        })
+        Ok(Self { vad, heard: false })
     }
 
     pub fn heard_speech(&self) -> bool {
         self.heard
+    }
+
+    /// Forgets the finished phrase and waits for the next one.
+    pub fn reset(&mut self) {
+        self.vad.reset();
+        self.heard = false;
     }
 
     /// Speech is going on, or stopped less than the configured silence ago.
@@ -58,7 +56,6 @@ impl Endpointer {
 
     pub fn push(&mut self, samples: &[f32]) -> Endpoint {
         self.vad.accept_waveform(samples);
-        self.samples += samples.len();
         // Only the in-speech flag matters; finished segments are dropped to bound memory.
         while !self.vad.is_empty() {
             self.vad.pop();
@@ -67,10 +64,6 @@ impl Endpointer {
         self.heard |= in_speech;
         if self.heard && !in_speech {
             Endpoint::SpeechEnded
-        } else if !self.heard
-            && self.samples as f32 >= NO_SPEECH_TIMEOUT.as_secs_f32() * TARGET_RATE as f32
-        {
-            Endpoint::NoSpeech
         } else {
             Endpoint::Continue
         }
@@ -125,20 +118,24 @@ mod tests {
 
     #[test]
     #[ignore = "needs models/"]
-    fn speech_without_pause_does_not_end() {
-        let mut e = Endpointer::new(&models_dir(), Duration::from_secs(2)).unwrap();
-        assert_eq!(feed(&mut e, &speech()), []);
+    fn reset_waits_for_the_next_phrase() {
+        let mut e = Endpointer::new(&models_dir(), Duration::from_secs(1)).unwrap();
+        let mut audio = speech();
+        audio.extend(vec![0.0; 2 * TARGET_RATE as usize]);
+        let mut ends = 0;
+        for chunk in [audio.clone(), audio].concat().chunks(480) {
+            if e.push(chunk) == Endpoint::SpeechEnded {
+                ends += 1;
+                e.reset();
+            }
+        }
+        assert_eq!(ends, 2);
     }
 
     #[test]
     #[ignore = "needs models/"]
-    fn silence_only_times_out() {
-        let mut e = Endpointer::new(&models_dir(), Duration::from_secs(1)).unwrap();
-        let limit = NO_SPEECH_TIMEOUT.as_secs() as usize * TARGET_RATE as usize;
-        let events = feed(&mut e, &vec![0.0; limit + TARGET_RATE as usize]);
-        assert!(!e.heard_speech());
-        let (at, kind) = events[0];
-        assert_eq!(kind, Endpoint::NoSpeech);
-        assert!(at >= limit - 480, "{at}");
+    fn speech_without_pause_does_not_end() {
+        let mut e = Endpointer::new(&models_dir(), Duration::from_secs(2)).unwrap();
+        assert_eq!(feed(&mut e, &speech()), []);
     }
 }

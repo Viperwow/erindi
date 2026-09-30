@@ -15,7 +15,7 @@ use erindi_core::controller::{Controller, Effect, Msg};
 use erindi_core::llama::LlamaServer;
 use erindi_core::prompt::{Dictionary, PromptTransformer};
 use erindi_core::run::{RunEnd, RunSpec, run};
-use erindi_core::state::{AppState, OpId};
+use erindi_core::state::OpId;
 use erindi_core::stream::RunEvent;
 use erindi_core::transcript::Details;
 use tauri::{AppHandle, Emitter};
@@ -27,7 +27,6 @@ use crate::overlay;
 use crate::settings::Settings;
 
 const RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const DISMISS_AFTER: Duration = Duration::from_secs(8);
 const REFINE_BUDGET: Duration = Duration::from_millis(1500);
 
 pub type SharedSettings = Arc<RwLock<Settings>>;
@@ -46,7 +45,6 @@ pub struct Runtime {
 /// The most recent agent run, which the overlay can reopen in a terminal.
 #[derive(Clone)]
 struct LastRun {
-    op: OpId,
     id: uuid::Uuid,
     cwd: String,
     agent: Agent,
@@ -76,6 +74,7 @@ impl Runtime {
             cancel: None,
             last_session: last_session.clone(),
             hover_op: Arc::new(AtomicU64::new(0)),
+            armed: 0,
             history: history.clone(),
             active: active.clone(),
             refiner: refiner.clone(),
@@ -90,7 +89,9 @@ impl Runtime {
                 }
             }
             for msg in rx {
+                crate::trace::msg(&msg);
                 for effect in controller.handle(msg, Instant::now()) {
+                    crate::trace::effect(&effect);
                     executor.execute(effect);
                 }
             }
@@ -184,7 +185,7 @@ impl Runtime {
         let session = self.last_session.lock().unwrap().clone();
         let session = session.ok_or("No session yet")?;
         open_terminal(&self.history, &session.cwd, session.id, session.agent)?;
-        self.send(Msg::Dismiss { op: session.op });
+        self.send(Msg::Dismiss { rest: None });
         Ok(())
     }
 }
@@ -338,6 +339,8 @@ struct Executor {
     cancel: Option<CancellationToken>,
     last_session: Arc<Mutex<Option<LastRun>>>,
     hover_op: Arc<AtomicU64>,
+    /// The idle stretch whose countdown is running.
+    armed: u64,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
     refiner: Refiner,
@@ -348,10 +351,10 @@ impl Executor {
     fn execute(&mut self, effect: Effect) {
         match effect {
             Effect::StartCapture { op } => self.start_capture(op, true),
-            Effect::GestureTimer { seq } => {
+            Effect::GestureTimer { seq, after } => {
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(erindi_core::controller::DOUBLE);
+                    std::thread::sleep(after);
                     let _ = tx.send(Msg::GestureTimeout { seq });
                 });
             }
@@ -402,26 +405,25 @@ impl Executor {
             }
             Effect::Show(view) => {
                 let _ = self.app.emit_to("overlay", "view", &view);
-                let shown = !matches!(
-                    view.state,
-                    AppState::Idle | AppState::LoadingModel | AppState::NoModel
-                );
-                if shown {
+                if view.visible {
                     overlay::show(&self.app);
                 } else {
                     overlay::hide(&self.app);
                 }
-                // Tooltips need the mouse whenever the bubble is up; one tracker per op.
-                let op = if shown { view.op } else { 0 };
-                if self.hover_op.swap(op, Ordering::SeqCst) != op && op != 0 {
-                    overlay::track_bubble_hover(&self.app, self.hover_op.clone(), op);
+                // Tooltips need the mouse whenever the bubble is up; one tracker per series.
+                let key = if view.visible { view.series + 1 } else { 0 };
+                if self.hover_op.swap(key, Ordering::SeqCst) != key && key != 0 {
+                    overlay::track_bubble_hover(&self.app, self.hover_op.clone(), key);
                 }
-                let finished = matches!(view.state, AppState::Succeeded | AppState::Failed);
-                if finished {
-                    let tx = self.tx.clone();
+                // One countdown per idle stretch; the controller ignores it once the stretch ends.
+                if let Some(ms) = view.hide_after_ms
+                    && view.rest != self.armed
+                {
+                    self.armed = view.rest;
+                    let (tx, rest) = (self.tx.clone(), view.rest);
                     std::thread::spawn(move || {
-                        std::thread::sleep(DISMISS_AFTER);
-                        let _ = tx.send(Msg::Dismiss { op: view.op });
+                        std::thread::sleep(Duration::from_millis(ms));
+                        let _ = tx.send(Msg::Dismiss { rest: Some(rest) });
                     });
                 }
             }
@@ -429,6 +431,7 @@ impl Executor {
     }
 
     fn start_capture(&mut self, op: OpId, endpointing: bool) {
+        let opening = Instant::now();
         let settings = self.settings.read().unwrap().clone();
         let microphone = (!settings.microphone.is_empty()).then_some(settings.microphone.as_str());
 
@@ -438,7 +441,7 @@ impl Executor {
             match Endpointer::new(&models_dir(), silence) {
                 Ok(e) => endpointer = Some(e),
                 Err(error) => {
-                    let _ = self.tx.send(Msg::Failed { op, error });
+                    let _ = self.tx.send(Msg::MicFailed { op, error });
                     return;
                 }
             }
@@ -452,16 +455,19 @@ impl Executor {
         let (capture, rate) = match started {
             Ok(started) => started,
             Err(error) => {
-                let _ = self.tx.send(Msg::Failed { op, error });
+                let _ = self.tx.send(Msg::MicFailed { op, error });
                 return;
             }
         };
         self.capture = Some(capture);
+        crate::trace::line(format!(
+            "capture {op} open after {} ms",
+            opening.elapsed().as_millis()
+        ));
 
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let mut resampler = To16k::new(rate);
-            let mut ended = false;
             let mut speaking = false;
             for chunk in raw_rx {
                 let samples = resampler.push(&chunk);
@@ -476,17 +482,11 @@ impl Executor {
                     speaking = !speaking;
                     let _ = tx.send(Msg::Speaking { op, speaking });
                 }
-                match endpoint {
-                    _ if ended => {}
-                    Endpoint::SpeechEnded => {
-                        ended = true;
-                        let _ = tx.send(Msg::SpeechEnded { op });
+                if endpoint == Endpoint::SpeechEnded {
+                    let _ = tx.send(Msg::SpeechEnded { op });
+                    if let Some(e) = &mut endpointer {
+                        e.reset();
                     }
-                    Endpoint::NoSpeech => {
-                        ended = true;
-                        let _ = tx.send(Msg::NoSpeech { op });
-                    }
-                    Endpoint::Continue => {}
                 }
             }
         });
@@ -647,7 +647,6 @@ impl Executor {
             Session::New(id) | Session::Resume(id) => id,
         };
         *self.last_session.lock().unwrap() = Some(LastRun {
-            op,
             id,
             cwd: cwd.clone(),
             agent,

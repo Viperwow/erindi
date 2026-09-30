@@ -9,6 +9,7 @@ import {
   type AgentStatus,
   agentLabels,
   Field,
+  GestureSelect,
   HotkeyInput,
   ModelRow,
   type ModelStatus,
@@ -195,7 +196,7 @@ function SettingsView() {
               ))}
             </select>
           </Field>
-          <Field label="Silence before sending (s)" hint="Hands-free mode only.">
+          <Field label="Silence before sending (s)" hint="A pause this long sends the phrase in hands-free mode.">
             <input
               class={input}
               type="number"
@@ -206,20 +207,54 @@ function SettingsView() {
               onInput={(e) => set({ silenceSecs: Number(e.currentTarget.value) })}
             />
           </Field>
+          <Field label="Hide after (s)" hint="Once nothing is running and hands-free is off, the bubble counts down, then hides.">
+            <input
+              class={input}
+              type="number"
+              min="2"
+              max="120"
+              step="1"
+              value={s.hideSecs}
+              onInput={(e) => set({ hideSecs: Number(e.currentTarget.value) })}
+            />
+          </Field>
+          <Field label="Double-press window (s)" hint="How soon the second press of a Double-tap must follow. A Tap on the same shortcut waits this long.">
+            <input
+              class={input}
+              type="number"
+              min="0.2"
+              max="2"
+              step="0.1"
+              value={s.doubleSecs}
+              onInput={(e) => set({ doubleSecs: Number(e.currentTarget.value) })}
+            />
+          </Field>
+          <Field label="Debug log" hint="Hotkeys, timing and transcripts, for diagnosing problems. Empty turns it off.">
+            <input class={input} value={s.logPath} onInput={(e) => set({ logPath: e.currentTarget.value })} />
+          </Field>
         </div>
 
       </Section>
 
       <Section title="Hotkeys" description="How you start, send and cancel a recording.">
-        <div class="flex items-center gap-3">
-          <span class="w-44 shrink-0">Talk</span>
-          <HotkeyInput label="Talk" value={s.talkHotkey} onChange={(talkHotkey) => set({ talkHotkey })} />
-        </div>
+        {(
+          [
+            ["Push to talk", "talkHotkey", "talkGesture"],
+            ["Cancel", "cancelHotkey", "cancelGesture"],
+            ["Hands-free", "handsFreeHotkey", "handsFreeGesture"],
+          ] as const
+        ).map(([name, hotkey, gesture]) => (
+          <div class="flex min-w-0 items-center gap-3">
+            <span class="w-32 shrink-0">{name}</span>
+            <HotkeyInput label={name} value={s[hotkey]} onChange={(value) => set({ [hotkey]: value })} />
+            <GestureSelect label={`${name} mode`} value={s[gesture]} onChange={(value) => set({ [gesture]: value })} />
+          </div>
+        ))}
         <ul class="list-disc space-y-0.5 pl-5 text-xs text-neutral-500">
-          <li>Hold: talk while holding, release to send.</li>
-          <li>Double-press: hands-free; sends after a pause.</li>
-          <li>Double-press while recording hands-free: send now.</li>
-          <li>Press once while recording or while Claude works: cancel.</li>
+          <li>Push to talk: Hold talks while held and sends on release; Tap or Double-tap starts a phrase and sends it on the next one.</li>
+          <li>Cancel: cancels the phrase being transcribed or the running agent; otherwise the phrase you are saying.</li>
+          <li>Hands-free: turns listening on or off; each pause sends a phrase.</li>
+          <li>A Tap acts on release, unless a Double-tap shares its shortcut.</li>
         </ul>
         <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
       </Section>

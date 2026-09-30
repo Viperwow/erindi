@@ -3,13 +3,14 @@ mod history;
 mod overlay;
 mod runtime;
 mod settings;
+mod trace;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use erindi_core::agent::Agent;
-use erindi_core::controller::{Key, Msg};
+use erindi_core::controller::Msg;
 use erindi_core::transcript::{self, Details};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -56,6 +57,7 @@ pub fn run() {
             let path = app.path().app_config_dir()?.join("settings.json");
             let history_path = app.path().app_data_dir()?.join("sessions.json");
             let settings = Arc::new(RwLock::new(Settings::load(&path)));
+            trace::set_path(&settings.read().unwrap().log_path);
             let agents = agents::Agents::default();
             agents.recheck(app.handle());
             app.manage(agents.clone());
@@ -330,6 +332,7 @@ fn save_settings(
     apply_autostart(&app, settings.launch_at_login)?;
     settings.save(&store.path)?;
     *store.shared.write().unwrap() = settings.clone();
+    trace::set_path(&settings.log_path);
     runtime.send(settings.session_msg());
     runtime.set_cleanup(settings.model_commands);
     app.state::<agents::Agents>().recheck(&app);
@@ -376,21 +379,20 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     let shortcuts = app.global_shortcut();
     let _ = shortcuts.unregister_all();
     let mut errors = vec![];
-    for (combo, key) in [
-        (&settings.talk_hotkey, Key::Talk),
-        (&settings.new_session_hotkey, Key::NewSession),
-        (&settings.terminal_hotkey, Key::Terminal),
-    ] {
+    for (combo_id, combo) in settings.bindings().0.into_iter().enumerate() {
         let runtime = runtime.clone();
         let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {
             let now = std::time::Instant::now();
+            trace::line(format!("hotkey {combo_id} {:?}", event.state()));
             runtime.send(match event.state() {
-                ShortcutState::Pressed => Msg::KeyDown(key, now),
-                ShortcutState::Released => Msg::KeyUp(key, now),
+                ShortcutState::Pressed => Msg::KeyDown(combo_id, now),
+                ShortcutState::Released => Msg::KeyUp(combo_id, now),
             })
         });
         if let Err(e) = registered {
-            errors.push(format!("Hotkey {combo} is unavailable: {e}"));
+            errors.push(format!(
+                "Hotkey {combo} is taken by Windows or another app; choose another: {e}"
+            ));
         }
     }
     if errors.is_empty() {

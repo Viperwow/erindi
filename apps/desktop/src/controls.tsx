@@ -13,8 +13,17 @@ export type Patterns = Record<Command, string[]>;
 
 export type Settings = {
   talkHotkey: string;
+  talkGesture: Gesture;
+  cancelHotkey: string;
+  cancelGesture: Gesture;
+  handsFreeHotkey: string;
+  handsFreeGesture: Gesture;
+  newSessionHandsFreeHotkey: string;
+  newSessionHandsFreeGesture: Gesture;
   newSessionHotkey: string;
+  newSessionGesture: Gesture;
   terminalHotkey: string;
+  terminalGesture: Gesture;
   patterns: Patterns;
   sessionPolicy: SessionPolicy;
   recentMinutes: number;
@@ -23,6 +32,9 @@ export type Settings = {
   agents: Partial<Record<Agent, AgentSettings>>;
   microphone: string;
   silenceSecs: number;
+  hideSecs: number;
+  doubleSecs: number;
+  logPath: string;
   dictionary: [string, string][];
   modelCommands: boolean;
   openOnLaunch: boolean;
@@ -167,6 +179,30 @@ export function ModelRow(props: { model: ModelStatus; onInstalled: () => void })
 }
 
 /** Click, then press the combination. Esc cancels. */
+export type Gesture = "tap" | "hold" | "doubleTap";
+
+const gestures: [Gesture, string][] = [
+  ["tap", "Tap"],
+  ["hold", "Hold"],
+  ["doubleTap", "Double-tap"],
+];
+
+/** How a shortcut is pressed; sits beside its `HotkeyInput`. */
+export function GestureSelect(props: { value: Gesture; label: string; onChange: (value: Gesture) => void }) {
+  return (
+    <select
+      class={`${input.replace("w-full", "w-auto")} shrink-0`}
+      aria-label={props.label}
+      value={props.value}
+      onChange={(e) => props.onChange(e.currentTarget.value as Gesture)}
+    >
+      {gestures.map(([value, name]) => (
+        <option value={value}>{name}</option>
+      ))}
+    </select>
+  );
+}
+
 export function HotkeyInput(props: { value: string; label: string; onChange: (value: string) => void }) {
   const [recording, setRecording] = useState(false);
   const [held, setHeld] = useState("");
@@ -202,7 +238,7 @@ export function HotkeyInput(props: { value: string; label: string; onChange: (va
       type="button"
       aria-label={props.label}
       aria-pressed={recording}
-      class={`${input} text-left font-mono ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
+      class={`${input} min-w-0 flex-1 truncate text-left font-mono ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
       onClick={() => setRecording(!recording)}
       onBlur={() => setRecording(false)}
     >

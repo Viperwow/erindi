@@ -53,6 +53,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 ### UI and UX
 
 - [x] **Overlay bubble.** The aurora moved into a small bubble: a thin strip shows the microphone, rails beside each phrase show its state, and a bottom row shows the microphone and the running work.
+- [x] **Listening mode and phrase queue.** Hands-free keeps listening after each pause; phrases said while the agent works wait in a queue and run one by one.
 - [ ] **Redesign.** Modern look, dark by default, with accent colors.
 - [ ] **Themes.** Light, dark and system modes, with main colors set as hex codes.
 - [x] **Dictionary tab.** Move the dictionary to its own tab; the main page keeps only what matters most.
@@ -65,6 +66,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 ### Platforms
 
 - [ ] **macOS build** for testing, as a primary platform.
+- [ ] macOS default shortcuts: Ctrl+Space and Ctrl+Option+Space switch input sources there.
 
 ### Website and videos
 

@@ -1,75 +1,115 @@
 import { type Agent, agentLabels } from "./agent.ts";
 
-export type AppState =
-  | "LoadingModel"
-  | "NoModel"
-  | "Idle"
-  | "Listening"
-  | "Transcribing"
-  | "Classifying"
-  | "Running"
-  | "Cancelling"
-  | "Succeeded"
-  | "Failed";
+export type Status =
+  | "speaking"
+  | "transcribing"
+  | "queued"
+  | "classifying"
+  | "running"
+  | "cancelling"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export type Phrase = { id: number; kind: "speech" | "terminal"; status: Status; text: string; outcome: string };
+export type Mic = "waiting" | "listening" | "off" | "error";
 
 export type View = {
-  op: number;
-  state: AppState;
-  text: string;
+  series: number;
+  visible: boolean;
+  idle: boolean;
+  rest: number;
+  hideAfterMs: number | null;
+  mic: Mic;
+  transcribing: boolean;
+  phrases: Phrase[];
   detail: string;
-  sessionId: string | null;
-  continued: boolean;
   agent: Agent;
   limited: boolean;
-  speaking: boolean;
+  sessionId: string | null;
+  globalError: string | null;
 };
 
 export type Rail = "run" | "speak" | "decode" | "wait" | "ok" | "err" | "gone";
-export type Phrase = { text: string; rail: Rail; outcome: string | null; clickHint: string | null; newest: boolean };
+export type Row = { text: string; rail: Rail; outcome: string | null; clickHint: string | null };
 export type Running = { icon: "terminal" | "pencil"; text: string; dots: boolean } | null;
-export type Mic = "waiting" | "listening" | "off" | "error";
 export type Strip = "idle" | "speak" | "decode" | "off" | "error";
 export type Bubble = {
-  phrases: Phrase[];
+  phrases: Row[];
   running: Running;
   globalError: string | null;
   mic: Mic;
   strip: Strip;
   clickable: boolean;
+  countdown: string | null;
 };
+
+const rails: Record<Status, Rail> = {
+  speaking: "speak",
+  transcribing: "decode",
+  queued: "wait",
+  classifying: "decode",
+  running: "run",
+  cancelling: "run",
+  done: "ok",
+  failed: "err",
+  cancelled: "gone",
+};
+
+const finished = (p: Phrase) => p.status === "done" || p.status === "failed" || p.status === "cancelled";
 
 const withDetail = (text: string, detail: string) => (detail ? `${text} · ${detail}` : text);
 
-export function bubble(view: View): Bubble {
-  const label = agentLabels[view.agent];
-  const empty: Bubble = { phrases: [], running: null, globalError: null, mic: "off", strip: "off", clickable: false };
-  const phrase = (rail: Rail, outcome: string | null = null, clickHint: string | null = null): Phrase[] =>
-    view.text ? [{ text: view.text, rail, outcome, clickHint, newest: true }] : [];
-  const clickable = view.sessionId !== null;
-  const hint = clickable ? (view.limited ? "Click to open in Codex and trust" : "Click to open in terminal") : null;
-
-  switch (view.state) {
-    case "Listening": {
-      const speaking = view.speaking;
-      return { ...empty, phrases: phrase("speak"), mic: speaking ? "listening" : "waiting", strip: speaking ? "speak" : "idle" };
-    }
-    case "Transcribing":
-      return { ...empty, phrases: phrase("decode"), running: { icon: "pencil", text: "Transcribing", dots: true }, strip: "decode" };
-    case "Classifying":
-      return { ...empty, phrases: phrase("decode"), running: { icon: "pencil", text: "Checking command", dots: true }, strip: "decode" };
-    case "Running": {
-      const status = withDetail(`${label} is working`, view.limited ? "limited mode" : view.detail);
-      return { ...empty, phrases: phrase("run"), running: { icon: "terminal", text: status, dots: false } };
-    }
-    case "Cancelling":
-      return { ...empty, phrases: phrase("gone"), running: { icon: "terminal", text: "Cancelling", dots: false } };
-    case "Succeeded":
-      return { ...empty, phrases: phrase("ok", withDetail("Done", view.detail), hint), clickable };
-    case "Failed":
-      // A failure before any phrase exists is not about a phrase: it is a global error.
-      if (!view.text) return { ...empty, globalError: view.detail || "Failed", mic: "error", strip: "error" };
-      return { ...empty, phrases: phrase("err", withDetail(`${label} failed`, view.detail), hint), clickable };
+function outcome(p: Phrase): string | null {
+  switch (p.status) {
+    case "done":
+      return withDetail("Done", p.outcome);
+    case "failed":
+      return p.outcome || "Failed";
+    case "cancelled":
+      return "Cancelled";
     default:
-      return empty;
+      return null;
   }
+}
+
+/** `hidesIn` is the seconds left before an idle bubble hides. */
+export function bubble(view: View, hidesIn: number | null = null): Bubble {
+  const agent = view.phrases.find((p) => p.status === "classifying" || p.status === "running" || p.status === "cancelling");
+  const busy = agent !== undefined || view.phrases.some((p) => p.status === "queued");
+  const clickable = view.sessionId !== null && !busy && view.phrases.some(finished);
+  const hint = clickable ? (view.limited ? "Click to open in Codex and trust" : "Click to open in terminal") : null;
+  const newest = view.phrases.filter(finished).at(-1);
+
+  // A finished phrase without words (a failed transcription) shows its outcome as its text.
+  const phrases = view.phrases
+    .map((p) => ({ p, text: p.text || (finished(p) ? (outcome(p) ?? "") : "") }))
+    .filter(({ text }) => text)
+    .map(({ p, text }) => ({ text, rail: rails[p.status], outcome: outcome(p), clickHint: p === newest ? hint : null }));
+
+  let running: Running = null;
+  if (agent?.status === "running") {
+    const status = withDetail(`${agentLabels[view.agent]} is working`, view.limited ? "limited mode" : view.detail);
+    running = { icon: "terminal", text: status, dots: false };
+  } else if (agent?.status === "cancelling") {
+    running = { icon: "terminal", text: "Cancelling", dots: false };
+  } else if (agent?.status === "classifying") {
+    running = { icon: "pencil", text: "Checking command", dots: true };
+  } else if (view.transcribing) {
+    running = { icon: "pencil", text: "Transcribing", dots: true };
+  }
+
+  const strip: Strip =
+    view.mic === "error"
+      ? "error"
+      : view.mic === "listening"
+        ? "speak"
+        : view.transcribing
+          ? "decode"
+          : view.mic === "waiting"
+            ? "idle"
+            : "off";
+
+  const countdown = running === null && hidesIn !== null ? `Hides in ${hidesIn}s` : null;
+  return { phrases, running, globalError: view.globalError, mic: view.mic, strip, clickable, countdown };
 }
