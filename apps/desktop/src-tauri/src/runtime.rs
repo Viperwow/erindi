@@ -263,7 +263,7 @@ fn pick_models_dir(
 /// The command model server. It starts when model commands are turned on and stays loaded.
 #[derive(Clone, Default)]
 struct Refiner {
-    server: Arc<Mutex<Option<LlamaServer>>>,
+    server: Arc<Mutex<Option<Guarded>>>,
     enabled: Arc<AtomicBool>,
 }
 
@@ -306,7 +306,23 @@ impl Refiner {
     }
 }
 
-fn start_llama() -> Option<LlamaServer> {
+/// A server the process guard knows about for as long as it lives.
+struct Guarded(LlamaServer);
+
+impl std::ops::Deref for Guarded {
+    type Target = LlamaServer;
+    fn deref(&self) -> &LlamaServer {
+        &self.0
+    }
+}
+
+impl Drop for Guarded {
+    fn drop(&mut self) {
+        crate::guard::untrack(self.0.pid());
+    }
+}
+
+fn start_llama() -> Option<Guarded> {
     let model = models_dir().join(erindi_core::models::CLEANUP_GGUF);
     let started = Instant::now();
     let server = LlamaServer::start(&llama_server_exe(), &model)
@@ -314,7 +330,8 @@ fn start_llama() -> Option<LlamaServer> {
         .ok()?;
     let _ = server.classify(erindi_core::classify::WARM_UP);
     eprintln!("llama-server ready and warm in {:?}", started.elapsed());
-    Some(server)
+    crate::guard::track(server.pid());
+    Some(Guarded(server))
 }
 
 pub fn llama_server_exe() -> PathBuf {
@@ -677,19 +694,31 @@ impl Executor {
         tauri::async_runtime::spawn(async move {
             let mut parser = EventParser::new(agent);
             let mut native_seen = false;
-            let outcome = run(spec, token, |line| {
-                for event in parser.feed(line) {
-                    if let RunEvent::SessionStarted { native_id } = &event {
-                        native_seen = true;
-                        if let Err(e) = history.lock().unwrap().set_native(id, native_id) {
-                            eprintln!("cannot save session history: {e}");
+            let mut pgid = None;
+            let outcome = run(
+                spec,
+                token,
+                |line| {
+                    for event in parser.feed(line) {
+                        if let RunEvent::SessionStarted { native_id } = &event {
+                            native_seen = true;
+                            if let Err(e) = history.lock().unwrap().set_native(id, native_id) {
+                                eprintln!("cannot save session history: {e}");
+                            }
+                            let _ = app.emit_to("settings", "sessions-changed", ());
                         }
-                        let _ = app.emit_to("settings", "sessions-changed", ());
+                        let _ = tx.send(Msg::Run { op, event });
                     }
-                    let _ = tx.send(Msg::Run { op, event });
-                }
-            })
+                },
+                |pid| {
+                    pgid = Some(pid);
+                    crate::guard::track(pid);
+                },
+            )
             .await;
+            if let Some(pid) = pgid {
+                crate::guard::untrack(pid);
+            }
             let msg = match outcome {
                 Ok(outcome) => Msg::RunExited {
                     op,

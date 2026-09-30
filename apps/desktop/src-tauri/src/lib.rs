@@ -1,4 +1,5 @@
 mod agents;
+pub mod guard;
 mod history;
 mod overlay;
 mod runtime;
@@ -52,6 +53,7 @@ pub fn run() {
             recheck_agents
         ])
         .setup(|app| {
+            guard::start();
             app.manage(overlay::BubbleRect::default());
             overlay::create(app.handle())?;
             let path = app.path().app_config_dir()?.join("settings.json");

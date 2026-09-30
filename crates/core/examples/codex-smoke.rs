@@ -27,11 +27,16 @@ async fn main() {
         timeout: Duration::from_secs(300),
     };
     let mut parser = EventParser::new(Agent::Codex);
-    let outcome = run(spec, CancellationToken::new(), |line| {
-        for event in parser.feed(line) {
-            println!("{event:?}");
-        }
-    })
+    let outcome = run(
+        spec,
+        CancellationToken::new(),
+        |line| {
+            for event in parser.feed(line) {
+                println!("{event:?}");
+            }
+        },
+        |_| {},
+    )
     .await
     .unwrap();
     println!("{:?}\n{}", outcome.end, outcome.stderr_tail);

@@ -18,7 +18,7 @@ fn spec(mode: &str, cwd: PathBuf) -> RunSpec {
 
 async fn collect(spec: RunSpec, cancel: CancellationToken) -> (RunEnd, Vec<String>, String) {
     let mut lines = vec![];
-    let outcome = run(spec, cancel, |l| lines.push(l.to_string()))
+    let outcome = run(spec, cancel, |l| lines.push(l.to_string()), |_| {})
         .await
         .unwrap();
     (outcome.end, lines, outcome.stderr_tail)
@@ -86,10 +86,15 @@ async fn cancel_kills_whole_tree() {
     let mut grandchild = None;
     let started = Instant::now();
     let c = cancel.clone();
-    let outcome = run(spec("tree", dir.path().into()), cancel, |l| {
-        grandchild = l.parse::<u32>().ok();
-        c.cancel();
-    })
+    let outcome = run(
+        spec("tree", dir.path().into()),
+        cancel,
+        |l| {
+            grandchild = l.parse::<u32>().ok();
+            c.cancel();
+        },
+        |_| {},
+    )
     .await
     .unwrap();
 
@@ -131,5 +136,9 @@ async fn missing_program_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = spec("echo", dir.path().into());
     s.program = dir.path().join("no-such-agent.exe");
-    assert!(run(s, CancellationToken::new(), |_| {}).await.is_err());
+    assert!(
+        run(s, CancellationToken::new(), |_| {}, |_| {})
+            .await
+            .is_err()
+    );
 }

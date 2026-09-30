@@ -41,6 +41,9 @@ impl LlamaServer {
             use windows::Win32::System::Threading::CREATE_NO_WINDOW;
             command.creation_flags(CREATE_NO_WINDOW.0);
         }
+        // Its own group, so Erindi's guard can kill the server with everything it started.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
         // Only the Windows job setup below needs to kill the child on failure.
         #[cfg_attr(not(windows), allow(unused_mut))]
         let mut child = command
@@ -68,6 +71,11 @@ impl LlamaServer {
         };
         server.wait_ready()?;
         Ok(server)
+    }
+
+    /// The server's pid, which on unix is also its process group id.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
     }
 
     fn wait_ready(&mut self) -> Result<(), String> {

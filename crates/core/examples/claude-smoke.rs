@@ -26,11 +26,16 @@ async fn main() {
         stdin: prompt,
         timeout: Duration::from_secs(120),
     };
-    let outcome = run(spec, CancellationToken::new(), |line| {
-        for event in parse_line(line) {
-            println!("{event:?}");
-        }
-    })
+    let outcome = run(
+        spec,
+        CancellationToken::new(),
+        |line| {
+            for event in parse_line(line) {
+                println!("{event:?}");
+            }
+        },
+        |_| {},
+    )
     .await
     .unwrap();
     println!(
