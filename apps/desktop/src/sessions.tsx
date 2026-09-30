@@ -93,7 +93,7 @@ export function SessionsView() {
   if (data.entries.length === 0) {
     return (
       <div class="p-6 text-neutral-500">
-        No sessions yet. Hold <kbd class="font-mono">Ctrl+Alt+Space</kbd> and say a task.
+        No sessions yet. Hold <kbd class="font-mono">Ctrl+Space</kbd> and say a task.
       </div>
     );
   }
