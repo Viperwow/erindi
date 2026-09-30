@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import {
   type Command,
+  type Gesture,
   GestureSelect,
   HotkeyInput,
   ModelRow,
@@ -16,15 +17,24 @@ import {
   useBusy,
 } from "./controls";
 
-const commands: {
-  id: Command;
-  name: string;
-  example: string;
-  hotkey?: "newSessionHotkey" | "terminalHotkey";
-  gesture?: "newSessionGesture" | "terminalGesture";
-}[] = [
-  { id: "newSession", name: "New session", example: "new session, check the diff", hotkey: "newSessionHotkey", gesture: "newSessionGesture" },
-  { id: "openTerminal", name: "Open in terminal", example: "open in terminal", hotkey: "terminalHotkey", gesture: "terminalGesture" },
+type Shortcut = [label: string, hotkey: keyof Settings & `${string}Hotkey`, gesture: keyof Settings & `${string}Gesture`];
+
+const commands: { id: Command; name: string; example: string; shortcuts?: Shortcut[] }[] = [
+  {
+    id: "newSession",
+    name: "New session",
+    example: "new session, check the diff",
+    shortcuts: [
+      ["Push to talk", "newSessionHotkey", "newSessionGesture"],
+      ["Hands-free", "newSessionHandsFreeHotkey", "newSessionHandsFreeGesture"],
+    ],
+  },
+  {
+    id: "openTerminal",
+    name: "Open in terminal",
+    example: "open in terminal",
+    shortcuts: [["Hotkey", "terminalHotkey", "terminalGesture"]],
+  },
   { id: "cancel", name: "Cancel", example: "check the diff… cancel" },
   { id: "claude", name: "Claude", example: "claude, check the diff" },
   { id: "codex", name: "Codex", example: "codex, check the diff" },
@@ -164,22 +174,22 @@ export function CommandsView() {
 
       {commands.map((c) => (
         <Section title={c.name} description={`Example: «${c.example}»`}>
-          {c.hotkey ? (
-            <div class="flex items-center gap-3">
-              <span class="w-20 shrink-0 text-neutral-500">Hotkey</span>
-              <HotkeyInput
-                label={`${c.name} hotkey`}
-                value={s[c.hotkey]}
-                onChange={(value) => set({ [c.hotkey!]: value })}
-              />
-              {c.gesture && (
-                <GestureSelect
-                  label={`${c.name} mode`}
-                  value={s[c.gesture]}
-                  onChange={(value) => set({ [c.gesture!]: value })}
+          {c.shortcuts ? (
+            c.shortcuts.map(([label, hotkey, gesture]) => (
+              <div class="flex items-center gap-3">
+                <span class="w-28 shrink-0 text-neutral-500">{label}</span>
+                <HotkeyInput
+                  label={`${c.name} ${label}`}
+                  value={s[hotkey] as string}
+                  onChange={(value) => set({ [hotkey]: value })}
                 />
-              )}
-            </div>
+                <GestureSelect
+                  label={`${c.name} ${label} mode`}
+                  value={s[gesture] as Gesture}
+                  onChange={(value) => set({ [gesture]: value })}
+                />
+              </div>
+            ))
           ) : (
             <p class="text-xs text-neutral-500">Hotkey: the Cancel shortcut.</p>
           )}

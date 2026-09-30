@@ -57,6 +57,8 @@ pub struct Settings {
     pub cancel_gesture: Gesture,
     pub hands_free_hotkey: String,
     pub hands_free_gesture: Gesture,
+    pub new_session_hands_free_hotkey: String,
+    pub new_session_hands_free_gesture: Gesture,
     pub new_session_hotkey: String,
     pub new_session_gesture: Gesture,
     pub terminal_hotkey: String,
@@ -96,6 +98,8 @@ impl Default for Settings {
             cancel_gesture: Gesture::Tap,
             hands_free_hotkey: "Ctrl+Super+Space".into(),
             hands_free_gesture: Gesture::DoubleTap,
+            new_session_hands_free_hotkey: "Ctrl+Super+N".into(),
+            new_session_hands_free_gesture: Gesture::DoubleTap,
             new_session_hotkey: "Ctrl+Alt+N".into(),
             new_session_gesture: Gesture::Hold,
             terminal_hotkey: "Ctrl+Alt+T".into(),
@@ -186,7 +190,7 @@ impl Settings {
         }
     }
 
-    fn shortcuts(&self) -> [(&str, Action, Gesture); 5] {
+    fn shortcuts(&self) -> [(&str, Action, Gesture); 6] {
         [
             (&self.talk_hotkey, Action::PushToTalk, self.talk_gesture),
             (
@@ -204,6 +208,11 @@ impl Settings {
                 &self.hands_free_hotkey,
                 Action::HandsFree,
                 self.hands_free_gesture,
+            ),
+            (
+                &self.new_session_hands_free_hotkey,
+                Action::NewSessionHandsFree,
+                self.new_session_hands_free_gesture,
             ),
         ]
     }
@@ -296,6 +305,7 @@ fn action_name(action: Action) -> &'static str {
         Action::PushToTalk => "Push to talk",
         Action::NewSession => "New session",
         Action::HandsFree => "Hands-free",
+        Action::NewSessionHandsFree => "New session hands-free",
         Action::Cancel => "Cancel",
         Action::Terminal => "Open in terminal",
     }
@@ -507,8 +517,13 @@ mod tests {
                 "Ctrl+Alt+Space",
                 "Ctrl+Alt+N",
                 "Ctrl+Alt+T",
-                "Ctrl+Super+Space"
+                "Ctrl+Super+Space",
+                "Ctrl+Super+N"
             ]
+        );
+        assert_eq!(
+            bindings[4],
+            [(Action::NewSessionHandsFree, Gesture::DoubleTap)]
         );
         assert_eq!(
             bindings[0],

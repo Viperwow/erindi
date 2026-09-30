@@ -41,6 +41,8 @@ pub enum Action {
     NewSession,
     /// Turns continuous listening on or off.
     HandsFree,
+    /// Turns listening on with its first phrase in a new session, or off.
+    NewSessionHandsFree,
     Cancel,
     /// Opens the active session in a terminal.
     Terminal,
@@ -640,7 +642,7 @@ impl Controller {
 
     /// Opens the microphone for `action`: for one phrase, or for listening mode.
     fn start(&mut self, action: Action, combo: Combo, latched: bool, now: Instant) -> Vec<Effect> {
-        let hands_free = action == Action::HandsFree;
+        let hands_free = matches!(action, Action::HandsFree | Action::NewSessionHandsFree);
         // A tap may be about to cancel something, so earlier results stay until the phrase is sent.
         let phrase = (!hands_free).then(|| {
             let id = self
@@ -655,10 +657,10 @@ impl Controller {
         self.capture = Some(Capture {
             op,
             combo,
-            action: if hands_free {
-                Action::PushToTalk
-            } else {
-                action
+            action: match action {
+                Action::NewSessionHandsFree => Action::NewSession,
+                Action::HandsFree => Action::PushToTalk,
+                other => other,
             },
             hands_free,
             latched,
@@ -699,7 +701,9 @@ impl Controller {
         // A press that was not a hold opened a recording for nothing: drop it quietly, unless
         // listening mode takes it over.
         if gesture != Gesture::Hold
-            && !actions.contains(&Action::HandsFree)
+            && !actions
+                .iter()
+                .any(|a| matches!(a, Action::HandsFree | Action::NewSessionHandsFree))
             && self.holding(combo).is_some()
             && let Some(c) = self.capture.take()
         {
@@ -723,7 +727,9 @@ impl Controller {
                     None => self.start(action, combo, true, now),
                     Some(_) => vec![],
                 },
-                Action::HandsFree => self.toggle_listening(combo, now),
+                Action::HandsFree | Action::NewSessionHandsFree => {
+                    self.toggle_listening(action, combo, now)
+                }
                 Action::Cancel => self.cancel(),
                 Action::Terminal => self.terminal_key(),
             });
@@ -943,7 +949,7 @@ impl Controller {
     }
 
     /// Turns listening mode on, taking over a recording in progress, or off.
-    fn toggle_listening(&mut self, combo: Combo, now: Instant) -> Vec<Effect> {
+    fn toggle_listening(&mut self, action: Action, combo: Combo, now: Instant) -> Vec<Effect> {
         match &mut self.capture {
             // In listening mode speech starts phrases; an empty one-phrase recording is dropped.
             Some(c) if !c.hands_free => {
@@ -957,7 +963,7 @@ impl Controller {
                 vec![]
             }
             Some(_) => self.end_capture(),
-            None => self.start(Action::HandsFree, combo, false, now),
+            None => self.start(action, combo, false, now),
         }
     }
 
@@ -1131,6 +1137,7 @@ mod tests {
         pub const NewSession: Combo = 1;
         pub const Terminal: Combo = 2;
         pub const HandsFree: Combo = 3;
+        pub const NewSessionHandsFree: Combo = 4;
     }
 
     fn bindings() -> Vec<Vec<(Action, Gesture)>> {
@@ -1142,6 +1149,7 @@ mod tests {
             vec![(Action::NewSession, Gesture::Hold)],
             vec![(Action::Terminal, Gesture::Tap)],
             vec![(Action::HandsFree, Gesture::DoubleTap)],
+            vec![(Action::NewSessionHandsFree, Gesture::DoubleTap)],
         ]
     }
 
@@ -2033,6 +2041,48 @@ mod tests {
             cwd: "C:/p".into(),
             agent: Agent::Claude,
         }));
+    }
+
+    #[test]
+    fn hands_free_into_a_new_session_starts_one_session() {
+        let mut t = T::new();
+        let first = t.finish_saying("проверь diff");
+        t.now += Duration::from_secs(1);
+        t.double(Key::NewSessionHandsFree);
+        assert!(t.hands_free_on());
+        let cap = t.c.capture.as_ref().map_or(0, |c| c.op);
+        let p1 = speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        let fx = t.send(Msg::Transcribed {
+            op: p1,
+            text: "найди баг".into(),
+        });
+        let Some(Effect::StartRun { session, .. }) = fx
+            .iter()
+            .find(|e| matches!(e, Effect::StartRun { .. }))
+            .cloned()
+        else {
+            panic!("{fx:?}")
+        };
+        assert!(matches!(session, Session::New(new) if new != id(first)));
+        t.send(Msg::Run {
+            op: p1,
+            event: RunEvent::Result {
+                ok: true,
+                text: "done".into(),
+            },
+        });
+        t.finish_run(p1, true);
+        let p2 = speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        let fx = t.send(Msg::Transcribed {
+            op: p2,
+            text: "теперь почини".into(),
+        });
+        assert!(fx.iter().any(|e| matches!(
+            e,
+            Effect::StartRun { session: Session::Resume(r), .. } if *r == id(session)
+        )));
     }
 
     #[test]

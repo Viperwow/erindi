@@ -42,6 +42,7 @@ The `latest` pre-release is rebuilt on every merge into `main`.
 | `Ctrl+Alt+Space` | Hold to talk; tap to cancel |
 | `Ctrl+Win+Space` | Double-tap to turn hands-free listening on or off |
 | `Ctrl+Alt+N` | Hold to talk into a new session |
+| `Ctrl+Win+N` | Double-tap for hands-free listening into a new session |
 | `Ctrl+Alt+T` | Tap to open the active session in a terminal |
 
 Each shortcut and its mode (Tap, Hold or Double-tap) can be changed in Settings.

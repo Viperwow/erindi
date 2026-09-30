@@ -18,6 +18,8 @@ export type Settings = {
   cancelGesture: Gesture;
   handsFreeHotkey: string;
   handsFreeGesture: Gesture;
+  newSessionHandsFreeHotkey: string;
+  newSessionHandsFreeGesture: Gesture;
   newSessionHotkey: string;
   newSessionGesture: Gesture;
   terminalHotkey: string;
