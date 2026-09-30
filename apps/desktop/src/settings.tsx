@@ -244,8 +244,8 @@ function SettingsView() {
             ["Hands-free", "handsFreeHotkey", "handsFreeGesture"],
           ] as const
         ).map(([name, hotkey, gesture]) => (
-          <div class="flex items-center gap-3">
-            <span class="w-44 shrink-0">{name}</span>
+          <div class="flex min-w-0 items-center gap-3">
+            <span class="w-32 shrink-0">{name}</span>
             <HotkeyInput label={name} value={s[hotkey]} onChange={(value) => set({ [hotkey]: value })} />
             <GestureSelect label={`${name} mode`} value={s[gesture]} onChange={(value) => set({ [gesture]: value })} />
           </div>

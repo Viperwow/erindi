@@ -191,7 +191,7 @@ const gestures: [Gesture, string][] = [
 export function GestureSelect(props: { value: Gesture; label: string; onChange: (value: Gesture) => void }) {
   return (
     <select
-      class={`${input} w-32 shrink-0`}
+      class={`${input.replace("w-full", "w-auto")} shrink-0`}
       aria-label={props.label}
       value={props.value}
       onChange={(e) => props.onChange(e.currentTarget.value as Gesture)}
@@ -238,7 +238,7 @@ export function HotkeyInput(props: { value: string; label: string; onChange: (va
       type="button"
       aria-label={props.label}
       aria-pressed={recording}
-      class={`${input} text-left font-mono ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
+      class={`${input} min-w-0 flex-1 truncate text-left font-mono ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
       onClick={() => setRecording(!recording)}
       onBlur={() => setRecording(false)}
     >

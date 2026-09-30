@@ -176,7 +176,7 @@ export function CommandsView() {
         <Section title={c.name} description={`Example: «${c.example}»`}>
           {c.shortcuts ? (
             c.shortcuts.map(([label, hotkey, gesture]) => (
-              <div class="flex items-center gap-3">
+              <div class="flex min-w-0 items-center gap-3">
                 <span class="w-28 shrink-0 text-neutral-500">{label}</span>
                 <HotkeyInput
                   label={`${c.name} ${label}`}
