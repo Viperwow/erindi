@@ -65,8 +65,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 ### Platforms
 
-- [ ] **macOS build** for testing, as a primary platform.
-- [ ] macOS default shortcuts: Ctrl+Space and Ctrl+Option+Space switch input sources there.
+- [x] **macOS build** for Apple silicon and Intel, macOS 15 or later.
+- [ ] Intel macOS builds move to cross-compiling on Apple silicon when GitHub retires the `macos-15-intel` runner (August 2027).
 
 ### Website and videos
 
