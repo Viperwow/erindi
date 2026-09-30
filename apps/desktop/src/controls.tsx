@@ -23,6 +23,7 @@ export type Settings = {
   agents: Partial<Record<Agent, AgentSettings>>;
   microphone: string;
   silenceSecs: number;
+  hideSecs: number;
   dictionary: [string, string][];
   modelCommands: boolean;
   openOnLaunch: boolean;

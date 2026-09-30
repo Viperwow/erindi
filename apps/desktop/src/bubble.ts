@@ -18,6 +18,8 @@ export type View = {
   series: number;
   visible: boolean;
   idle: boolean;
+  rest: number;
+  hideAfterMs: number | null;
   mic: Mic;
   transcribing: boolean;
   phrases: Phrase[];
@@ -39,6 +41,7 @@ export type Bubble = {
   mic: Mic;
   strip: Strip;
   clickable: boolean;
+  countdown: string | null;
 };
 
 const rails: Record<Status, Rail> = {
@@ -70,7 +73,8 @@ function outcome(p: Phrase): string | null {
   }
 }
 
-export function bubble(view: View): Bubble {
+/** `hidesIn` is the seconds left before an idle bubble hides. */
+export function bubble(view: View, hidesIn: number | null = null): Bubble {
   const agent = view.phrases.find((p) => p.status === "classifying" || p.status === "running" || p.status === "cancelling");
   const busy = agent !== undefined || view.phrases.some((p) => p.status === "queued");
   const clickable = view.sessionId !== null && !busy && view.phrases.some(finished);
@@ -106,5 +110,6 @@ export function bubble(view: View): Bubble {
             ? "idle"
             : "off";
 
-  return { phrases, running, globalError: view.globalError, mic: view.mic, strip, clickable };
+  const countdown = running === null && hidesIn !== null ? `Hides in ${hidesIn}s` : null;
+  return { phrases, running, globalError: view.globalError, mic: view.mic, strip, clickable, countdown };
 }

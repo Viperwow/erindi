@@ -23,6 +23,8 @@ pub const MAX_RECORDING: usize = 16_000 * 300;
 pub const HOLD: Duration = Duration::from_millis(300);
 /// A second tap within this time makes a double-press.
 pub const DOUBLE: Duration = Duration::from_millis(300);
+/// How long an idle bubble stays up by default before it hides and listening turns off.
+pub const HIDE_AFTER: Duration = Duration::from_secs(5);
 /// Audio kept before the first speech of a hands-free phrase (16 kHz samples).
 pub const PRE_ROLL: usize = 16_000;
 
@@ -81,9 +83,10 @@ pub enum Msg {
         end: RunEnd,
         stderr: String,
     },
-    /// Hides a series that has been idle for a while.
+    /// Hides the bubble and turns listening off if it is still in the idle stretch `rest`;
+    /// `None` means the current one.
     Dismiss {
-        series: u64,
+        rest: Option<u64>,
     },
     Settings {
         policy: SessionPolicy,
@@ -94,6 +97,8 @@ pub enum Msg {
         model_commands: bool,
         /// The agent of new sessions nobody named an agent for.
         agent: Agent,
+        /// How long an idle bubble stays up.
+        hide_after: Duration,
     },
     /// `DOUBLE` has passed since the tap numbered `seq`.
     GestureTimeout {
@@ -194,8 +199,12 @@ pub enum Mic {
 pub struct View {
     pub series: u64,
     pub visible: bool,
-    /// Nothing is being recorded, transcribed, queued or run.
+    /// Nothing is being said, transcribed, queued or run.
     pub idle: bool,
+    /// Numbers the idle stretches, so a countdown for an earlier one does nothing.
+    pub rest: u64,
+    /// The countdown before the bubble hides, while idle.
+    pub hide_after_ms: Option<u64>,
     pub mic: Mic,
     /// A final transcription is in flight.
     pub transcribing: bool,
@@ -234,6 +243,9 @@ pub struct Controller {
     run_agent: Agent,
     limited: bool,
     global_error: Option<String>,
+    rest: u64,
+    was_idle: bool,
+    hide_after: Duration,
     policy: SessionPolicy,
     recent: Duration,
     cwd: String,
@@ -271,6 +283,9 @@ impl Controller {
             run_agent: Agent::Claude,
             limited: false,
             global_error: None,
+            rest: 0,
+            was_idle: false,
+            hide_after: HIDE_AFTER,
             policy: SessionPolicy::default(),
             recent: Duration::ZERO,
             cwd: String::new(),
@@ -296,12 +311,17 @@ impl Controller {
         };
         let phrases = self.series.phrases().to_vec();
         let shown = self.capture.is_some() || !phrases.is_empty() || self.global_error.is_some();
+        let visible = matches!(self.model, Model::Ready | Model::Failed) && shown;
         View {
             series: self.series.id(),
-            visible: matches!(self.model, Model::Ready | Model::Failed) && shown,
-            idle: self.capture.is_none() && !self.series.active(),
+            visible,
+            idle: self.idle(),
+            rest: self.rest,
+            hide_after_ms: (visible && self.idle()).then_some(self.hide_after.as_millis() as u64),
             mic,
-            transcribing: self.decoding.is_some(),
+            transcribing: self
+                .decoding
+                .is_some_and(|id| self.series.get(id).is_some()),
             phrases,
             detail: self.detail.clone(),
             agent: self.run_agent,
@@ -311,7 +331,21 @@ impl Controller {
         }
     }
 
-    fn show(&self) -> Effect {
+    /// Waiting in listening mode counts as idle; saying, transcribing or running does not.
+    fn idle(&self) -> bool {
+        let quiet = self
+            .capture
+            .as_ref()
+            .is_none_or(|c| c.hands_free && c.phrase.is_none() && !self.speaking);
+        quiet && self.decoding.is_none() && !self.series.active()
+    }
+
+    fn show(&mut self) -> Effect {
+        let idle = self.idle();
+        if idle && !self.was_idle {
+            self.rest += 1;
+        }
+        self.was_idle = idle;
         Effect::Show(self.view())
     }
 
@@ -486,10 +520,16 @@ impl Controller {
                 fx.push(self.show());
                 fx
             }
-            Msg::Dismiss { series } if series == self.series.id() && self.view().idle => {
+            Msg::Dismiss { rest } if rest.is_none_or(|r| r == self.rest) && self.idle() => {
+                let mut fx = vec![];
+                if self.capture.take().is_some() {
+                    self.speaking = false;
+                    fx.push(Effect::StopCapture);
+                }
                 self.series.clear_finished();
                 self.global_error = None;
-                vec![self.show()]
+                fx.push(self.show());
+                fx
             }
             Msg::Settings {
                 policy,
@@ -498,8 +538,10 @@ impl Controller {
                 patterns,
                 model_commands,
                 agent,
+                hide_after,
             } => {
                 self.agent = agent;
+                self.hide_after = hide_after;
                 if let Ok(parser) = Parser::new(&patterns) {
                     self.parser = parser;
                 }
@@ -631,6 +673,11 @@ impl Controller {
             return vec![];
         };
         let samples = std::mem::take(&mut c.buffer);
+        // Cut at the length limit mid-speech: the rest of the speech is the next phrase.
+        if self.speaking {
+            let next = self.series.add(Kind::Speech, Status::Speaking, false);
+            c.phrase = Some(next);
+        }
         let mut fx = self.transcribe(id, samples);
         fx.push(self.show());
         fx
@@ -1140,6 +1187,7 @@ mod tests {
             patterns: Patterns::default(),
             model_commands: false,
             agent: Agent::Claude,
+            hide_after: HIDE_AFTER,
         }
     }
 
@@ -1351,9 +1399,15 @@ mod tests {
         let mut t = T::new();
         let a = t.say("проверь diff");
         let fx = t.finish_run(a, true);
-        let series = shown(&fx).unwrap().series;
-        assert_eq!(t.send(Msg::Dismiss { series: series + 1 }), [], "stale");
-        let fx = t.send(Msg::Dismiss { series });
+        let rest = shown(&fx).unwrap().rest;
+        assert_eq!(
+            t.send(Msg::Dismiss {
+                rest: Some(rest + 1)
+            }),
+            [],
+            "stale"
+        );
+        let fx = t.send(Msg::Dismiss { rest: Some(rest) });
         let v = shown(&fx).unwrap();
         assert!(v.phrases.is_empty());
         assert!(!v.visible);
@@ -1664,6 +1718,69 @@ mod tests {
             e,
             Effect::StartRun { session: Session::New(new), .. } if *new != id(first)
         )));
+    }
+
+    #[test]
+    fn the_countdown_turns_listening_off() {
+        let mut t = T::new();
+        t.hands_free(Key::Talk);
+        let v = t.c.view();
+        assert!(v.idle);
+        assert_eq!(v.hide_after_ms, Some(HIDE_AFTER.as_millis() as u64));
+        let fx = t.send(Msg::Dismiss { rest: Some(v.rest) });
+        assert!(fx.contains(&Effect::StopCapture));
+        let v = shown(&fx).unwrap();
+        assert_eq!(v.mic, Mic::Off);
+        assert!(!v.visible);
+    }
+
+    #[test]
+    fn speech_during_the_countdown_starts_a_new_one() {
+        let mut t = T::new();
+        let cap = t.hands_free(Key::Talk);
+        let first = t.c.view().rest;
+        let p = speak(&mut t, cap, 1600);
+        assert!(!t.c.view().idle);
+        assert_eq!(t.c.view().hide_after_ms, None);
+        pause(&mut t, cap);
+        t.send(Msg::Transcribed {
+            op: p,
+            text: String::new(),
+        });
+        let v = t.c.view();
+        assert!(v.idle);
+        assert_ne!(v.rest, first);
+        assert_eq!(
+            t.send(Msg::Dismiss { rest: Some(first) }),
+            [],
+            "old countdown"
+        );
+        assert!(t.hands_free_on());
+    }
+
+    #[test]
+    fn a_long_phrase_in_listening_mode_goes_on_after_the_cut() {
+        let mut t = T::new();
+        let cap = t.hands_free(Key::Talk);
+        speak(&mut t, cap, 1600);
+        let fx = t.send(Msg::Audio {
+            op: cap,
+            samples: vec![0.1; MAX_RECORDING],
+        });
+        assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
+        assert_eq!(t.statuses(), [Status::Transcribing, Status::Speaking]);
+    }
+
+    #[test]
+    fn a_dropped_phrase_is_not_shown_as_transcribing() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        let cap = t.hands_free(Key::Talk);
+        speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        assert!(t.c.view().transcribing);
+        t.tap(Key::Talk);
+        assert!(!t.c.view().transcribing);
     }
 
     #[test]
@@ -2004,7 +2121,7 @@ mod tests {
         });
         let v = shown(&fx).unwrap();
         assert_eq!((st(v), outcome(v)), (S::Succeeded, "Done"));
-        let fx = t.send(Msg::Dismiss { series: v.series });
+        let fx = t.send(Msg::Dismiss { rest: Some(v.rest) });
         assert_eq!(st(shown(&fx).unwrap()), S::Idle);
     }
 
@@ -2352,6 +2469,7 @@ mod tests {
             patterns: Patterns::default(),
             model_commands: true,
             agent: Agent::Claude,
+            hide_after: HIDE_AFTER,
         });
         t
     }
@@ -2497,6 +2615,7 @@ mod tests {
             patterns: Patterns::default(),
             model_commands: false,
             agent,
+            hide_after: HIDE_AFTER,
         });
     }
 

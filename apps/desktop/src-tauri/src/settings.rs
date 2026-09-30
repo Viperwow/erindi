@@ -62,6 +62,8 @@ pub struct Settings {
     /// Empty means the system default microphone.
     pub microphone: String,
     pub silence_secs: f32,
+    /// How long an idle bubble stays up before it hides and listening turns off.
+    pub hide_secs: f32,
     pub session_policy: SessionPolicy,
     /// Used by `SessionPolicy::ContinueIfRecent`.
     pub recent_minutes: u32,
@@ -86,6 +88,7 @@ impl Default for Settings {
             agents: BTreeMap::new(),
             microphone: String::new(),
             silence_secs: 2.0,
+            hide_secs: 5.0,
             session_policy: SessionPolicy::Continue,
             recent_minutes: 30,
             dictionary: vec![],
@@ -154,6 +157,7 @@ impl Settings {
             patterns: self.patterns.clone(),
             model_commands: self.model_commands,
             agent: self.agent,
+            hide_after: std::time::Duration::from_secs_f32(self.hide_secs),
         }
     }
 
@@ -198,6 +202,9 @@ impl Settings {
         }
         if !(0.5..=10.0).contains(&self.silence_secs) {
             return Err("Silence must be between 0.5 and 10 seconds".into());
+        }
+        if !(2.0..=120.0).contains(&self.hide_secs) {
+            return Err("Hide delay must be between 2 and 120 seconds".into());
         }
         if self
             .dictionary
@@ -356,6 +363,10 @@ mod tests {
                 ..ok.clone()
             },
             Settings {
+                hide_secs: 1.0,
+                ..ok.clone()
+            },
+            Settings {
                 new_session_hotkey: ok.talk_hotkey.clone(),
                 ..ok.clone()
             },
@@ -389,6 +400,18 @@ mod tests {
         ] {
             assert!(combo.parse::<Shortcut>().is_ok(), "{combo}");
         }
+    }
+
+    #[test]
+    fn hide_delay_reaches_the_controller() {
+        let s = Settings {
+            hide_secs: 12.0,
+            ..Settings::default()
+        };
+        assert!(matches!(
+            s.session_msg(),
+            Msg::Settings { hide_after, .. } if hide_after == std::time::Duration::from_secs(12)
+        ));
     }
 
     #[test]

@@ -27,7 +27,6 @@ use crate::overlay;
 use crate::settings::Settings;
 
 const RUN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const DISMISS_AFTER: Duration = Duration::from_secs(8);
 const REFINE_BUDGET: Duration = Duration::from_millis(1500);
 
 pub type SharedSettings = Arc<RwLock<Settings>>;
@@ -41,8 +40,6 @@ pub struct Runtime {
     last_session: Arc<Mutex<Option<LastRun>>>,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
-    /// The series on screen plus one, or zero while the overlay is hidden.
-    shown: Arc<AtomicU64>,
 }
 
 /// The most recent agent run, which the overlay can reopen in a terminal.
@@ -66,7 +63,6 @@ impl Runtime {
         let history = Arc::new(Mutex::new(History::load(history_path)));
         let restore = restore_active(&history.lock().unwrap(), now_ms());
         let active = Arc::new(Mutex::new(None));
-        let shown = Arc::new(AtomicU64::new(0));
         let refiner = Refiner::default();
 
         let mut executor = Executor {
@@ -77,7 +73,8 @@ impl Runtime {
             capture: None,
             cancel: None,
             last_session: last_session.clone(),
-            hover_op: shown.clone(),
+            hover_op: Arc::new(AtomicU64::new(0)),
+            armed: 0,
             history: history.clone(),
             active: active.clone(),
             refiner: refiner.clone(),
@@ -104,7 +101,6 @@ impl Runtime {
             last_session,
             history,
             active,
-            shown,
         };
         runtime.load_speech();
         runtime
@@ -187,9 +183,7 @@ impl Runtime {
         let session = self.last_session.lock().unwrap().clone();
         let session = session.ok_or("No session yet")?;
         open_terminal(&self.history, &session.cwd, session.id, session.agent)?;
-        if let Some(series) = self.shown.load(Ordering::SeqCst).checked_sub(1) {
-            self.send(Msg::Dismiss { series });
-        }
+        self.send(Msg::Dismiss { rest: None });
         Ok(())
     }
 }
@@ -343,6 +337,8 @@ struct Executor {
     cancel: Option<CancellationToken>,
     last_session: Arc<Mutex<Option<LastRun>>>,
     hover_op: Arc<AtomicU64>,
+    /// The idle stretch whose countdown is running.
+    armed: u64,
     history: Arc<Mutex<History>>,
     active: Arc<Mutex<Option<uuid::Uuid>>>,
     refiner: Refiner,
@@ -417,13 +413,15 @@ impl Executor {
                 if self.hover_op.swap(key, Ordering::SeqCst) != key && key != 0 {
                     overlay::track_bubble_hover(&self.app, self.hover_op.clone(), key);
                 }
-                if view.visible && view.idle {
-                    let tx = self.tx.clone();
+                // One countdown per idle stretch; the controller ignores it once the stretch ends.
+                if let Some(ms) = view.hide_after_ms
+                    && view.rest != self.armed
+                {
+                    self.armed = view.rest;
+                    let (tx, rest) = (self.tx.clone(), view.rest);
                     std::thread::spawn(move || {
-                        std::thread::sleep(DISMISS_AFTER);
-                        let _ = tx.send(Msg::Dismiss {
-                            series: view.series,
-                        });
+                        std::thread::sleep(Duration::from_millis(ms));
+                        let _ = tx.send(Msg::Dismiss { rest: Some(rest) });
                     });
                 }
             }

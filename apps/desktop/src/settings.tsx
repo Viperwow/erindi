@@ -206,6 +206,17 @@ function SettingsView() {
               onInput={(e) => set({ silenceSecs: Number(e.currentTarget.value) })}
             />
           </Field>
+          <Field label="Hide after (s)" hint="An idle bubble counts down, then hides and turns listening off.">
+            <input
+              class={input}
+              type="number"
+              min="2"
+              max="120"
+              step="1"
+              value={s.hideSecs}
+              onInput={(e) => set({ hideSecs: Number(e.currentTarget.value) })}
+            />
+          </Field>
         </div>
 
       </Section>

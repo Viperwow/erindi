@@ -16,6 +16,8 @@ const view = (overrides: Partial<View>): View => ({
   series: 1,
   visible: true,
   idle: false,
+  rest: 1,
+  hideAfterMs: null,
   mic: "off",
   transcribing: false,
   phrases: [],
@@ -146,4 +148,14 @@ test("a failed transcription without words still shows its reason", () => {
       ["err", "Couldn't transcribe this phrase", "Click to open in terminal"],
     ],
   );
+});
+
+test("the countdown shows while nothing runs", () => {
+  const b = bubble(view({ idle: true, mic: "waiting", phrases: [phrase("done")] }), 5);
+  assert.equal(b.countdown, "Hides in 5s");
+});
+
+test("no countdown while the agent works", () => {
+  const b = bubble(view({ phrases: [phrase("running")] }), 5);
+  assert.equal(b.countdown, null);
 });

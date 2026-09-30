@@ -5,8 +5,6 @@ use sherpa_onnx::{VadModelConfig, VoiceActivityDetector};
 
 use crate::dsp::TARGET_RATE;
 
-/// Recording stops if nobody speaks for this long after the hotkey.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endpoint {
     Continue,
