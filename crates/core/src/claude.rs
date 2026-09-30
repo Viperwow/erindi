@@ -80,9 +80,8 @@ pub enum InvalidTerminalRun {
     Model,
 }
 
-/// Windows Terminal arguments for an interactive Claude whose first message is `prompt`.
-/// The prompt follows `--`, so it can never be read as an option, and its `;` is escaped because
-/// Windows Terminal would otherwise split the command there.
+/// The command line of an interactive Claude whose first message is `prompt`.
+/// The prompt follows `--`, so it can never be read as an option.
 pub fn run_in_terminal(
     program: &str,
     cwd: &str,
@@ -92,15 +91,15 @@ pub fn run_in_terminal(
     if cwd.is_empty() || cwd.starts_with('-') || cwd.contains(';') {
         return Err(InvalidTerminalRun::Cwd);
     }
-    let mut args = vec!["-d".into(), cwd.into(), program.into()];
+    let mut args = vec![program.into()];
     args.extend(options(req).map_err(|_| InvalidTerminalRun::Model)?);
     if !prompt.is_empty() {
-        args.extend(["--".into(), prompt.replace(';', r"\;")]);
+        args.extend(["--".into(), prompt.into()]);
     }
     Ok(args)
 }
 
-/// Windows Terminal arguments that reopen a headless session interactively.
+/// The command line that reopens a headless session interactively.
 pub fn resume_in_terminal(
     program: &str,
     cwd: &str,
@@ -110,8 +109,6 @@ pub fn resume_in_terminal(
         return Err(InvalidCwd);
     }
     Ok(vec![
-        "-d".into(),
-        cwd.into(),
         program.into(),
         "--resume".into(),
         session_id.to_string(),
@@ -128,8 +125,6 @@ mod tests {
         assert_eq!(
             resume_in_terminal(r"C:\bin\claude.exe", "C:\\My Projects\\app", id).unwrap(),
             [
-                "-d",
-                "C:\\My Projects\\app",
                 r"C:\bin\claude.exe",
                 "--resume",
                 "00000000-0000-0000-0000-000000000000"
@@ -234,8 +229,6 @@ mod tests {
         assert_eq!(
             args,
             [
-                "-d",
-                "C:/p",
                 "claude",
                 "--session-id",
                 &Uuid::nil().to_string(),
@@ -244,7 +237,7 @@ mod tests {
                 "--model",
                 "opus",
                 "--",
-                r"--help\; rm -rf /",
+                "--help; rm -rf /",
             ]
         );
         let args = run_in_terminal("claude", "C:/p", &req, "").unwrap();

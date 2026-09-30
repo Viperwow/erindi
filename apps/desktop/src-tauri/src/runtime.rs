@@ -190,7 +190,7 @@ impl Runtime {
     }
 }
 
-/// Reopens session `id` in Windows Terminal with the agent that started it.
+/// Reopens session `id` in a terminal with the agent that started it.
 fn open_terminal(
     history: &Mutex<History>,
     cwd: &str,
@@ -208,11 +208,7 @@ fn open_terminal(
     let program = erindi_core::cli::locate(agent).ok_or_else(|| missing(agent))?;
     let args = agent::resume_in_terminal(&program.display().to_string(), cwd, agent, &native)
         .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
-    std::process::Command::new("wt.exe")
-        .args(args)
-        .spawn()
-        .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
-    Ok(())
+    crate::terminal::open(&args)
 }
 
 pub fn home() -> Option<PathBuf> {
@@ -597,10 +593,7 @@ impl Executor {
                 let args =
                     agent::terminal_args(&program.display().to_string(), &cwd, &request, &prompt)
                         .map_err(|e| format!("Cannot open a terminal in {cwd}: {e:?}"))?;
-                std::process::Command::new("wt.exe")
-                    .args(args)
-                    .spawn()
-                    .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
+                crate::terminal::open(&args)?;
                 Ok(start)
             });
         let start = match started {
@@ -778,11 +771,7 @@ pub fn trust_in_codex(cwd: &str) -> Result<(), String> {
     };
     let args = agent::terminal_args(&program.display().to_string(), cwd, &request, "")
         .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
-    std::process::Command::new("wt.exe")
-        .args(args)
-        .spawn()
-        .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
-    Ok(())
+    crate::terminal::open(&args)
 }
 
 /// What the agent's own log says about session `native_id` now.

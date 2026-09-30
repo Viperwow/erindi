@@ -46,31 +46,28 @@ fn options(model: Option<&str>, sandbox: Option<&str>) -> Vec<String> {
     args
 }
 
-/// The prompt follows `--`, and its `;` is escaped because Windows Terminal splits commands there.
+/// The prompt follows `--`, so it can never be read as an option.
 /// A resumed session keeps its own model and sandbox, so only a new one gets the options.
 pub fn terminal_args(
     program: &str,
-    cwd: &str,
     model: Option<&str>,
     sandbox: Option<&str>,
     target: &Target,
     prompt: &str,
 ) -> Vec<String> {
-    let mut args = vec!["-d".into(), cwd.into(), program.into()];
+    let mut args = vec![program.into()];
     match target {
         Target::Resume(id) => args.extend(["resume".into(), id.clone()]),
         Target::New(_) => args.extend(options(model, sandbox)),
     }
     if !prompt.is_empty() {
-        args.extend(["--".into(), prompt.replace(';', r"\;")]);
+        args.extend(["--".into(), prompt.into()]);
     }
     args
 }
 
-pub fn resume_in_terminal(program: &str, cwd: &str, native_id: &str) -> Vec<String> {
-    ["-d", cwd, program, "resume", native_id]
-        .map(String::from)
-        .into()
+pub fn resume_in_terminal(program: &str, native_id: &str) -> Vec<String> {
+    [program, "resume", native_id].map(String::from).into()
 }
 
 /// Unknown, malformed or irrelevant lines yield no events.

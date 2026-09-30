@@ -4,6 +4,7 @@ mod history;
 mod overlay;
 mod runtime;
 mod settings;
+mod terminal;
 mod trace;
 
 use std::collections::HashMap;
