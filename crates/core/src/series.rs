@@ -41,6 +41,9 @@ pub struct Phrase {
     /// Said with the new-session key.
     #[serde(skip)]
     pub new_session: bool,
+    /// Said by holding the key, so an empty transcript is a failure, not noise.
+    #[serde(skip)]
+    pub held: bool,
 }
 
 pub const KEEP_FINISHED: usize = 3;
@@ -72,6 +75,7 @@ impl Series {
             text: String::new(),
             outcome: String::new(),
             new_session,
+            held: false,
         });
         self.next
     }

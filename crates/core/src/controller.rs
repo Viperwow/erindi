@@ -20,7 +20,7 @@ pub const LIVE_INTERVAL: Duration = Duration::from_millis(700);
 /// Recordings stop on their own at this length (16 kHz samples).
 pub const MAX_RECORDING: usize = 16_000 * 300;
 /// A press shorter than this is a tap; longer is a hold.
-pub const HOLD: Duration = Duration::from_millis(300);
+pub const HOLD: Duration = Duration::from_millis(500);
 /// A second tap within this time makes a double-press.
 pub const DOUBLE: Duration = Duration::from_millis(300);
 /// How long an idle bubble stays up by default before it hides.
@@ -225,6 +225,8 @@ struct Capture {
     /// The phrase being said; a hands-free capture has none until speech is heard.
     phrase: Option<PhraseId>,
     buffer: Vec<f32>,
+    /// The voice detector has heard speech on this capture.
+    heard: bool,
 }
 
 pub struct Controller {
@@ -405,12 +407,14 @@ impl Controller {
                     return vec![];
                 }
                 // Only a hold-to-talk release ends on duration; any other slow press still counts as a press.
-                let holding = self
+                let hold = self
                     .capture
                     .as_ref()
-                    .is_some_and(|c| !c.hands_free && c.key == key);
-                // A long press is never a tap.
-                if now.duration_since(down) >= HOLD {
+                    .filter(|c| !c.hands_free && c.key == key);
+                let spoke = hold.is_some_and(|c| c.heard);
+                let holding = hold.is_some();
+                // A long press is never a tap; a short one with speech in it is a quick phrase.
+                if now.duration_since(down) >= HOLD || spoke {
                     return if holding { self.end_capture() } else { vec![] };
                 }
                 self.seq += 1;
@@ -424,6 +428,9 @@ impl Controller {
             Msg::Audio { op, samples } if self.capturing(op) => self.audio(samples, now),
             Msg::Speaking { op, speaking } if self.capturing(op) => {
                 self.speaking = speaking;
+                if let Some(c) = &mut self.capture {
+                    c.heard |= speaking;
+                }
                 if let Some(c) = &mut self.capture
                     && speaking
                     && c.hands_free
@@ -593,12 +600,16 @@ impl Controller {
         let id = self
             .series
             .add(Kind::Speech, Status::Speaking, key == Key::NewSession);
+        if let Some(p) = self.series.get_mut(id) {
+            p.held = true;
+        }
         self.capture = Some(Capture {
             op: id,
             key,
             hands_free: false,
             phrase: Some(id),
             buffer: Vec::new(),
+            heard: false,
         });
         if self.model == Model::Ready {
             self.global_error = None;
@@ -716,7 +727,11 @@ impl Controller {
         }
         let text = self.transformer.transform(&text);
         let (commands, _) = self.parser.parse(&text);
-        if text.trim().is_empty() || commands.contains(&Command::Cancel) {
+        let held = self.series.get(op).is_some_and(|p| p.held);
+        if text.trim().is_empty() && held {
+            self.series
+                .finish(op, Status::Failed, TRANSCRIBE_FAILED.into());
+        } else if text.trim().is_empty() || commands.contains(&Command::Cancel) {
             self.series.remove(op);
         } else if let Some(p) = self.series.get_mut(op) {
             p.text = text;
@@ -1786,6 +1801,57 @@ mod tests {
     }
 
     #[test]
+    fn a_deliberate_press_during_a_run_cancels() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        t.down(Key::Talk);
+        t.now += Duration::from_millis(400);
+        let fx = t.up(Key::Talk);
+        let Some(Effect::GestureTimer { seq }) = fx.first().cloned() else {
+            panic!("{fx:?}")
+        };
+        t.now += DOUBLE;
+        let fx = t.send(Msg::GestureTimeout { seq });
+        assert!(fx.contains(&Effect::CancelRun));
+    }
+
+    #[test]
+    fn a_quick_word_while_holding_is_sent() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        t.send(Msg::Speaking { op, speaking: true });
+        t.now += Duration::from_millis(250);
+        let fx = t.up(Key::Talk);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
+    }
+
+    #[test]
+    fn a_held_phrase_that_came_back_empty_is_shown_not_dropped() {
+        let mut t = T::new();
+        let op = t.listen(Key::Talk);
+        t.release(Key::Talk);
+        t.send(Msg::Transcribed {
+            op,
+            text: String::new(),
+        });
+        assert_eq!(t.statuses(), [Status::Failed]);
+        assert_eq!(t.phrase(op).outcome, TRANSCRIBE_FAILED);
+    }
+
+    #[test]
+    fn noise_in_listening_mode_is_ignored() {
+        let mut t = T::new();
+        let cap = t.hands_free(Key::Talk);
+        let p = speak(&mut t, cap, 1600);
+        pause(&mut t, cap);
+        t.send(Msg::Transcribed {
+            op: p,
+            text: String::new(),
+        });
+        assert!(t.statuses().is_empty());
+    }
+
+    #[test]
     fn keys_before_model_ready_are_ignored() {
         let mut c = Controller::new(Box::new(Dictionary::default()));
         assert_eq!(
@@ -2055,7 +2121,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_transcript_returns_to_idle() {
+    fn empty_transcript_is_a_failure_and_sends_nothing() {
         let mut t = T::new();
         let op = t.listen(Key::Talk);
         t.release(Key::Talk);
@@ -2063,7 +2129,7 @@ mod tests {
             op,
             text: "  ".into(),
         });
-        assert_eq!(st(shown(&fx).unwrap()), S::Idle);
+        assert_eq!(st(shown(&fx).unwrap()), S::Failed);
         assert!(!fx.iter().any(|e| matches!(e, Effect::StartRun { .. })));
     }
 
@@ -2552,7 +2618,7 @@ mod tests {
             text: " ".into(),
         });
         assert!(!fx.iter().any(|e| matches!(e, Effect::Classify { .. })));
-        assert_eq!(t.state(), S::Idle);
+        assert_eq!(t.state(), S::Failed);
     }
 
     fn run_in_terminal(fx: &[Effect]) -> Option<(Session, String, String)> {

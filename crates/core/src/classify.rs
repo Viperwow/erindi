@@ -91,7 +91,9 @@ pub fn accept(text: &str, answer: Option<(Option<Command>, String)>) -> Option<(
         .map(bare)
         .filter(|w| !w.is_empty())
         .collect();
-    if kept.len() >= spans.len() {
+    // "Cancel" drops the phrase; only the patterns may cancel a whole one, never the model,
+    // so a short answer such as "no" still reaches the agent.
+    if kept.len() >= spans.len() || (command == Command::Cancel && kept.is_empty()) {
         return None;
     }
     let same = |words: &[(String, usize, usize)]| words.iter().map(|w| &w.0).eq(kept.iter());
@@ -228,6 +230,18 @@ mod tests {
             accept(text, answer(Some(Command::Cancel), "проверь diff")),
             Some((Command::Cancel, "проверь diff".into()))
         );
+    }
+
+    #[test]
+    fn the_model_never_cancels_a_whole_phrase() {
+        for text in ["нет", "да", "Так ну вот мы что-то наговорили."]
+        {
+            assert_eq!(
+                accept(text, answer(Some(Command::Cancel), "")),
+                None,
+                "{text}"
+            );
+        }
     }
 
     #[test]

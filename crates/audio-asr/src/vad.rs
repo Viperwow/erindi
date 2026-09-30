@@ -27,7 +27,8 @@ impl Endpointer {
         let mut config = VadModelConfig::default();
         config.silero_vad.model = Some(model.to_string_lossy().into_owned());
         config.silero_vad.threshold = 0.5;
-        config.silero_vad.min_speech_duration = 0.25;
+        // Short enough for a one-word answer such as "yes".
+        config.silero_vad.min_speech_duration = 0.15;
         config.silero_vad.min_silence_duration = silence.as_secs_f32();
         config.silero_vad.window_size = 512;
         config.silero_vad.max_speech_duration = 600.0;
