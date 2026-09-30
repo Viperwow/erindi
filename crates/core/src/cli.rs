@@ -3,9 +3,15 @@ use std::path::PathBuf;
 use crate::agent::Agent;
 
 /// The first `name` + extension from `pathext` in the directories of `path`.
+/// Off Windows `path` is split on `:` and `pathext` is ignored: the CLI has no extension.
 pub fn find(name: &str, path: &str, pathext: &str) -> Option<PathBuf> {
-    let exts: Vec<&str> = pathext.split(';').filter(|e| !e.is_empty()).collect();
-    path.split(';')
+    let exts: Vec<&str> = if cfg!(windows) {
+        pathext.split(';').filter(|e| !e.is_empty()).collect()
+    } else {
+        vec![""]
+    };
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    path.split(separator)
         .map(|d| d.trim().trim_matches('"'))
         .filter(|d| !d.is_empty())
         .find_map(|dir| {
@@ -16,6 +22,7 @@ pub fn find(name: &str, path: &str, pathext: &str) -> Option<PathBuf> {
 }
 
 /// Windows builds a process PATH from the system value followed by the user value.
+#[cfg(windows)]
 fn merge(system: &str, user: &str) -> String {
     [system, user]
         .into_iter()
@@ -90,6 +97,17 @@ mod tests {
         p
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_bare_cli_is_found_on_a_colon_path() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let cli = touch(b.path(), "codex");
+        let path = format!("{}:{}", a.path().display(), b.path().display());
+        assert_eq!(find("codex", &path, ""), Some(cli));
+    }
+
+    #[cfg(windows)]
     #[test]
     fn cmd_files_are_found_through_pathext() {
         let a = tempfile::tempdir().unwrap();
@@ -99,6 +117,7 @@ mod tests {
         assert_eq!(find("codex", &path, ".COM;.EXE;.BAT;.CMD"), Some(cmd));
     }
 
+    #[cfg(windows)]
     #[test]
     fn earlier_directories_win_and_exe_beats_cmd_in_one_directory() {
         let a = tempfile::tempdir().unwrap();
@@ -114,6 +133,7 @@ mod tests {
         assert_eq!(find("codex", "", ".EXE"), None);
     }
 
+    #[cfg(windows)]
     #[test]
     fn quoted_entries_are_unquoted() {
         let a = tempfile::tempdir().unwrap();
@@ -122,6 +142,7 @@ mod tests {
         assert_eq!(find("codex", &path, ".EXE"), Some(exe));
     }
 
+    #[cfg(windows)]
     #[test]
     fn merge_puts_system_entries_first() {
         assert_eq!(

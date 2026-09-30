@@ -41,6 +41,8 @@ impl LlamaServer {
             use windows::Win32::System::Threading::CREATE_NO_WINDOW;
             command.creation_flags(CREATE_NO_WINDOW.0);
         }
+        // Only the Windows job setup below needs to kill the child on failure.
+        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut child = command
             .spawn()
             .map_err(|e| format!("Cannot start llama-server: {e}"))?;

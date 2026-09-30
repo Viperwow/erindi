@@ -24,6 +24,16 @@ async fn collect(spec: RunSpec, cancel: CancellationToken) -> (RunEnd, Vec<Strin
     (outcome.end, lines, outcome.stderr_tail)
 }
 
+#[cfg(unix)]
+fn alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .unwrap()
+        .success()
+}
+
+#[cfg(windows)]
 fn alive(pid: u32) -> bool {
     let out = std::process::Command::new("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/NH"])
