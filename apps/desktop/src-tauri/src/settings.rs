@@ -93,7 +93,7 @@ impl Default for Settings {
             microphone: String::new(),
             silence_secs: 2.0,
             hide_secs: 5.0,
-            double_secs: 1.0,
+            double_secs: 0.4,
             log_path: std::env::temp_dir()
                 .join("erindi-trace.log")
                 .to_string_lossy()
@@ -429,7 +429,7 @@ mod tests {
             s.session_msg(),
             Msg::Settings { double, .. } if double == std::time::Duration::from_millis(800)
         ));
-        assert_eq!(Settings::default().double_secs, 1.0);
+        assert_eq!(Settings::default().double_secs, 0.4);
     }
 
     #[test]

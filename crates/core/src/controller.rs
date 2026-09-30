@@ -22,7 +22,7 @@ pub const MAX_RECORDING: usize = 16_000 * 300;
 /// A press shorter than this is a tap; longer is a hold.
 pub const HOLD: Duration = Duration::from_millis(500);
 /// A second tap within this time makes a double-press, by default; a chord pressed twice is slow.
-pub const DOUBLE: Duration = Duration::from_millis(1000);
+pub const DOUBLE: Duration = Duration::from_millis(400);
 /// How long an idle bubble stays up by default before it hides.
 pub const HIDE_AFTER: Duration = Duration::from_secs(5);
 /// Audio kept before the first speech of a hands-free phrase (16 kHz samples).
