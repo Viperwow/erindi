@@ -39,10 +39,10 @@ The `latest` pre-release is rebuilt on every merge into `main`.
 
 | Hotkey | Action |
 |---|---|
-| `Ctrl+Alt+Space` | Hold to talk; tap to cancel |
-| `Ctrl+Win+H` | Double-tap to turn hands-free listening on or off |
-| `Ctrl+Alt+N` | Hold to talk into a new session |
-| `Ctrl+Win+J` | Double-tap for hands-free listening into a new session |
+| `Ctrl+Space` | Hold to talk; tap to cancel |
+| `Ctrl+Alt+Space` | Double-tap to turn hands-free listening on or off |
+| `Ctrl+Shift+Space` | Hold to talk into a new session |
+| `Ctrl+Alt+Shift+Space` | Double-tap for hands-free listening into a new session |
 | `Ctrl+Alt+T` | Tap to open the active session in a terminal |
 
 Each shortcut and its mode (Tap, Hold or Double-tap) can be changed in Settings.

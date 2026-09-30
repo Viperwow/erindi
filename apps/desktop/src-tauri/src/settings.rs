@@ -92,15 +92,15 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            talk_hotkey: "Ctrl+Alt+Space".into(),
+            talk_hotkey: "Ctrl+Space".into(),
             talk_gesture: Gesture::Hold,
-            cancel_hotkey: "Ctrl+Alt+Space".into(),
+            cancel_hotkey: "Ctrl+Space".into(),
             cancel_gesture: Gesture::Tap,
-            hands_free_hotkey: "Ctrl+Super+H".into(),
+            hands_free_hotkey: "Ctrl+Alt+Space".into(),
             hands_free_gesture: Gesture::DoubleTap,
-            new_session_hands_free_hotkey: "Ctrl+Super+J".into(),
+            new_session_hands_free_hotkey: "Ctrl+Alt+Shift+Space".into(),
             new_session_hands_free_gesture: Gesture::DoubleTap,
-            new_session_hotkey: "Ctrl+Alt+N".into(),
+            new_session_hotkey: "Ctrl+Shift+Space".into(),
             new_session_gesture: Gesture::Hold,
             terminal_hotkey: "Ctrl+Alt+T".into(),
             terminal_gesture: Gesture::Tap,
@@ -514,11 +514,11 @@ mod tests {
         assert_eq!(
             combos,
             [
-                "Ctrl+Alt+Space",
-                "Ctrl+Alt+N",
+                "Ctrl+Space",
+                "Ctrl+Shift+Space",
                 "Ctrl+Alt+T",
-                "Ctrl+Super+H",
-                "Ctrl+Super+J"
+                "Ctrl+Alt+Space",
+                "Ctrl+Alt+Shift+Space"
             ]
         );
         assert_eq!(

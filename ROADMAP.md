@@ -66,6 +66,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 ### Platforms
 
 - [ ] **macOS build** for testing, as a primary platform.
+- [ ] macOS default shortcuts: Ctrl+Space and Ctrl+Option+Space switch input sources there.
 
 ### Website and videos
 
