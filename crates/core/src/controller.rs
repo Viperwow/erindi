@@ -23,7 +23,7 @@ pub const MAX_RECORDING: usize = 16_000 * 300;
 pub const HOLD: Duration = Duration::from_millis(300);
 /// A second tap within this time makes a double-press.
 pub const DOUBLE: Duration = Duration::from_millis(300);
-/// How long an idle bubble stays up by default before it hides and listening turns off.
+/// How long an idle bubble stays up by default before it hides.
 pub const HIDE_AFTER: Duration = Duration::from_secs(5);
 /// Audio kept before the first speech of a hands-free phrase (16 kHz samples).
 pub const PRE_ROLL: usize = 16_000;
@@ -83,7 +83,7 @@ pub enum Msg {
         end: RunEnd,
         stderr: String,
     },
-    /// Hides the bubble and turns listening off if it is still in the idle stretch `rest`;
+    /// Hides the bubble if it is still in the idle stretch `rest`;
     /// `None` means the current one.
     Dismiss {
         rest: Option<u64>,
@@ -331,13 +331,9 @@ impl Controller {
         }
     }
 
-    /// Waiting in listening mode counts as idle; saying, transcribing or running does not.
+    /// Listening mode is a toggle: while it is on, nothing counts down.
     fn idle(&self) -> bool {
-        let quiet = self
-            .capture
-            .as_ref()
-            .is_none_or(|c| c.hands_free && c.phrase.is_none() && !self.speaking);
-        quiet && self.decoding.is_none() && !self.series.active()
+        self.capture.is_none() && self.decoding.is_none() && !self.series.active()
     }
 
     fn show(&mut self) -> Effect {
@@ -521,15 +517,9 @@ impl Controller {
                 fx
             }
             Msg::Dismiss { rest } if rest.is_none_or(|r| r == self.rest) && self.idle() => {
-                let mut fx = vec![];
-                if self.capture.take().is_some() {
-                    self.speaking = false;
-                    fx.push(Effect::StopCapture);
-                }
                 self.series.clear_finished();
                 self.global_error = None;
-                fx.push(self.show());
-                fx
+                vec![self.show()]
             }
             Msg::Settings {
                 policy,
@@ -1721,28 +1711,46 @@ mod tests {
     }
 
     #[test]
-    fn the_countdown_turns_listening_off() {
+    fn listening_mode_never_counts_down() {
         let mut t = T::new();
         t.hands_free(Key::Talk);
         let v = t.c.view();
-        assert!(v.idle);
-        assert_eq!(v.hide_after_ms, Some(HIDE_AFTER.as_millis() as u64));
-        let fx = t.send(Msg::Dismiss { rest: Some(v.rest) });
-        assert!(fx.contains(&Effect::StopCapture));
+        assert!(!v.idle);
+        assert_eq!(v.hide_after_ms, None);
+        assert_eq!(t.send(Msg::Dismiss { rest: Some(v.rest) }), []);
+        assert!(t.hands_free_on());
+    }
+
+    #[test]
+    fn the_countdown_starts_once_listening_is_off() {
+        let mut t = T::new();
+        let a = t.say("проверь diff");
+        t.finish_run(a, true);
+        t.hands_free(Key::Talk);
+        assert_eq!(t.c.view().hide_after_ms, None);
+        t.now += Duration::from_secs(1);
+        let fx = t.double(Key::Talk);
         let v = shown(&fx).unwrap();
         assert_eq!(v.mic, Mic::Off);
-        assert!(!v.visible);
+        assert_eq!(v.hide_after_ms, Some(HIDE_AFTER.as_millis() as u64));
     }
 
     #[test]
     fn speech_during_the_countdown_starts_a_new_one() {
         let mut t = T::new();
-        let cap = t.hands_free(Key::Talk);
+        let a = t.say("проверь diff");
+        t.finish_run(a, true);
         let first = t.c.view().rest;
-        let p = speak(&mut t, cap, 1600);
-        assert!(!t.c.view().idle);
+        assert!(t.c.view().idle);
+        t.listen(Key::Talk);
         assert_eq!(t.c.view().hide_after_ms, None);
-        pause(&mut t, cap);
+        assert_eq!(
+            t.send(Msg::Dismiss { rest: Some(first) }),
+            [],
+            "old countdown"
+        );
+        t.release(Key::Talk);
+        let p = t.op();
         t.send(Msg::Transcribed {
             op: p,
             text: String::new(),
@@ -1750,12 +1758,6 @@ mod tests {
         let v = t.c.view();
         assert!(v.idle);
         assert_ne!(v.rest, first);
-        assert_eq!(
-            t.send(Msg::Dismiss { rest: Some(first) }),
-            [],
-            "old countdown"
-        );
-        assert!(t.hands_free_on());
     }
 
     #[test]

@@ -62,7 +62,7 @@ pub struct Settings {
     /// Empty means the system default microphone.
     pub microphone: String,
     pub silence_secs: f32,
-    /// How long an idle bubble stays up before it hides and listening turns off.
+    /// How long an idle bubble stays up before it hides.
     pub hide_secs: f32,
     pub session_policy: SessionPolicy,
     /// Used by `SessionPolicy::ContinueIfRecent`.

@@ -206,7 +206,7 @@ function SettingsView() {
               onInput={(e) => set({ silenceSecs: Number(e.currentTarget.value) })}
             />
           </Field>
-          <Field label="Hide after (s)" hint="An idle bubble counts down, then hides and turns listening off.">
+          <Field label="Hide after (s)" hint="Once nothing is running and hands-free is off, the bubble counts down, then hides.">
             <input
               class={input}
               type="number"
