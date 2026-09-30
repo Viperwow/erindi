@@ -215,11 +215,18 @@ fn open_terminal(
     Ok(())
 }
 
+pub fn home() -> Option<PathBuf> {
+    std::env::home_dir()
+}
+
 pub fn models_dir() -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from));
+    #[cfg(windows)]
     let data_dir = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Erindi"));
+    #[cfg(not(windows))]
+    let data_dir = home().map(|h| h.join("Library/Application Support/Erindi"));
     pick_models_dir(
         std::env::var_os("ERINDI_MODELS"),
         exe_dir,
@@ -239,7 +246,12 @@ fn pick_models_dir(
     if let Some(env) = env {
         return env.into();
     }
-    if let Some(dir) = exe_dir.map(|d| d.join("models")).filter(|d| d.is_dir()) {
+    // Writing inside the macOS app bundle breaks its signature, so only Windows looks there.
+    if let Some(dir) = exe_dir
+        .filter(|_| cfg!(windows))
+        .map(|d| d.join("models"))
+        .filter(|d| d.is_dir())
+    {
         return dir;
     }
     match data_dir {
@@ -716,8 +728,7 @@ fn continue_flags(started: &Start, live: Option<Details>) -> (Option<String>, Op
 
 /// Codex skips this folder's hooks and MCP servers until it trusts the folder.
 pub fn codex_limited(cwd: &str) -> bool {
-    let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
-    let Some(path) = erindi_core::codex::config_path(home) else {
+    let Some(path) = erindi_core::codex::config_path(home()) else {
         return false;
     };
     let config = std::fs::read_to_string(path).unwrap_or_default();
@@ -744,8 +755,7 @@ pub fn trust_in_codex(cwd: &str) -> Result<(), String> {
 
 /// What the agent's own log says about session `native_id` now.
 fn session_details(agent: Agent, native_id: &str) -> Option<Details> {
-    let home = std::env::var_os("USERPROFILE").map(PathBuf::from)?;
-    let logs = erindi_core::transcript::find_logs(agent, &home);
+    let logs = erindi_core::transcript::find_logs(agent, &home()?);
     erindi_core::transcript::read(agent, logs.get(native_id)?)
 }
 
@@ -909,6 +919,19 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn models_next_to_the_app_are_ignored() {
+        let exe = tempfile::tempdir().unwrap();
+        std::fs::create_dir(exe.path().join("models")).unwrap();
+        let data = PathBuf::from("/Users/me/Library/Application Support/Erindi");
+        assert_eq!(
+            pick_models_dir(None, Some(exe.path().into()), Some(data.clone()), false),
+            data.join("models")
+        );
+    }
+
+    #[cfg(windows)]
     #[test]
     fn models_next_to_exe_beat_repository() {
         let dir = tempfile::tempdir().unwrap();

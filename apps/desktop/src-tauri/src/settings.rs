@@ -105,7 +105,9 @@ impl Default for Settings {
             terminal_hotkey: "Ctrl+Alt+T".into(),
             terminal_gesture: Gesture::Tap,
             patterns: Patterns::default(),
-            cwd: std::env::var("USERPROFILE").unwrap_or_default(),
+            cwd: crate::runtime::home()
+                .map(|h| h.display().to_string())
+                .unwrap_or_default(),
             agent: Agent::Claude,
             agents: BTreeMap::new(),
             microphone: String::new(),

@@ -151,9 +151,7 @@ struct Sessions {
 #[tauri::command(async)]
 fn list_sessions(runtime: tauri::State<Runtime>) -> Sessions {
     let (entries, active) = runtime.sessions();
-    let home = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .unwrap_or_default();
+    let home = runtime::home().unwrap_or_default();
     let logs: HashMap<_, _> = Agent::ALL
         .into_iter()
         .map(|a| (a, transcript::find_logs(a, &home)))
