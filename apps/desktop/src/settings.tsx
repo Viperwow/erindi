@@ -243,7 +243,7 @@ function SettingsView() {
         <ul class="list-disc space-y-0.5 pl-5 text-xs text-neutral-500">
           <li>Hold: talk while holding, release to send.</li>
           <li>Double-press: hands-free listening on or off; each pause sends a phrase.</li>
-          <li>Press once: cancel the phrase you are saying, otherwise the running agent.</li>
+          <li>Press once: cancel the phrase being transcribed or the running agent; otherwise the phrase you are saying.</li>
         </ul>
         <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
       </Section>

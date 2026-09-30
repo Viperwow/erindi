@@ -795,27 +795,17 @@ impl Controller {
         vec![self.show()]
     }
 
-    /// One press cancels by priority: the tap's own recording silently, then the phrase being
-    /// said, then the newest phrase being transcribed, then the agent's phrase.
+    /// One press cancels by priority: the tap's own recording silently, then the newest phrase
+    /// being transcribed, then the agent's phrase, and only then the phrase being said, so a phrase
+    /// already sent can always be cancelled.
     fn single_press(&mut self) -> Vec<Effect> {
         let mut fx = vec![];
-        match &mut self.capture {
-            Some(c) if !c.hands_free => {
-                if let Some(id) = c.phrase {
-                    self.series.remove(id);
-                }
-                self.capture = None;
-                self.speaking = false;
-                fx.push(Effect::StopCapture);
-            }
-            Some(c) if c.phrase.is_some() => {
-                let id = c.phrase.take().unwrap_or_default();
-                c.buffer.clear();
+        if let Some(c) = self.capture.take_if(|c| !c.hands_free) {
+            if let Some(id) = c.phrase {
                 self.series.remove(id);
-                fx.push(self.show());
-                return fx;
             }
-            _ => {}
+            self.speaking = false;
+            fx.push(Effect::StopCapture);
         }
         let transcribing = self
             .series
@@ -843,6 +833,11 @@ impl Controller {
                 }
                 _ => {}
             }
+        } else if let Some(c) = &mut self.capture
+            && let Some(id) = c.phrase.take()
+        {
+            c.buffer.clear();
+            self.series.remove(id);
         }
         fx.push(self.show());
         fx
@@ -1530,14 +1525,23 @@ mod tests {
     #[test]
     fn single_press_drops_the_phrase_being_spoken() {
         let mut t = T::new();
+        let cap = t.hands_free(Key::Talk);
+        speak(&mut t, cap, 1600);
+        let fx = t.tap(Key::Talk);
+        assert!(!fx.contains(&Effect::StopCapture));
+        assert!(t.statuses().is_empty());
+        assert_ne!(t.c.view().mic, Mic::Off);
+    }
+
+    #[test]
+    fn single_press_cancels_the_sent_phrase_before_the_one_being_spoken() {
+        let mut t = T::new();
         t.say("проверь diff");
         let cap = t.hands_free(Key::Talk);
         speak(&mut t, cap, 1600);
         let fx = t.tap(Key::Talk);
-        assert!(!fx.contains(&Effect::CancelRun));
-        assert!(!fx.contains(&Effect::StopCapture));
-        assert_eq!(t.statuses(), [Status::Running]);
-        assert_ne!(t.c.view().mic, Mic::Off);
+        assert!(fx.contains(&Effect::CancelRun));
+        assert_eq!(t.statuses(), [Status::Cancelling, Status::Speaking]);
     }
 
     #[test]

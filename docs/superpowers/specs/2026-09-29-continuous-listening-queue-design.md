@@ -18,7 +18,7 @@ Order of work, two PRs:
 | Topic | Decision |
 |-------|----------|
 | Listening mode | A double press of the talk key turns it on and off. While it is on, every pause ends a phrase, and listening goes on. Long silence does not turn it off. Once listening is off and nothing is transcribed, queued or run, the bubble counts down ("Hides in 5s", 5 s by default, set in Settings), then hides; a new phrase during the countdown stops it, and the next idle stretch starts a new one. |
-| Single press | Cancels by priority: the phrase being spoken, otherwise the running agent. The queue and listening stay. With nothing running it does nothing. |
+| Single press | Cancels by priority: the phrase being transcribed, then the running agent, and only then the phrase being spoken, so a sent phrase can always be cancelled. The queue and listening stay. With nothing running it does nothing. |
 | Old double-press gesture | "Double-press while hands-free sends now" goes away; the pause sends. |
 | Queue | One queue for every input. A phrase finished while the agent works, by listening mode or by holding the key, joins the queue. |
 | Order | Queued phrases run one by one, each as its own run in the active session. |
