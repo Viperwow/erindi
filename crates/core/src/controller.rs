@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::agent::Agent;
@@ -32,14 +32,38 @@ pub const TRANSCRIBE_FAILED: &str = "Couldn't transcribe this phrase";
 pub const MIC_FAILED: &str = "Microphone unavailable · check the microphone in Settings";
 pub const MODEL_FAILED: &str = "Speech model failed to load · open Settings to download it again";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Key {
-    Talk,
+/// What a shortcut does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Action {
+    PushToTalk,
     /// Talks into a new session.
     NewSession,
+    /// Turns continuous listening on or off.
+    HandsFree,
+    Cancel,
     /// Opens the active session in a terminal.
     Terminal,
 }
+
+impl Action {
+    /// Records one phrase.
+    pub fn talks(self) -> bool {
+        matches!(self, Action::PushToTalk | Action::NewSession)
+    }
+}
+
+/// How a shortcut is pressed to fire its action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Gesture {
+    Tap,
+    Hold,
+    DoubleTap,
+}
+
+/// A registered key combination, by its index in `Msg::Settings::bindings`.
+pub type Combo = usize;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
@@ -47,8 +71,8 @@ pub enum Msg {
     ModelFailed(String),
     ModelMissing,
     /// A key event with the moment the hotkey saw it, which can be well before it is handled.
-    KeyDown(Key, Instant),
-    KeyUp(Key, Instant),
+    KeyDown(Combo, Instant),
+    KeyUp(Combo, Instant),
     Audio {
         op: OpId,
         samples: Vec<f32>,
@@ -101,6 +125,8 @@ pub enum Msg {
         hide_after: Duration,
         /// How soon a second press must follow to make a double-press.
         double: Duration,
+        /// The actions of each combination and the gesture that fires each.
+        bindings: Vec<Vec<(Action, Gesture)>>,
     },
     /// The double-press window has passed since the tap numbered `seq`.
     GestureTimeout {
@@ -223,8 +249,12 @@ pub struct View {
 /// An open microphone. A hold capture takes its phrase's id as its op.
 struct Capture {
     op: OpId,
-    key: Key,
+    /// The combination that opened it and the talk action it serves.
+    combo: Combo,
+    action: Action,
     hands_free: bool,
+    /// Opened by a tap: the next talk gesture sends the phrase.
+    latched: bool,
     /// The phrase being said; a hands-free capture has none until speech is heard.
     phrase: Option<PhraseId>,
     buffer: Vec<f32>,
@@ -252,6 +282,7 @@ pub struct Controller {
     was_idle: bool,
     hide_after: Duration,
     double: Duration,
+    bindings: Vec<Vec<(Action, Gesture)>>,
     policy: SessionPolicy,
     recent: Duration,
     cwd: String,
@@ -263,10 +294,10 @@ pub struct Controller {
     /// The phrase text while the model looks for a command in it.
     pending: Option<String>,
     parser: Parser,
-    /// The key being held and when it went down.
-    held: Option<(Key, Instant)>,
-    /// A tap that may still become a double-press.
-    tap: Option<(Key, u64)>,
+    /// The combination being held and when it went down.
+    held: Option<(Combo, Instant)>,
+    /// A tap that may still become a double-tap.
+    tap: Option<(Combo, u64)>,
     seq: u64,
     /// The release that ends a double-press is not a tap of its own.
     swallow_up: bool,
@@ -293,6 +324,7 @@ impl Controller {
             was_idle: false,
             hide_after: HIDE_AFTER,
             double: DOUBLE,
+            bindings: Vec::new(),
             policy: SessionPolicy::default(),
             recent: Duration::ZERO,
             cwd: String::new(),
@@ -387,52 +419,51 @@ impl Controller {
                 fx.extend(self.handle(Msg::KeyDown(key, at), now));
                 fx
             }
-            Msg::KeyDown(key, now) => {
-                self.held = Some((key, now));
-                if key == Key::Terminal {
-                    return self.terminal_key();
-                }
-                if self.tap.is_some_and(|(k, _)| k == key) {
+            Msg::KeyDown(combo, now) => {
+                self.held = Some((combo, now));
+                if self.tap.is_some_and(|(c, _)| c == combo) {
                     self.tap = None;
                     self.swallow_up = true;
-                    return self.double_press();
+                    return self.fire(combo, Gesture::DoubleTap, now);
                 }
-                self.tap = None;
-                if self.capture.is_some() {
-                    return vec![];
+                // A talk action held on this combination records from the first moment.
+                let talk = self.bound(combo, Gesture::Hold).find(|a| a.talks());
+                match talk {
+                    Some(action) if self.capture.is_none() => self.start(action, combo, false, now),
+                    _ => vec![],
                 }
-                self.start_hold(key, now)
             }
-            Msg::KeyUp(key, now) => {
-                let Some((held, down)) = self.held.filter(|(k, _)| *k == key) else {
+            Msg::KeyUp(combo, now) => {
+                let Some((_, down)) = self.held.filter(|(c, _)| *c == combo) else {
                     return vec![];
                 };
                 self.held = None;
-                if held == Key::Terminal || std::mem::take(&mut self.swallow_up) {
+                if std::mem::take(&mut self.swallow_up) {
                     return vec![];
                 }
-                // Only a hold-to-talk release ends on duration; any other slow press still counts as a press.
-                let hold = self
-                    .capture
-                    .as_ref()
-                    .filter(|c| !c.hands_free && c.key == key);
-                let spoke = hold.is_some_and(|c| c.heard);
-                let holding = hold.is_some();
-                // A long press is never a tap; a short one with speech in it is a quick phrase.
+                let spoke = self.holding(combo).is_some_and(|c| c.heard);
+                // A long press is a hold; a short one with speech in it is a quick phrase.
                 if now.duration_since(down) >= HOLD || spoke {
-                    return if holding { self.end_capture() } else { vec![] };
+                    return self.fire(combo, Gesture::Hold, now);
+                }
+                // A tap acts at once unless a double-tap on the same combination may follow.
+                if self.bound(combo, Gesture::DoubleTap).next().is_none() {
+                    return self.fire(combo, Gesture::Tap, now);
                 }
                 self.seq += 1;
-                self.tap = Some((key, self.seq));
+                self.tap = Some((combo, self.seq));
                 vec![Effect::GestureTimer {
                     seq: self.seq,
                     after: self.double,
                 }]
             }
-            Msg::GestureTimeout { seq } if self.tap.is_some_and(|(_, s)| s == seq) => {
-                self.tap = None;
-                self.single_press()
-            }
+            Msg::GestureTimeout { seq } => match self.tap.filter(|(_, s)| *s == seq) {
+                Some((combo, _)) => {
+                    self.tap = None;
+                    self.fire(combo, Gesture::Tap, now)
+                }
+                None => vec![],
+            },
             Msg::Audio { op, samples } if self.capturing(op) => self.audio(samples, now),
             Msg::Speaking { op, speaking } if self.capturing(op) => {
                 self.speaking = speaking;
@@ -444,13 +475,13 @@ impl Controller {
                     && c.hands_free
                     && c.phrase.is_none()
                 {
-                    let new_session = c.key == Key::NewSession;
+                    let new_session = c.action == Action::NewSession;
                     c.phrase = Some(
                         self.series
                             .start(Kind::Speech, Status::Speaking, new_session),
                     );
                     // Only the first phrase opens the new session; the rest continue it.
-                    c.key = Key::Talk;
+                    c.action = Action::PushToTalk;
                 }
                 vec![self.show()]
             }
@@ -545,7 +576,9 @@ impl Controller {
                 agent,
                 hide_after,
                 double,
+                bindings,
             } => {
+                self.bindings = bindings;
                 self.agent = agent;
                 self.hide_after = hide_after;
                 self.double = double;
@@ -605,19 +638,31 @@ impl Controller {
         }
     }
 
-    fn start_hold(&mut self, key: Key, now: Instant) -> Vec<Effect> {
+    /// Opens the microphone for `action`: for one phrase, or for listening mode.
+    fn start(&mut self, action: Action, combo: Combo, latched: bool, now: Instant) -> Vec<Effect> {
+        let hands_free = action == Action::HandsFree;
         // A tap may be about to cancel something, so earlier results stay until the phrase is sent.
-        let id = self
-            .series
-            .add(Kind::Speech, Status::Speaking, key == Key::NewSession);
-        if let Some(p) = self.series.get_mut(id) {
-            p.held = true;
-        }
+        let phrase = (!hands_free).then(|| {
+            let id = self
+                .series
+                .add(Kind::Speech, Status::Speaking, action == Action::NewSession);
+            if let Some(p) = self.series.get_mut(id) {
+                p.held = true;
+            }
+            id
+        });
+        let op = phrase.unwrap_or_else(|| self.series.reserve());
         self.capture = Some(Capture {
-            op: id,
-            key,
-            hands_free: false,
-            phrase: Some(id),
+            op,
+            combo,
+            action: if hands_free {
+                Action::PushToTalk
+            } else {
+                action
+            },
+            hands_free,
+            latched,
+            phrase,
             buffer: Vec::new(),
             heard: false,
         });
@@ -627,7 +672,64 @@ impl Controller {
         self.speaking = false;
         self.last_live = Some(now);
         self.live_in_flight = false;
-        vec![Effect::StartCapture { op: id }, self.show()]
+        vec![Effect::StartCapture { op }, self.show()]
+    }
+
+    /// The actions `combo` fires with `gesture`.
+    fn bound(&self, combo: Combo, gesture: Gesture) -> impl Iterator<Item = Action> + '_ {
+        self.bindings
+            .get(combo)
+            .into_iter()
+            .flatten()
+            .filter(move |(_, g)| *g == gesture)
+            .map(|(a, _)| *a)
+    }
+
+    /// The recording `combo` is holding open, if any.
+    fn holding(&self, combo: Combo) -> Option<&Capture> {
+        self.capture
+            .as_ref()
+            .filter(|c| !c.hands_free && !c.latched && c.combo == combo)
+    }
+
+    /// Carries out what `combo` does with `gesture`.
+    fn fire(&mut self, combo: Combo, gesture: Gesture, now: Instant) -> Vec<Effect> {
+        let actions: Vec<Action> = self.bound(combo, gesture).collect();
+        let mut fx = vec![];
+        // A press that was not a hold opened a recording for nothing: drop it quietly, unless
+        // listening mode takes it over.
+        if gesture != Gesture::Hold
+            && !actions.contains(&Action::HandsFree)
+            && self.holding(combo).is_some()
+            && let Some(c) = self.capture.take()
+        {
+            if let Some(id) = c.phrase {
+                self.series.remove(id);
+            }
+            self.speaking = false;
+            fx.push(Effect::StopCapture);
+        }
+        for action in actions {
+            fx.extend(match action {
+                Action::PushToTalk | Action::NewSession if gesture == Gesture::Hold => {
+                    if self.holding(combo).is_some() {
+                        self.end_capture()
+                    } else {
+                        vec![]
+                    }
+                }
+                Action::PushToTalk | Action::NewSession => match &self.capture {
+                    Some(c) if c.latched => self.end_capture(),
+                    None => self.start(action, combo, true, now),
+                    Some(_) => vec![],
+                },
+                Action::HandsFree => self.toggle_listening(combo, now),
+                Action::Cancel => self.cancel(),
+                Action::Terminal => self.terminal_key(),
+            });
+        }
+        fx.push(self.show());
+        fx
     }
 
     /// Closes the microphone; a phrase that was being said goes to transcription.
@@ -795,18 +897,10 @@ impl Controller {
         vec![self.show()]
     }
 
-    /// One press cancels by priority: the tap's own recording silently, then the newest phrase
-    /// being transcribed, then the agent's phrase, and only then the phrase being said, so a phrase
-    /// already sent can always be cancelled.
-    fn single_press(&mut self) -> Vec<Effect> {
+    /// Cancels by priority: the newest phrase being transcribed, then the agent's phrase, and
+    /// only then the phrase being said, so a phrase already sent can always be cancelled.
+    fn cancel(&mut self) -> Vec<Effect> {
         let mut fx = vec![];
-        if let Some(c) = self.capture.take_if(|c| !c.hands_free) {
-            if let Some(id) = c.phrase {
-                self.series.remove(id);
-            }
-            self.speaking = false;
-            fx.push(Effect::StopCapture);
-        }
         let transcribing = self
             .series
             .phrases()
@@ -838,26 +932,32 @@ impl Controller {
         {
             c.buffer.clear();
             self.series.remove(id);
+            // A one-phrase recording has nothing left to do; listening mode goes on.
+            if !c.hands_free {
+                self.capture = None;
+                self.speaking = false;
+                fx.push(Effect::StopCapture);
+            }
         }
-        fx.push(self.show());
         fx
     }
 
-    /// Turns listening mode on for the capture the first press opened, or off.
-    fn double_press(&mut self) -> Vec<Effect> {
+    /// Turns listening mode on, taking over a recording in progress, or off.
+    fn toggle_listening(&mut self, combo: Combo, now: Instant) -> Vec<Effect> {
         match &mut self.capture {
-            // The first press opened a hold phrase; in listening mode speech starts phrases.
+            // In listening mode speech starts phrases; an empty one-phrase recording is dropped.
             Some(c) if !c.hands_free => {
                 c.hands_free = true;
+                c.latched = false;
                 if !self.speaking
                     && let Some(id) = c.phrase.take()
                 {
                     self.series.remove(id);
                 }
-                vec![self.show()]
+                vec![]
             }
             Some(_) => self.end_capture(),
-            None => vec![],
+            None => self.start(Action::HandsFree, combo, false, now),
         }
     }
 
@@ -1023,6 +1123,28 @@ mod tests {
     use crate::agent::Agent;
     use crate::prompt::Dictionary;
 
+    /// The test shortcuts, by index into `bindings()`.
+    #[allow(non_snake_case, non_upper_case_globals)]
+    mod Key {
+        use super::Combo;
+        pub const Talk: Combo = 0;
+        pub const NewSession: Combo = 1;
+        pub const Terminal: Combo = 2;
+        pub const HandsFree: Combo = 3;
+    }
+
+    fn bindings() -> Vec<Vec<(Action, Gesture)>> {
+        vec![
+            vec![
+                (Action::PushToTalk, Gesture::Hold),
+                (Action::Cancel, Gesture::Tap),
+            ],
+            vec![(Action::NewSession, Gesture::Hold)],
+            vec![(Action::Terminal, Gesture::Tap)],
+            vec![(Action::HandsFree, Gesture::DoubleTap)],
+        ]
+    }
+
     struct T {
         c: Controller,
         now: Instant,
@@ -1044,11 +1166,11 @@ mod tests {
             self.c.handle(msg, self.now)
         }
 
-        fn down(&mut self, key: Key) -> Vec<Effect> {
+        fn down(&mut self, key: Combo) -> Vec<Effect> {
             self.send(Msg::KeyDown(key, self.now))
         }
 
-        fn up(&mut self, key: Key) -> Vec<Effect> {
+        fn up(&mut self, key: Combo) -> Vec<Effect> {
             self.send(Msg::KeyUp(key, self.now))
         }
 
@@ -1093,18 +1215,18 @@ mod tests {
             })
         }
 
-        fn listen(&mut self, key: Key) -> OpId {
+        fn listen(&mut self, key: Combo) -> OpId {
             self.down(key);
             self.op()
         }
 
         /// Ends a hold that has lasted long enough to count as one.
-        fn release(&mut self, key: Key) -> Vec<Effect> {
+        fn release(&mut self, key: Combo) -> Vec<Effect> {
             self.now += HOLD;
             self.up(key)
         }
 
-        fn quick(&mut self, key: Key) -> Vec<Effect> {
+        fn quick(&mut self, key: Combo) -> Vec<Effect> {
             let mut fx = self.down(key);
             self.now += Duration::from_millis(50);
             fx.extend(self.up(key));
@@ -1112,30 +1234,29 @@ mod tests {
             fx
         }
 
-        /// A single press, confirmed once `DOUBLE` has passed.
-        fn tap(&mut self, key: Key) -> Vec<Effect> {
+        /// A single press, confirmed once the double-tap window has passed if one applies.
+        fn tap(&mut self, key: Combo) -> Vec<Effect> {
             let mut fx = self.quick(key);
-            let seq = fx
-                .iter()
-                .find_map(|e| match e {
-                    Effect::GestureTimer { seq, .. } => Some(*seq),
-                    _ => None,
-                })
-                .expect("a tap starts the gesture timer");
-            self.now += DOUBLE;
-            fx.extend(self.send(Msg::GestureTimeout { seq }));
+            let seq = fx.iter().find_map(|e| match e {
+                Effect::GestureTimer { seq, .. } => Some(*seq),
+                _ => None,
+            });
+            if let Some(seq) = seq {
+                self.now += DOUBLE;
+                fx.extend(self.send(Msg::GestureTimeout { seq }));
+            }
             fx
         }
 
-        fn double(&mut self, key: Key) -> Vec<Effect> {
+        fn double(&mut self, key: Combo) -> Vec<Effect> {
             let mut fx = self.quick(key);
             fx.extend(self.quick(key));
             fx
         }
 
-        /// Turns listening on and returns the capture op.
-        fn hands_free(&mut self, key: Key) -> OpId {
-            self.double(key);
+        /// Turns listening on with the hands-free shortcut and returns the capture op.
+        fn hands_free(&mut self, _key: Combo) -> OpId {
+            self.double(Key::HandsFree);
             self.c.capture.as_ref().map_or(0, |c| c.op)
         }
 
@@ -1189,6 +1310,33 @@ mod tests {
         }
     }
 
+    fn settings_with(bindings: Vec<Vec<(Action, Gesture)>>) -> Msg {
+        match settings(SessionPolicy::Continue, "C:/p") {
+            Msg::Settings {
+                policy,
+                recent,
+                cwd,
+                patterns,
+                model_commands,
+                agent,
+                hide_after,
+                double,
+                ..
+            } => Msg::Settings {
+                policy,
+                recent,
+                cwd,
+                patterns,
+                model_commands,
+                agent,
+                hide_after,
+                double,
+                bindings,
+            },
+            _ => unreachable!(),
+        }
+    }
+
     fn settings(policy: SessionPolicy, cwd: &str) -> Msg {
         Msg::Settings {
             policy,
@@ -1199,6 +1347,7 @@ mod tests {
             agent: Agent::Claude,
             hide_after: HIDE_AFTER,
             double: DOUBLE,
+            bindings: bindings(),
         }
     }
 
@@ -1361,10 +1510,10 @@ mod tests {
         let session = t.finish_saying("проверь diff");
         t.now += Duration::from_secs(1);
         let a = t.say("проверь тесты");
-        let fx = t.down(Key::Terminal);
+        t.down(Key::Terminal);
+        let fx = t.up(Key::Terminal);
         assert!(!fx.iter().any(|e| matches!(e, Effect::OpenTerminal { .. })));
         assert_eq!(t.statuses(), [Status::Running, Status::Queued]);
-        t.up(Key::Terminal);
         let fx = t.finish_run(a, true);
         assert!(fx.contains(&Effect::OpenTerminal {
             id: id(session),
@@ -1453,10 +1602,10 @@ mod tests {
     #[test]
     fn double_press_turns_listening_on_and_off() {
         let mut t = T::new();
-        t.double(Key::Talk);
+        t.double(Key::HandsFree);
         assert!(t.hands_free_on());
         t.now += Duration::from_secs(1);
-        let fx = t.double(Key::Talk);
+        let fx = t.double(Key::HandsFree);
         assert!(fx.contains(&Effect::StopCapture));
         assert_eq!(t.c.view().mic, Mic::Off);
     }
@@ -1595,37 +1744,6 @@ mod tests {
     }
 
     #[test]
-    fn listening_with_the_new_session_key_starts_one_session() {
-        let mut t = T::new();
-        let cap = t.hands_free(Key::NewSession);
-        let p1 = speak(&mut t, cap, 1600);
-        pause(&mut t, cap);
-        t.send(Msg::Transcribed {
-            op: p1,
-            text: "найди баг".into(),
-        });
-        t.send(Msg::Run {
-            op: p1,
-            event: RunEvent::Result {
-                ok: true,
-                text: "done".into(),
-            },
-        });
-        t.finish_run(p1, true);
-        let first = t.c.view().session_id.expect("session");
-        let p2 = speak(&mut t, cap, 1600);
-        pause(&mut t, cap);
-        let fx = t.send(Msg::Transcribed {
-            op: p2,
-            text: "теперь почини".into(),
-        });
-        assert!(fx.iter().any(|e| matches!(
-            e,
-            Effect::StartRun { session: Session::Resume(id), .. } if *id == first
-        )));
-    }
-
-    #[test]
     fn a_tap_with_nothing_running_keeps_the_results() {
         let mut t = T::new();
         let a = t.say("проверь diff");
@@ -1635,15 +1753,15 @@ mod tests {
     }
 
     #[test]
-    fn speech_under_way_at_the_double_press_is_kept() {
+    fn speech_under_way_when_listening_turns_on_is_kept() {
         let mut t = T::new();
-        t.quick(Key::Talk);
+        t.down(Key::Talk);
         let cap = t.c.capture.as_ref().map_or(0, |c| c.op);
         t.send(Msg::Speaking {
             op: cap,
             speaking: true,
         });
-        t.quick(Key::Talk);
+        t.double(Key::HandsFree);
         assert!(t.hands_free_on());
         let fx = pause(&mut t, cap);
         assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
@@ -1657,7 +1775,7 @@ mod tests {
         let cap = t.hands_free(Key::Talk);
         let p = speak(&mut t, cap, 1600);
         t.now += Duration::from_secs(1);
-        let fx = t.double(Key::Talk);
+        let fx = t.double(Key::HandsFree);
         assert!(!fx.contains(&Effect::CancelRun));
         assert!(fx.contains(&Effect::StopCapture));
         assert!(transcribes(&fx, p));
@@ -1673,7 +1791,7 @@ mod tests {
         t.say("проверь diff");
         t.hands_free(Key::Talk);
         t.now += Duration::from_secs(1);
-        t.double(Key::Talk);
+        t.double(Key::HandsFree);
         assert_eq!(t.statuses(), [Status::Running]);
         assert_eq!(t.c.view().mic, Mic::Off);
     }
@@ -1723,24 +1841,6 @@ mod tests {
     }
 
     #[test]
-    fn new_session_key_listens_into_a_new_session() {
-        let mut t = T::new();
-        let first = t.finish_saying("проверь diff");
-        t.now += Duration::from_secs(1);
-        let cap = t.hands_free(Key::NewSession);
-        let p = speak(&mut t, cap, 1600);
-        pause(&mut t, cap);
-        let fx = t.send(Msg::Transcribed {
-            op: p,
-            text: "найди баг".into(),
-        });
-        assert!(fx.iter().any(|e| matches!(
-            e,
-            Effect::StartRun { session: Session::New(new), .. } if *new != id(first)
-        )));
-    }
-
-    #[test]
     fn listening_mode_never_counts_down() {
         let mut t = T::new();
         t.hands_free(Key::Talk);
@@ -1759,7 +1859,7 @@ mod tests {
         t.hands_free(Key::Talk);
         assert_eq!(t.c.view().hide_after_ms, None);
         t.now += Duration::from_secs(1);
-        let fx = t.double(Key::Talk);
+        let fx = t.double(Key::HandsFree);
         let v = shown(&fx).unwrap();
         assert_eq!(v.mic, Mic::Off);
         assert_eq!(v.hide_after_ms, Some(HIDE_AFTER.as_millis() as u64));
@@ -1822,11 +1922,6 @@ mod tests {
         t.down(Key::Talk);
         t.now += Duration::from_millis(400);
         let fx = t.up(Key::Talk);
-        let Some(Effect::GestureTimer { seq, .. }) = fx.first().cloned() else {
-            panic!("{fx:?}")
-        };
-        t.now += DOUBLE;
-        let fx = t.send(Msg::GestureTimeout { seq });
         assert!(fx.contains(&Effect::CancelRun));
     }
 
@@ -1878,11 +1973,65 @@ mod tests {
             agent: Agent::Claude,
             hide_after: HIDE_AFTER,
             double: Duration::from_millis(700),
+            bindings: bindings(),
         });
-        let fx = t.quick(Key::Talk);
+        let fx = t.quick(Key::HandsFree);
         assert!(fx.contains(&Effect::GestureTimer {
             seq: 1,
             after: Duration::from_millis(700)
+        }));
+    }
+
+    #[test]
+    fn cancel_is_instant_when_no_double_tap_shares_its_shortcut() {
+        let mut t = T::new();
+        t.say("проверь diff");
+        let fx = t.quick(Key::Talk);
+        assert!(fx.contains(&Effect::CancelRun));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::GestureTimer { .. })));
+    }
+
+    #[test]
+    fn the_hands_free_shortcut_turns_listening_on_and_off() {
+        let mut t = T::new();
+        let fx = t.double(Key::HandsFree);
+        assert!(fx.iter().any(|e| matches!(e, Effect::StartCapture { .. })));
+        assert!(t.hands_free_on());
+        t.now += Duration::from_secs(1);
+        let fx = t.double(Key::HandsFree);
+        assert!(fx.contains(&Effect::StopCapture));
+        assert_eq!(t.c.view().mic, Mic::Off);
+    }
+
+    #[test]
+    fn a_double_tap_on_the_talk_shortcut_is_not_hands_free() {
+        let mut t = T::new();
+        t.double(Key::Talk);
+        assert!(!t.hands_free_on());
+    }
+
+    #[test]
+    fn push_to_talk_in_tap_mode_starts_and_sends_a_phrase() {
+        let mut t = T::new();
+        let mut b = bindings();
+        b[Key::Talk] = vec![(Action::PushToTalk, Gesture::Tap)];
+        t.send(settings_with(b));
+        let fx = t.quick(Key::Talk);
+        assert!(fx.iter().any(|e| matches!(e, Effect::StartCapture { .. })));
+        let fx = t.quick(Key::Talk);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Transcribe { .. })));
+    }
+
+    #[test]
+    fn the_terminal_shortcut_opens_on_its_gesture() {
+        let mut t = T::new();
+        let session = t.finish_saying("проверь diff");
+        assert_eq!(t.down(Key::Terminal), []);
+        let fx = t.up(Key::Terminal);
+        assert!(fx.contains(&Effect::OpenTerminal {
+            id: id(session),
+            cwd: "C:/p".into(),
+            agent: Agent::Claude,
         }));
     }
 
@@ -1942,7 +2091,7 @@ mod tests {
     #[test]
     fn double_press_goes_hands_free() {
         let mut t = T::new();
-        let fx = t.double(Key::Talk);
+        let fx = t.double(Key::HandsFree);
         assert!(!fx.contains(&Effect::StopCapture));
         assert_eq!(t.state(), S::Listening);
         t.now += Duration::from_secs(2);
@@ -1954,11 +2103,14 @@ mod tests {
     fn double_press_counts_when_keys_were_seen_not_when_handled() {
         let mut t = T::new();
         let seen = t.now;
-        t.down(Key::Talk);
+        t.down(Key::HandsFree);
         // Opening the microphone held up the queue; both events are handled only now.
         t.now += Duration::from_millis(600);
-        t.send(Msg::KeyUp(Key::Talk, seen + Duration::from_millis(80)));
-        t.send(Msg::KeyDown(Key::Talk, seen + Duration::from_millis(200)));
+        t.send(Msg::KeyUp(Key::HandsFree, seen + Duration::from_millis(80)));
+        t.send(Msg::KeyDown(
+            Key::HandsFree,
+            seen + Duration::from_millis(200),
+        ));
         assert_eq!(t.state(), S::Listening);
         assert!(t.hands_free_on());
     }
@@ -1966,9 +2118,9 @@ mod tests {
     #[test]
     fn second_press_before_the_release_was_seen_is_a_double_press() {
         let mut t = T::new();
-        t.down(Key::Talk);
+        t.down(Key::HandsFree);
         t.now += Duration::from_millis(150);
-        t.down(Key::Talk);
+        t.down(Key::HandsFree);
         assert_eq!(t.state(), S::Listening);
         assert!(t.hands_free_on());
     }
@@ -1993,22 +2145,6 @@ mod tests {
             text: "проверь diff".into(),
         });
         assert_eq!(fx, []);
-    }
-
-    #[test]
-    fn terminal_key_opens_the_active_session() {
-        let mut t = T::new();
-        let session = t.finish_saying("проверь diff");
-        let fx = t.down(Key::Terminal);
-        assert_eq!(
-            fx,
-            [Effect::OpenTerminal {
-                id: id(session),
-                cwd: "C:/p".into(),
-                agent: Agent::Claude,
-            }]
-        );
-        assert_eq!(t.up(Key::Terminal), []);
     }
 
     #[test]
@@ -2574,6 +2710,7 @@ mod tests {
             agent: Agent::Claude,
             hide_after: HIDE_AFTER,
             double: DOUBLE,
+            bindings: bindings(),
         });
         t
     }
@@ -2721,6 +2858,7 @@ mod tests {
             agent,
             hide_after: HIDE_AFTER,
             double: DOUBLE,
+            bindings: bindings(),
         });
     }
 

@@ -13,8 +13,15 @@ export type Patterns = Record<Command, string[]>;
 
 export type Settings = {
   talkHotkey: string;
+  talkGesture: Gesture;
+  cancelHotkey: string;
+  cancelGesture: Gesture;
+  handsFreeHotkey: string;
+  handsFreeGesture: Gesture;
   newSessionHotkey: string;
+  newSessionGesture: Gesture;
   terminalHotkey: string;
+  terminalGesture: Gesture;
   patterns: Patterns;
   sessionPolicy: SessionPolicy;
   recentMinutes: number;
@@ -170,6 +177,30 @@ export function ModelRow(props: { model: ModelStatus; onInstalled: () => void })
 }
 
 /** Click, then press the combination. Esc cancels. */
+export type Gesture = "tap" | "hold" | "doubleTap";
+
+const gestures: [Gesture, string][] = [
+  ["tap", "Tap"],
+  ["hold", "Hold"],
+  ["doubleTap", "Double-tap"],
+];
+
+/** How a shortcut is pressed; sits beside its `HotkeyInput`. */
+export function GestureSelect(props: { value: Gesture; label: string; onChange: (value: Gesture) => void }) {
+  return (
+    <select
+      class={`${input} w-32 shrink-0`}
+      aria-label={props.label}
+      value={props.value}
+      onChange={(e) => props.onChange(e.currentTarget.value as Gesture)}
+    >
+      {gestures.map(([value, name]) => (
+        <option value={value}>{name}</option>
+      ))}
+    </select>
+  );
+}
+
 export function HotkeyInput(props: { value: string; label: string; onChange: (value: string) => void }) {
   const [recording, setRecording] = useState(false);
   const [held, setHeld] = useState("");

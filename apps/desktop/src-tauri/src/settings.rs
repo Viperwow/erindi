@@ -3,7 +3,7 @@ use std::path::Path;
 
 use erindi_core::agent::{Agent, claude_models, resume_in_terminal, valid_model};
 use erindi_core::commands::{Parser, Patterns};
-use erindi_core::controller::Msg;
+use erindi_core::controller::{Action, Gesture, Msg};
 use erindi_core::session::SessionPolicy;
 use serde::{Deserialize, Serialize};
 use tauri_plugin_global_shortcut::Shortcut;
@@ -52,8 +52,15 @@ impl AgentSettings {
 pub struct Settings {
     #[serde(alias = "holdHotkey")]
     pub talk_hotkey: String,
+    pub talk_gesture: Gesture,
+    pub cancel_hotkey: String,
+    pub cancel_gesture: Gesture,
+    pub hands_free_hotkey: String,
+    pub hands_free_gesture: Gesture,
     pub new_session_hotkey: String,
+    pub new_session_gesture: Gesture,
     pub terminal_hotkey: String,
+    pub terminal_gesture: Gesture,
     pub patterns: Patterns,
     pub cwd: String,
     /// The agent of new sessions nobody named an agent for.
@@ -84,8 +91,15 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             talk_hotkey: "Ctrl+Alt+Space".into(),
+            talk_gesture: Gesture::Hold,
+            cancel_hotkey: "Ctrl+Alt+Space".into(),
+            cancel_gesture: Gesture::Tap,
+            hands_free_hotkey: "Ctrl+Super+Space".into(),
+            hands_free_gesture: Gesture::DoubleTap,
             new_session_hotkey: "Ctrl+Alt+N".into(),
+            new_session_gesture: Gesture::Hold,
             terminal_hotkey: "Ctrl+Alt+T".into(),
+            terminal_gesture: Gesture::Tap,
             patterns: Patterns::default(),
             cwd: std::env::var("USERPROFILE").unwrap_or_default(),
             agent: Agent::Claude,
@@ -168,25 +182,72 @@ impl Settings {
             agent: self.agent,
             hide_after: std::time::Duration::from_secs_f32(self.hide_secs),
             double: std::time::Duration::from_millis((self.double_secs * 1000.0).round() as u64),
+            bindings: self.bindings().1,
         }
     }
 
-    pub fn validate(&self) -> Result<(), String> {
-        let hotkeys = [
-            &self.talk_hotkey,
-            &self.new_session_hotkey,
-            &self.terminal_hotkey,
-        ];
-        for combo in hotkeys {
+    fn shortcuts(&self) -> [(&str, Action, Gesture); 5] {
+        [
+            (&self.talk_hotkey, Action::PushToTalk, self.talk_gesture),
+            (
+                &self.new_session_hotkey,
+                Action::NewSession,
+                self.new_session_gesture,
+            ),
+            (
+                &self.terminal_hotkey,
+                Action::Terminal,
+                self.terminal_gesture,
+            ),
+            (&self.cancel_hotkey, Action::Cancel, self.cancel_gesture),
+            (
+                &self.hands_free_hotkey,
+                Action::HandsFree,
+                self.hands_free_gesture,
+            ),
+        ]
+    }
+
+    /// The distinct key combinations to register, and what each one does.
+    pub fn bindings(&self) -> (Vec<String>, Vec<Vec<(Action, Gesture)>>) {
+        let mut combos: Vec<String> = vec![];
+        let mut bindings: Vec<Vec<(Action, Gesture)>> = vec![];
+        for (combo, action, gesture) in self.shortcuts() {
+            match combos.iter().position(|c| c.eq_ignore_ascii_case(combo)) {
+                Some(i) => bindings[i].push((action, gesture)),
+                None => {
+                    combos.push(combo.to_string());
+                    bindings.push(vec![(action, gesture)]);
+                }
+            }
+        }
+        (combos, bindings)
+    }
+
+    /// Two actions may share a combination only with different gestures.
+    fn check_bindings(&self) -> Result<(), String> {
+        let shortcuts = self.shortcuts();
+        for (i, (combo, action, gesture)) in shortcuts.iter().enumerate() {
             combo
                 .parse::<Shortcut>()
                 .map_err(|e| format!("Invalid hotkey {combo:?}: {e}"))?;
-        }
-        for (i, a) in hotkeys.iter().enumerate() {
-            if hotkeys[i + 1..].iter().any(|b| a.eq_ignore_ascii_case(b)) {
-                return Err(format!("Hotkey {a} is used twice"));
+            let clash = shortcuts[i + 1..]
+                .iter()
+                .find(|(c, _, g)| c.eq_ignore_ascii_case(combo) && g == gesture);
+            if let Some((_, other, _)) = clash {
+                return Err(format!(
+                    "{} and {} both use {combo} with {}; change one shortcut or mode",
+                    action_name(*action),
+                    action_name(*other),
+                    gesture_name(*gesture)
+                ));
             }
         }
+        Ok(())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        self.check_bindings()?;
         Parser::new(&self.patterns)?;
         if !Path::new(&self.cwd).is_dir() {
             return Err(format!("Folder does not exist: {}", self.cwd));
@@ -227,6 +288,24 @@ impl Settings {
             return Err("Fill in both words of every dictionary entry".into());
         }
         Ok(())
+    }
+}
+
+fn action_name(action: Action) -> &'static str {
+    match action {
+        Action::PushToTalk => "Push to talk",
+        Action::NewSession => "New session",
+        Action::HandsFree => "Hands-free",
+        Action::Cancel => "Cancel",
+        Action::Terminal => "Open in terminal",
+    }
+}
+
+fn gesture_name(gesture: Gesture) -> &'static str {
+    match gesture {
+        Gesture::Tap => "Tap",
+        Gesture::Hold => "Hold",
+        Gesture::DoubleTap => "Double-tap",
     }
 }
 
@@ -357,7 +436,7 @@ mod tests {
                 ..ok.clone()
             },
             Settings {
-                talk_hotkey: ok.terminal_hotkey.clone(),
+                cancel_gesture: Gesture::Hold,
                 ..ok.clone()
             },
             Settings {
@@ -417,6 +496,41 @@ mod tests {
         ] {
             assert!(combo.parse::<Shortcut>().is_ok(), "{combo}");
         }
+    }
+
+    #[test]
+    fn talk_and_cancel_share_a_shortcut_by_default() {
+        let (combos, bindings) = Settings::default().bindings();
+        assert_eq!(
+            combos,
+            [
+                "Ctrl+Alt+Space",
+                "Ctrl+Alt+N",
+                "Ctrl+Alt+T",
+                "Ctrl+Super+Space"
+            ]
+        );
+        assert_eq!(
+            bindings[0],
+            [
+                (Action::PushToTalk, Gesture::Hold),
+                (Action::Cancel, Gesture::Tap)
+            ]
+        );
+        assert_eq!(bindings[3], [(Action::HandsFree, Gesture::DoubleTap)]);
+    }
+
+    #[test]
+    fn the_same_shortcut_and_mode_twice_is_rejected() {
+        let s = Settings {
+            cancel_gesture: Gesture::Hold,
+            ..Settings::default()
+        };
+        let err = s.check_bindings().unwrap_err();
+        assert!(
+            err.contains("Push to talk") && err.contains("Cancel"),
+            "{err}"
+        );
     }
 
     #[test]

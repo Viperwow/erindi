@@ -65,6 +65,12 @@ impl Series {
         self.add(kind, status, new_session)
     }
 
+    /// An id no phrase will take, for a recording that has no phrase yet.
+    pub fn reserve(&mut self) -> PhraseId {
+        self.next += 1;
+        self.next
+    }
+
     /// Adds a phrase to the current series.
     pub fn add(&mut self, kind: Kind, status: Status, new_session: bool) -> PhraseId {
         self.next += 1;

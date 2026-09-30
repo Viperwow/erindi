@@ -19,7 +19,7 @@
 
 ## Features
 
-- **Talk from any app.** Hold a hotkey to talk, or double-press it for hands-free listening: each pause sends a phrase, and phrases said while the agent works wait in a queue.
+- **Talk from any app.** Hold a hotkey to talk, or double-tap another for hands-free listening: each pause sends a phrase, and phrases said while the agent works wait in a queue.
 - **Local speech recognition.** Many languages, even mixed in one phrase, with a live transcript in the overlay bubble.
 - **Claude Code, Codex or Pi.** Pick the default agent in Settings, or say "claude", "codex" or "pi" to start a session with one. Each session keeps its agent.
 - **Runs in the background.** Cancel a run with one press, or open the session in Windows Terminal.
@@ -39,9 +39,12 @@ The `latest` pre-release is rebuilt on every merge into `main`.
 
 | Hotkey | Action |
 |---|---|
-| `Ctrl+Alt+Space` | Hold to talk, double-press for hands-free, press once to cancel |
-| `Ctrl+Alt+N` | Talk into a new session |
-| `Ctrl+Alt+T` | Open the active session in a terminal |
+| `Ctrl+Alt+Space` | Hold to talk; tap to cancel |
+| `Ctrl+Win+Space` | Double-tap to turn hands-free listening on or off |
+| `Ctrl+Alt+N` | Hold to talk into a new session |
+| `Ctrl+Alt+T` | Tap to open the active session in a terminal |
+
+Each shortcut and its mode (Tap, Hold or Double-tap) can be changed in Settings.
 
 The Commands tab lists the voice command patterns and lets you edit them.
 

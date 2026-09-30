@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use erindi_core::agent::Agent;
-use erindi_core::controller::{Key, Msg};
+use erindi_core::controller::Msg;
 use erindi_core::transcript::{self, Details};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -379,18 +379,14 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
     let shortcuts = app.global_shortcut();
     let _ = shortcuts.unregister_all();
     let mut errors = vec![];
-    for (combo, key) in [
-        (&settings.talk_hotkey, Key::Talk),
-        (&settings.new_session_hotkey, Key::NewSession),
-        (&settings.terminal_hotkey, Key::Terminal),
-    ] {
+    for (combo_id, combo) in settings.bindings().0.into_iter().enumerate() {
         let runtime = runtime.clone();
         let registered = shortcuts.on_shortcut(combo.as_str(), move |_, _, event| {
             let now = std::time::Instant::now();
-            trace::line(format!("hotkey {key:?} {:?}", event.state()));
+            trace::line(format!("hotkey {combo_id} {:?}", event.state()));
             runtime.send(match event.state() {
-                ShortcutState::Pressed => Msg::KeyDown(key, now),
-                ShortcutState::Released => Msg::KeyUp(key, now),
+                ShortcutState::Pressed => Msg::KeyDown(combo_id, now),
+                ShortcutState::Released => Msg::KeyUp(combo_id, now),
             })
         });
         if let Err(e) = registered {

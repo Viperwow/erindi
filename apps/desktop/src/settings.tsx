@@ -9,6 +9,7 @@ import {
   type AgentStatus,
   agentLabels,
   Field,
+  GestureSelect,
   HotkeyInput,
   ModelRow,
   type ModelStatus,
@@ -217,7 +218,7 @@ function SettingsView() {
               onInput={(e) => set({ hideSecs: Number(e.currentTarget.value) })}
             />
           </Field>
-          <Field label="Double-press window (s)" hint="How soon the second press must follow; a single press waits this long before it cancels.">
+          <Field label="Double-press window (s)" hint="How soon the second press of a Double-tap must follow. A Tap on the same shortcut waits this long.">
             <input
               class={input}
               type="number"
@@ -236,14 +237,24 @@ function SettingsView() {
       </Section>
 
       <Section title="Hotkeys" description="How you start, send and cancel a recording.">
-        <div class="flex items-center gap-3">
-          <span class="w-44 shrink-0">Talk</span>
-          <HotkeyInput label="Talk" value={s.talkHotkey} onChange={(talkHotkey) => set({ talkHotkey })} />
-        </div>
+        {(
+          [
+            ["Push to talk", "talkHotkey", "talkGesture"],
+            ["Cancel", "cancelHotkey", "cancelGesture"],
+            ["Hands-free", "handsFreeHotkey", "handsFreeGesture"],
+          ] as const
+        ).map(([name, hotkey, gesture]) => (
+          <div class="flex items-center gap-3">
+            <span class="w-44 shrink-0">{name}</span>
+            <HotkeyInput label={name} value={s[hotkey]} onChange={(value) => set({ [hotkey]: value })} />
+            <GestureSelect label={`${name} mode`} value={s[gesture]} onChange={(value) => set({ [gesture]: value })} />
+          </div>
+        ))}
         <ul class="list-disc space-y-0.5 pl-5 text-xs text-neutral-500">
-          <li>Hold: talk while holding, release to send.</li>
-          <li>Double-press: hands-free listening on or off; each pause sends a phrase.</li>
-          <li>Press once: cancel the phrase being transcribed or the running agent; otherwise the phrase you are saying.</li>
+          <li>Push to talk: Hold talks while held and sends on release; Tap or Double-tap starts a phrase and sends it on the next one.</li>
+          <li>Cancel: cancels the phrase being transcribed or the running agent; otherwise the phrase you are saying.</li>
+          <li>Hands-free: turns listening on or off; each pause sends a phrase.</li>
+          <li>A Tap acts on release, unless a Double-tap shares its shortcut.</li>
         </ul>
         <p class="text-xs text-neutral-500">Command hotkeys are on the Commands tab.</p>
       </Section>

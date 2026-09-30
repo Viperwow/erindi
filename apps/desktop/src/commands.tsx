@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import {
   type Command,
+  GestureSelect,
   HotkeyInput,
   ModelRow,
   type ModelStatus,
@@ -15,9 +16,15 @@ import {
   useBusy,
 } from "./controls";
 
-const commands: { id: Command; name: string; example: string; hotkey?: "newSessionHotkey" | "terminalHotkey" }[] = [
-  { id: "newSession", name: "New session", example: "new session, check the diff", hotkey: "newSessionHotkey" },
-  { id: "openTerminal", name: "Open in terminal", example: "open in terminal", hotkey: "terminalHotkey" },
+const commands: {
+  id: Command;
+  name: string;
+  example: string;
+  hotkey?: "newSessionHotkey" | "terminalHotkey";
+  gesture?: "newSessionGesture" | "terminalGesture";
+}[] = [
+  { id: "newSession", name: "New session", example: "new session, check the diff", hotkey: "newSessionHotkey", gesture: "newSessionGesture" },
+  { id: "openTerminal", name: "Open in terminal", example: "open in terminal", hotkey: "terminalHotkey", gesture: "terminalGesture" },
   { id: "cancel", name: "Cancel", example: "check the diff… cancel" },
   { id: "claude", name: "Claude", example: "claude, check the diff" },
   { id: "codex", name: "Codex", example: "codex, check the diff" },
@@ -165,9 +172,16 @@ export function CommandsView() {
                 value={s[c.hotkey]}
                 onChange={(value) => set({ [c.hotkey!]: value })}
               />
+              {c.gesture && (
+                <GestureSelect
+                  label={`${c.name} mode`}
+                  value={s[c.gesture]}
+                  onChange={(value) => set({ [c.gesture!]: value })}
+                />
+              )}
             </div>
           ) : (
-            <p class="text-xs text-neutral-500">Hotkey: press the talk key once.</p>
+            <p class="text-xs text-neutral-500">Hotkey: the Cancel shortcut.</p>
           )}
           <Chips
             values={s.patterns[c.id]}
