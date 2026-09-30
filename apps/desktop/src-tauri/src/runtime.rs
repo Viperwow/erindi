@@ -636,10 +636,7 @@ impl Executor {
             program,
             args,
             cwd: cwd.clone().into(),
-            env: agent::env(
-                agent,
-                run_env(std::env::vars(), erindi_core::cli::current_path()),
-            ),
+            env: agent_env(std::env::vars(), erindi_core::cli::current_path()),
             stdin: prompt.clone(),
             timeout: RUN_TIMEOUT,
         };
@@ -775,6 +772,14 @@ fn forget_after_run(agent: Agent, new: bool, native_seen: bool) -> bool {
 }
 
 /// The launcher's environment with PATH as it is now, so tools installed after launch are found.
+/// An agent gets the full environment, as when started by hand; only PATH is refreshed.
+fn agent_env(
+    vars: impl IntoIterator<Item = (String, String)>,
+    path: String,
+) -> Vec<(String, String)> {
+    run_env(vars, path)
+}
+
 fn run_env(
     vars: impl IntoIterator<Item = (String, String)>,
     path: String,
@@ -866,6 +871,20 @@ mod tests {
         assert!(!forget_after_run(Agent::Codex, true, true));
         assert!(!forget_after_run(Agent::Claude, true, false));
         assert!(!forget_after_run(Agent::Codex, false, false));
+    }
+
+    #[test]
+    fn agents_keep_every_variable() {
+        let vars = [
+            ("GITHUB_TOKEN", "t"),
+            ("OPENAI_API_KEY", "k"),
+            ("Path", "old"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let env = agent_env(vars, "new".into());
+        assert!(env.contains(&("GITHUB_TOKEN".into(), "t".into())));
+        assert!(env.contains(&("OPENAI_API_KEY".into(), "k".into())));
+        assert!(env.contains(&("PATH".into(), "new".into())));
     }
 
     #[test]

@@ -278,17 +278,6 @@ pub fn resume_in_terminal(
     }
 }
 
-pub fn env(
-    agent: Agent,
-    vars: impl IntoIterator<Item = (String, String)>,
-) -> Vec<(String, String)> {
-    match agent {
-        Agent::Claude => claude::claude_env(vars),
-        Agent::Codex => codex::codex_env(vars),
-        Agent::Pi => pi::pi_env(vars),
-    }
-}
-
 /// Parses one run's output. Codex sends the reply before the result, so the parser keeps it.
 pub struct EventParser {
     agent: Agent,
@@ -431,21 +420,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn claude_env_is_the_claude_allowlist() {
-        let vars = [
-            ("PATH", "x"),
-            ("OPENAI_API_KEY", "leak"),
-            ("ANTHROPIC_API_KEY", "k"),
-        ]
-        .map(|(k, v)| (k.to_string(), v.to_string()));
-        let kept: Vec<_> = env(Agent::Claude, vars)
-            .into_iter()
-            .map(|(k, _)| k)
-            .collect();
-        assert_eq!(kept, ["PATH", "ANTHROPIC_API_KEY"]);
-    }
-
     fn codex(model: Option<&str>, permission: Option<&str>, target: Target) -> AgentRequest {
         AgentRequest {
             agent: Agent::Codex,
@@ -553,27 +527,6 @@ mod tests {
         );
         let args = resume_in_terminal("codex", "C:/p", Agent::Codex, "abc-1").unwrap();
         assert_eq!(args, ["-d", "C:/p", "codex", "resume", "abc-1"]);
-    }
-
-    #[test]
-    fn codex_env_keeps_openai_and_codex_vars_only() {
-        let vars = [
-            ("Path", "x"),
-            ("CODEX_HOME", "C:/c"),
-            ("OPENAI_API_KEY", "k"),
-            ("OPENAI_BASE_URL", "u"),
-            ("ANTHROPIC_API_KEY", "leak"),
-            ("GITHUB_TOKEN", "leak"),
-        ]
-        .map(|(k, v)| (k.to_string(), v.to_string()));
-        let kept: Vec<_> = env(Agent::Codex, vars)
-            .into_iter()
-            .map(|(k, _)| k)
-            .collect();
-        assert_eq!(
-            kept,
-            ["Path", "CODEX_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL"]
-        );
     }
 
     #[test]

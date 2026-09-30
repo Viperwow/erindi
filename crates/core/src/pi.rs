@@ -4,19 +4,6 @@ use crate::agent::ModelOption;
 use crate::stream::RunEvent;
 
 /// Windows basics shared with Claude, Pi's own settings, cloud credentials, and any provider's API key.
-const ENV_ALLOW_PREFIX: &[&str] = &["PI_", "AWS_", "AZURE_", "GOOGLE_"];
-
-pub fn pi_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
-    vars.into_iter()
-        .filter(|(k, _)| {
-            let k = k.to_uppercase();
-            crate::claude::base_env_allowed(&k)
-                || k.ends_with("_API_KEY")
-                || ENV_ALLOW_PREFIX.iter().any(|p| k.starts_with(p))
-        })
-        .collect()
-}
-
 /// `--session-id` creates the session when it is missing, so new and continued runs look alike.
 /// A continued session keeps its own model, so only a new one gets `--model`.
 pub fn print_args(model: Option<&str>, session_id: &str, new: bool) -> Vec<String> {
@@ -268,18 +255,5 @@ mod tests {
             ]
         );
         assert_eq!(parse_models("No models available.\n"), []);
-    }
-
-    #[test]
-    fn env_keeps_provider_keys_only() {
-        let kept: Vec<_> = pi_env([
-            ("ANTHROPIC_API_KEY".into(), "a".into()),
-            ("PI_OFFLINE".into(), "1".into()),
-            ("GITHUB_TOKEN".into(), "g".into()),
-        ])
-        .into_iter()
-        .map(|(k, _)| k)
-        .collect();
-        assert_eq!(kept, ["ANTHROPIC_API_KEY", "PI_OFFLINE"]);
     }
 }

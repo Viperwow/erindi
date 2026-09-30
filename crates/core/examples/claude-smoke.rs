@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use erindi_core::claude::{ClaudeMode, ClaudeRequest, Session, claude_args, claude_env};
+use erindi_core::claude::{ClaudeMode, ClaudeRequest, Session, claude_args};
 use erindi_core::run::{RunSpec, run};
 use erindi_core::stream::parse_line;
 use tokio_util::sync::CancellationToken;
@@ -22,7 +22,7 @@ async fn main() {
         program: "claude".into(),
         args: claude_args(&req).unwrap(),
         cwd: cwd.into(),
-        env: claude_env(std::env::vars()),
+        env: std::env::vars().collect(),
         stdin: prompt,
         timeout: Duration::from_secs(120),
     };

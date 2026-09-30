@@ -6,17 +6,6 @@ use crate::agent::{ModelOption, Target};
 use crate::stream::RunEvent;
 
 /// Windows basics shared with Claude, plus what Codex and its Node launcher read.
-const ENV_ALLOW_PREFIX: &[&str] = &["CODEX_", "OPENAI_"];
-
-pub fn codex_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
-    vars.into_iter()
-        .filter(|(k, _)| {
-            let k = k.to_uppercase();
-            crate::claude::base_env_allowed(&k) || ENV_ALLOW_PREFIX.iter().any(|p| k.starts_with(p))
-        })
-        .collect()
-}
-
 /// A native ID Codex could read as an option is refused by the caller before this runs.
 /// The user picked the folder in Settings, so Codex's own git-repo guard is skipped.
 /// The flag does not make Codex load the folder's `.codex/` config or hooks.
