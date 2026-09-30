@@ -89,20 +89,34 @@ pub struct Settings {
     pub launch_at_login: bool,
 }
 
+/// macOS keeps Ctrl+Space and Ctrl+Option+Space for input sources, so its defaults use Option
+/// and Command instead.
+fn shortcut(windows: &str, mac: &str) -> String {
+    if cfg!(target_os = "macos") {
+        mac
+    } else {
+        windows
+    }
+    .into()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            talk_hotkey: "Ctrl+Space".into(),
+            talk_hotkey: shortcut("Ctrl+Space", "Alt+Space"),
             talk_gesture: Gesture::Hold,
-            cancel_hotkey: "Ctrl+Space".into(),
+            cancel_hotkey: shortcut("Ctrl+Space", "Alt+Space"),
             cancel_gesture: Gesture::Tap,
-            hands_free_hotkey: "Ctrl+Alt+Space".into(),
+            hands_free_hotkey: shortcut("Ctrl+Alt+Space", "Super+Shift+Space"),
             hands_free_gesture: Gesture::DoubleTap,
-            new_session_hands_free_hotkey: "Ctrl+Alt+Shift+Space".into(),
+            new_session_hands_free_hotkey: shortcut(
+                "Ctrl+Alt+Shift+Space",
+                "Super+Alt+Shift+Space",
+            ),
             new_session_hands_free_gesture: Gesture::DoubleTap,
-            new_session_hotkey: "Ctrl+Shift+Space".into(),
+            new_session_hotkey: shortcut("Ctrl+Shift+Space", "Alt+Shift+Space"),
             new_session_gesture: Gesture::Hold,
-            terminal_hotkey: "Ctrl+Alt+T".into(),
+            terminal_hotkey: shortcut("Ctrl+Alt+T", "Super+Alt+T"),
             terminal_gesture: Gesture::Tap,
             patterns: Patterns::default(),
             cwd: crate::runtime::home()
@@ -510,6 +524,30 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_defaults_avoid_the_system_shortcuts() {
+        let (combos, bindings) = Settings::default().bindings();
+        assert_eq!(
+            combos,
+            [
+                "Alt+Space",
+                "Alt+Shift+Space",
+                "Super+Alt+T",
+                "Super+Shift+Space",
+                "Super+Alt+Shift+Space"
+            ]
+        );
+        assert_eq!(
+            bindings[0],
+            [
+                (Action::PushToTalk, Gesture::Hold),
+                (Action::Cancel, Gesture::Tap)
+            ]
+        );
+    }
+
+    #[cfg(windows)]
     #[test]
     fn talk_and_cancel_share_a_shortcut_by_default() {
         let (combos, bindings) = Settings::default().bindings();

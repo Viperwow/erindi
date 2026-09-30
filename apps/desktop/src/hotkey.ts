@@ -43,3 +43,21 @@ function modifiers(e: KeyLike): string[] {
     (m): m is string => !!m,
   );
 }
+
+export const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
+
+const MAC_SYMBOLS: [string, string][] = [
+  ["Ctrl", "⌃"],
+  ["Alt", "⌥"],
+  ["Shift", "⇧"],
+  ["Super", "⌘"],
+];
+
+/** A stored shortcut as the platform writes it: macOS uses key symbols in Apple's order. */
+export function displayHotkey(combo: string, mac: boolean): string {
+  if (!mac) return combo;
+  const parts = combo.split("+");
+  const symbols = MAC_SYMBOLS.filter(([name]) => parts.includes(name)).map(([, symbol]) => symbol);
+  const key = parts.filter((p) => !MAC_SYMBOLS.some(([name]) => name === p));
+  return symbols.join("") + key.join("+");
+}

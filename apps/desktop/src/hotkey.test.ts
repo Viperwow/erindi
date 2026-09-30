@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { accelerator, heldModifiers } from "./hotkey.ts";
+import { accelerator, displayHotkey, heldModifiers } from "./hotkey.ts";
 
 const key = (
   code: string,
@@ -49,4 +49,11 @@ test("held modifiers preview the combination being built", () => {
   assert.equal(heldModifiers(key("AltLeft", { ctrl: true, alt: true })), "Ctrl+Alt");
   assert.equal(heldModifiers(key("MetaLeft", { meta: true, shift: true })), "Shift+Super");
   assert.equal(heldModifiers(key("KeyA")), "");
+});
+
+test("mac shows modifiers as key symbols", () => {
+  assert.equal(displayHotkey("Super+Shift+Space", true), "⇧⌘Space");
+  assert.equal(displayHotkey("Ctrl+Alt+T", true), "⌃⌥T");
+  assert.equal(displayHotkey("Super+Alt+Shift+Space", true), "⌥⇧⌘Space");
+  assert.equal(displayHotkey("Ctrl+Alt+T", false), "Ctrl+Alt+T");
 });
