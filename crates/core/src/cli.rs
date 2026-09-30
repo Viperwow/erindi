@@ -48,7 +48,7 @@ pub fn current_path() -> String {
 
 #[cfg(not(windows))]
 pub fn current_path() -> String {
-    std::env::var("PATH").unwrap_or_default()
+    crate::shell_env::path()
 }
 
 /// `Path` under `subkey`, with `%VARS%` expanded by the registry API.

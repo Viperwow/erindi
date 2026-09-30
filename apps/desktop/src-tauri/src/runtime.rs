@@ -648,7 +648,10 @@ impl Executor {
             program,
             args,
             cwd: cwd.clone().into(),
-            env: agent_env(std::env::vars(), erindi_core::cli::current_path()),
+            env: agent_env(
+                erindi_core::shell_env::vars(),
+                erindi_core::cli::current_path(),
+            ),
             stdin: prompt.clone(),
             timeout: RUN_TIMEOUT,
         };

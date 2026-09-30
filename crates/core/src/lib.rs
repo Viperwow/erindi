@@ -14,6 +14,7 @@ pub mod prompt;
 pub mod run;
 pub mod series;
 pub mod session;
+pub mod shell_env;
 pub mod state;
 pub mod stream;
 pub mod transcript;
