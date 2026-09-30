@@ -1251,7 +1251,7 @@ dependencies = [
 
 [[package]]
 name = "erindi-audio-asr"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "cpal",
  "rubato",
@@ -1260,7 +1260,7 @@ dependencies = [
 
 [[package]]
 name = "erindi-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "process-wrap",
  "regex",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "erindi-desktop"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "erindi-audio-asr",
  "erindi-core",
