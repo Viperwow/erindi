@@ -229,9 +229,6 @@ function SettingsView() {
               onInput={(e) => set({ doubleSecs: Number(e.currentTarget.value) })}
             />
           </Field>
-          <Field label="Debug log" hint="Hotkeys, timing and transcripts, for diagnosing problems. Empty turns it off.">
-            <input class={input} value={s.logPath} onInput={(e) => set({ logPath: e.currentTarget.value })} />
-          </Field>
         </div>
 
       </Section>
@@ -278,16 +275,22 @@ function SettingsView() {
         </label>
       </Section>
 
+      <Section title="Debugging" description="What Erindi records for diagnosing problems.">
+        <Field label="Debug log" hint="Hotkeys, timing and transcripts. Empty turns it off.">
+          <input class={input} value={s.logPath} onInput={(e) => set({ logPath: e.currentTarget.value })} />
+        </Field>
+      </Section>
+
       <SaveBar status={status} busy={busy} />
     </form>
   );
 }
 
 const tabs = [
+  ["settings", "Settings"],
   ["sessions", "Sessions"],
   ["commands", "Commands"],
   ["dictionary", "Dictionary"],
-  ["settings", "Settings"],
 ] as const;
 
 type Tab = (typeof tabs)[number][0];
