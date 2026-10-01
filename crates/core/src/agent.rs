@@ -194,16 +194,46 @@ fn pi_session(target: &Target) -> Result<(String, bool), InvalidRequest> {
     }
 }
 
-/// Windows Terminal arguments for an interactive agent whose first message is `prompt`.
+/// An interactive agent to open in a terminal: its folder and its command line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalCommand {
+    pub cwd: String,
+    pub argv: Vec<String>,
+}
+
+impl TerminalCommand {
+    /// Windows Terminal arguments; wt splits commands at `;` even inside one argument.
+    pub fn wt_args(&self) -> Vec<String> {
+        let argv = self.argv.iter().map(|a| a.replace(';', r"\;"));
+        ["-d".to_string(), self.cwd.clone()]
+            .into_iter()
+            .chain(argv)
+            .collect()
+    }
+
+    /// A `.command` script for Terminal.app. Every word is single-quoted, so the login shell
+    /// runs the agent without expanding anything in the prompt.
+    pub fn command_script(&self) -> String {
+        let q = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
+        let argv: Vec<String> = self.argv.iter().map(|a| q(a)).collect();
+        format!(
+            "#!/bin/zsh -il\nrm -f -- \"$0\"\ncd {} && exec {}\n",
+            q(&self.cwd),
+            argv.join(" ")
+        )
+    }
+}
+
+/// The interactive agent whose first message is `prompt`.
 pub fn terminal_args(
     program: &str,
     cwd: &str,
     req: &AgentRequest,
     prompt: &str,
-) -> Result<Vec<String>, InvalidRequest> {
+) -> Result<TerminalCommand, InvalidRequest> {
     cwd_ok(cwd)?;
     let prompt = &cmd_safe(program, prompt);
-    match req.agent {
+    let argv = match req.agent {
         Agent::Claude => claude::run_in_terminal(program, cwd, &claude_request(req)?, prompt)
             .map_err(|e| match e {
                 claude::InvalidTerminalRun::Cwd => InvalidRequest::Cwd,
@@ -216,7 +246,6 @@ pub fn terminal_args(
             }
             Ok(codex::terminal_args(
                 program,
-                cwd,
                 req.model.as_deref(),
                 req.permission.as_deref(),
                 &req.target,
@@ -228,14 +257,17 @@ pub fn terminal_args(
             let (id, new) = pi_session(&req.target)?;
             Ok(pi::terminal_args(
                 program,
-                cwd,
                 req.model.as_deref(),
                 &id,
                 new,
                 prompt,
             ))
         }
-    }
+    }?;
+    Ok(TerminalCommand {
+        cwd: cwd.into(),
+        argv,
+    })
 }
 
 /// npm installs CLIs as `.cmd` shims, which Windows runs through `cmd /c`; cmd ignores the
@@ -254,39 +286,32 @@ fn cmd_safe(program: &str, prompt: &str) -> String {
         .collect()
 }
 
-/// Windows Terminal arguments that reopen session `native_id` interactively.
+/// The interactive agent that reopens session `native_id`.
 pub fn resume_in_terminal(
     program: &str,
     cwd: &str,
     agent: Agent,
     native_id: &str,
-) -> Result<Vec<String>, InvalidRequest> {
+) -> Result<TerminalCommand, InvalidRequest> {
     cwd_ok(cwd)?;
-    match agent {
+    let argv = match agent {
         Agent::Claude => {
             let id = Uuid::parse_str(native_id).map_err(|_| InvalidRequest::NativeId)?;
             claude::resume_in_terminal(program, cwd, id).map_err(|_| InvalidRequest::Cwd)
         }
         Agent::Codex => {
             native_ok(native_id)?;
-            Ok(codex::resume_in_terminal(program, cwd, native_id))
+            Ok(codex::resume_in_terminal(program, native_id))
         }
         Agent::Pi => {
             native_ok(native_id)?;
-            Ok(pi::resume_in_terminal(program, cwd, native_id))
+            Ok(pi::resume_in_terminal(program, native_id))
         }
-    }
-}
-
-pub fn env(
-    agent: Agent,
-    vars: impl IntoIterator<Item = (String, String)>,
-) -> Vec<(String, String)> {
-    match agent {
-        Agent::Claude => claude::claude_env(vars),
-        Agent::Codex => codex::codex_env(vars),
-        Agent::Pi => pi::pi_env(vars),
-    }
+    }?;
+    Ok(TerminalCommand {
+        cwd: cwd.into(),
+        argv,
+    })
 }
 
 /// Parses one run's output. Codex sends the reply before the result, so the parser keeps it.
@@ -418,32 +443,42 @@ mod tests {
     }
 
     #[test]
+    fn a_command_script_quotes_every_word() {
+        let cmd = TerminalCommand {
+            cwd: "/Users/me/it's here".into(),
+            argv: vec![
+                "claude".into(),
+                "--".into(),
+                "a 'b' $HOME `x`\nпривет".into(),
+            ],
+        };
+        assert_eq!(
+            cmd.command_script(),
+            concat!(
+                "#!/bin/zsh -il\n",
+                "rm -f -- \"$0\"\n",
+                r"cd '/Users/me/it'\''s here' && exec 'claude' '--' 'a '\''b'\'' $HOME `x`",
+                "\nпривет'\n"
+            )
+        );
+    }
+
+    #[test]
     fn claude_terminal_uses_the_program_path() {
         let req = claude(None, None, Target::New(Uuid::nil()));
-        let args = terminal_args(r"C:\bin\claude.exe", "C:/p", &req, "fix it").unwrap();
+        let args = terminal_args(r"C:\bin\claude.exe", "C:/p", &req, "fix it")
+            .unwrap()
+            .wt_args();
         assert_eq!(args[..3], ["-d", "C:/p", r"C:\bin\claude.exe"]);
         assert_eq!(args[args.len() - 2..], ["--", "fix it"]);
-        let args = resume_in_terminal("claude", "C:/p", Agent::Claude, NIL).unwrap();
+        let args = resume_in_terminal("claude", "C:/p", Agent::Claude, NIL)
+            .unwrap()
+            .wt_args();
         assert_eq!(args, ["-d", "C:/p", "claude", "--resume", NIL]);
         assert_eq!(
             resume_in_terminal("claude", "C:/p;calc", Agent::Claude, NIL),
             Err(InvalidRequest::Cwd)
         );
-    }
-
-    #[test]
-    fn claude_env_is_the_claude_allowlist() {
-        let vars = [
-            ("PATH", "x"),
-            ("OPENAI_API_KEY", "leak"),
-            ("ANTHROPIC_API_KEY", "k"),
-        ]
-        .map(|(k, v)| (k.to_string(), v.to_string()));
-        let kept: Vec<_> = env(Agent::Claude, vars)
-            .into_iter()
-            .map(|(k, _)| k)
-            .collect();
-        assert_eq!(kept, ["PATH", "ANTHROPIC_API_KEY"]);
     }
 
     fn codex(model: Option<&str>, permission: Option<&str>, target: Target) -> AgentRequest {
@@ -521,7 +556,9 @@ mod tests {
     #[test]
     fn codex_terminal_task_continues_an_existing_session() {
         let req = codex(Some("gpt-5.5"), None, Target::Resume("abc-1".into()));
-        let args = terminal_args("codex", "C:/p", &req, "fix it").unwrap();
+        let args = terminal_args("codex", "C:/p", &req, "fix it")
+            .unwrap()
+            .wt_args();
         assert_eq!(
             args,
             ["-d", "C:/p", "codex", "resume", "abc-1", "--", "fix it"]
@@ -536,7 +573,9 @@ mod tests {
     #[test]
     fn codex_terminal_runs_the_interactive_cli() {
         let req = codex(Some("gpt-5.5"), Some("read-only"), Target::New(Uuid::nil()));
-        let args = terminal_args(r"C:\npm\codex.cmd", "C:/p", &req, "fix; it").unwrap();
+        let args = terminal_args(r"C:\npm\codex.cmd", "C:/p", &req, "fix; it")
+            .unwrap()
+            .wt_args();
         assert_eq!(
             args,
             [
@@ -551,29 +590,10 @@ mod tests {
                 r"fix\; it"
             ]
         );
-        let args = resume_in_terminal("codex", "C:/p", Agent::Codex, "abc-1").unwrap();
+        let args = resume_in_terminal("codex", "C:/p", Agent::Codex, "abc-1")
+            .unwrap()
+            .wt_args();
         assert_eq!(args, ["-d", "C:/p", "codex", "resume", "abc-1"]);
-    }
-
-    #[test]
-    fn codex_env_keeps_openai_and_codex_vars_only() {
-        let vars = [
-            ("Path", "x"),
-            ("CODEX_HOME", "C:/c"),
-            ("OPENAI_API_KEY", "k"),
-            ("OPENAI_BASE_URL", "u"),
-            ("ANTHROPIC_API_KEY", "leak"),
-            ("GITHUB_TOKEN", "leak"),
-        ]
-        .map(|(k, v)| (k.to_string(), v.to_string()));
-        let kept: Vec<_> = env(Agent::Codex, vars)
-            .into_iter()
-            .map(|(k, _)| k)
-            .collect();
-        assert_eq!(
-            kept,
-            ["Path", "CODEX_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL"]
-        );
     }
 
     #[test]
@@ -620,14 +640,18 @@ mod tests {
     fn cmd_shims_get_prompts_cmd_cannot_misread() {
         let req = codex(None, None, Target::New(Uuid::nil()));
         let prompt = r#"rename "foo" & calc | more > out ^ 50%"#;
-        let args = terminal_args(r"C:\npm\codex.CMD", "C:/p", &req, prompt).unwrap();
+        let args = terminal_args(r"C:\npm\codex.CMD", "C:/p", &req, prompt)
+            .unwrap()
+            .wt_args();
         let sent = args.last().unwrap();
         assert!(
             !sent.contains(['"', '&', '|', '<', '>', '^', '%']),
             "{sent}"
         );
         assert!(sent.contains("rename") && sent.contains("calc"), "{sent}");
-        let args = terminal_args(r"C:\bin\codex.exe", "C:/p", &req, "a & b").unwrap();
+        let args = terminal_args(r"C:\bin\codex.exe", "C:/p", &req, "a & b")
+            .unwrap()
+            .wt_args();
         assert_eq!(args.last().unwrap(), "a & b");
     }
 }

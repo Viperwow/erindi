@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "resources": { "llama/": "llama/" },
+    "macOS": {
+      "minimumSystemVersion": "15.0",
+      "signingIdentity": "-"
+    }
+  }
+}

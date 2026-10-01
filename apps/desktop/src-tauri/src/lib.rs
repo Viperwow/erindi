@@ -1,8 +1,10 @@
 mod agents;
+pub mod guard;
 mod history;
 mod overlay;
 mod runtime;
 mod settings;
+mod terminal;
 mod trace;
 
 use std::collections::HashMap;
@@ -22,7 +24,10 @@ use crate::runtime::{Runtime, SharedSettings};
 use crate::settings::Settings;
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+    builder
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             show_settings(app)
         }))
@@ -52,6 +57,9 @@ pub fn run() {
             recheck_agents
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            guard::start();
             app.manage(overlay::BubbleRect::default());
             overlay::create(app.handle())?;
             let path = app.path().app_config_dir()?.join("settings.json");
@@ -88,7 +96,8 @@ pub fn run() {
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             TrayIconBuilder::new()
-                .icon(app.default_window_icon().cloned().expect("bundled icon"))
+                .icon(tray_icon(app))
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("Erindi")
                 .menu(&Menu::with_items(app, &[&settings, &quit])?)
                 .show_menu_on_left_click(false)
@@ -123,6 +132,15 @@ pub fn run() {
         });
 }
 
+/// The menu bar draws only a black-on-transparent template, recolored for light and dark menus.
+fn tray_icon(app: &tauri::App) -> tauri::image::Image<'_> {
+    if cfg!(target_os = "macos") {
+        tauri::include_image!("icons/tray-template.png")
+    } else {
+        app.default_window_icon().cloned().expect("bundled icon")
+    }
+}
+
 #[tauri::command]
 fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
     runtime.open_session()
@@ -151,9 +169,7 @@ struct Sessions {
 #[tauri::command(async)]
 fn list_sessions(runtime: tauri::State<Runtime>) -> Sessions {
     let (entries, active) = runtime.sessions();
-    let home = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .unwrap_or_default();
+    let home = runtime::home().unwrap_or_default();
     let logs: HashMap<_, _> = Agent::ALL
         .into_iter()
         .map(|a| (a, transcript::find_logs(a, &home)))
@@ -391,7 +407,7 @@ fn register_hotkeys(app: &AppHandle, settings: &Settings, runtime: &Runtime) -> 
         });
         if let Err(e) = registered {
             errors.push(format!(
-                "Hotkey {combo} is taken by Windows or another app; choose another: {e}"
+                "Hotkey {combo} is taken by the OS or another app; choose another: {e}"
             ));
         }
     }

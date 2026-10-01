@@ -15,35 +15,47 @@
 </p>
 
 > [!NOTE]
-> Erindi is an early-stage project: Windows only, Claude Code, Codex and Pi.
+> Erindi is an early-stage project: Windows and macOS 15 or later, with Claude Code, Codex and Pi.
 
 ## Features
 
 - **Talk from any app.** Hold a hotkey to talk, or double-tap another for hands-free listening: each pause sends a phrase, and phrases said while the agent works wait in a queue.
 - **Local speech recognition.** Many languages, even mixed in one phrase, with a live transcript in the overlay bubble.
 - **Claude Code, Codex or Pi.** Pick the default agent in Settings, or say "claude", "codex" or "pi" to start a session with one. Each session keeps its agent.
-- **Runs in the background.** Cancel a run with one press, or open the session in Windows Terminal.
+- **Runs in the background.** Cancel a run with one press, or open the session in a terminal.
 - **Sessions.** New utterances continue the active session; the Sessions tab lists past ones and reopens them.
 - **Voice commands.** Say "new session", "open in terminal" or "cancel" at the start or end of a phrase. A local model understands commands in your own words.
 - **Dictionary.** Replaces what you say with how it should be written.
 
 ## Install
 
-1. Download the archive from [Releases](https://github.com/Viperwow/erindi/releases).
-2. Unpack it and start `erindi.exe`.
-3. Settings opens on first launch. Press **Download** there to install the speech model.
+Download from [Releases](https://github.com/Viperwow/erindi/releases):
+
+| File | For |
+|---|---|
+| `erindi-X.Y.Z-windows-x64.zip` | Windows 10 and 11 |
+| `erindi-X.Y.Z-macos-arm64.dmg` | Macs with Apple silicon (M1 and later), macOS 15 or later |
+| `erindi-X.Y.Z-macos-x64.dmg` | Macs with an Intel processor, macOS 15 or later |
+
+**Windows:** unpack the archive and start `erindi.exe`.
+
+**macOS:** open the dmg and drag Erindi to Applications. Erindi is not notarized by Apple, so macOS blocks its first launch. To allow it, open System Settings → Privacy & Security, scroll to Security and click **Open Anyway**, then enter your password. The button stays for about an hour after the blocked launch.
+
+macOS asks for the microphone the first time you talk. Erindi lives in the menu bar, not in the Dock.
+
+Settings opens on first launch. Press **Download** there to install the speech model.
 
 The `latest` pre-release is rebuilt on every merge into `main`.
 
 ## Usage
 
-| Hotkey | Action |
-|---|---|
-| `Ctrl+Space` | Hold to talk; tap to cancel |
-| `Ctrl+Alt+Space` | Double-tap to turn hands-free listening on or off |
-| `Ctrl+Shift+Space` | Hold to talk into a new session |
-| `Ctrl+Alt+Shift+Space` | Double-tap for hands-free listening into a new session |
-| `Ctrl+Alt+T` | Tap to open the active session in a terminal |
+| Windows | macOS | Action |
+|---|---|---|
+| `Ctrl+Space` | `⌃⇧Space` | Hold to talk; tap to cancel |
+| `Ctrl+Alt+Space` | `⌃⇧⌘Space` | Double-tap to turn hands-free listening on or off |
+| `Ctrl+Shift+Space` | `⌃⌥⇧Space` | Hold to talk into a new session |
+| `Ctrl+Alt+Shift+Space` | `⌃⌥⇧⌘Space` | Double-tap for hands-free listening into a new session |
+| `Ctrl+Alt+T` | `⌃⌥T` | Tap to open the active session in a terminal |
 
 Each shortcut and its mode (Tap, Hold or Double-tap) can be changed in Settings.
 

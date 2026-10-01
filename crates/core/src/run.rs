@@ -36,10 +36,12 @@ pub struct RunOutcome {
 }
 
 /// Runs `spec` as a process tree that is killed as a whole on cancel, timeout or drop.
+/// `on_spawn` gets the child's pid, which on unix is also its process group id.
 pub async fn run(
     spec: RunSpec,
     cancel: CancellationToken,
     mut on_line: impl FnMut(&str),
+    on_spawn: impl FnOnce(u32),
 ) -> std::io::Result<RunOutcome> {
     let mut command = tokio::process::Command::new(&spec.program);
     command
@@ -61,6 +63,10 @@ pub async fn run(
     #[cfg(unix)]
     wrap.wrap(ProcessGroup::leader());
     let mut child = wrap.spawn()?;
+    let pgid = child.id();
+    if let Some(pid) = pgid {
+        on_spawn(pid);
+    }
 
     let mut stdin = child.stdin().take().expect("piped stdin");
     let input = spec.stdin;
@@ -103,9 +109,18 @@ pub async fn run(
             Box::into_pin(child.kill()).await?;
             end
         }
-        None => RunEnd::Exited {
-            success: child.wait().await?.success(),
-        },
+        None => {
+            let success = child.wait().await?.success();
+            // A background job the agent left in its group would outlive it.
+            #[cfg(unix)]
+            if let Some(pgid) = pgid {
+                let _ = tokio::process::Command::new("kill")
+                    .args(["-KILL", &format!("-{pgid}")])
+                    .status()
+                    .await;
+            }
+            RunEnd::Exited { success }
+        }
     };
     stdin_task.abort();
     let stderr_tail = stderr_task.await.unwrap_or_default();

@@ -22,16 +22,21 @@ async fn main() {
         program,
         args: agent::headless_args(&req, &cwd).unwrap(),
         cwd: cwd.into(),
-        env: agent::env(Agent::Codex, std::env::vars()),
+        env: std::env::vars().collect(),
         stdin: prompt,
         timeout: Duration::from_secs(300),
     };
     let mut parser = EventParser::new(Agent::Codex);
-    let outcome = run(spec, CancellationToken::new(), |line| {
-        for event in parser.feed(line) {
-            println!("{event:?}");
-        }
-    })
+    let outcome = run(
+        spec,
+        CancellationToken::new(),
+        |line| {
+            for event in parser.feed(line) {
+                println!("{event:?}");
+            }
+        },
+        |_| {},
+    )
     .await
     .unwrap();
     println!("{:?}\n{}", outcome.end, outcome.stderr_tail);

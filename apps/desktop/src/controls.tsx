@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { accelerator, heldModifiers } from "./hotkey";
+import { accelerator, displayHotkey, heldModifiers, isMac } from "./hotkey";
 import type { Agent } from "./agent.ts";
 
 export type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
@@ -242,7 +242,11 @@ export function HotkeyInput(props: { value: string; label: string; onChange: (va
       onClick={() => setRecording(!recording)}
       onBlur={() => setRecording(false)}
     >
-      {recording ? (held ? `${held.replaceAll("+", " + ")} + …` : "Press keys… (Esc to cancel)") : props.value}
+      {recording
+        ? held
+          ? `${isMac ? displayHotkey(held, true) : held.replaceAll("+", " + ")} + …`
+          : "Press keys… (Esc to cancel)"
+        : displayHotkey(props.value, isMac)}
     </button>
   );
 }

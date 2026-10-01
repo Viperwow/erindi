@@ -4,19 +4,6 @@ use crate::agent::ModelOption;
 use crate::stream::RunEvent;
 
 /// Windows basics shared with Claude, Pi's own settings, cloud credentials, and any provider's API key.
-const ENV_ALLOW_PREFIX: &[&str] = &["PI_", "AWS_", "AZURE_", "GOOGLE_"];
-
-pub fn pi_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
-    vars.into_iter()
-        .filter(|(k, _)| {
-            let k = k.to_uppercase();
-            crate::claude::base_env_allowed(&k)
-                || k.ends_with("_API_KEY")
-                || ENV_ALLOW_PREFIX.iter().any(|p| k.starts_with(p))
-        })
-        .collect()
-}
-
 /// `--session-id` creates the session when it is missing, so new and continued runs look alike.
 /// A continued session keeps its own model, so only a new one gets `--model`.
 pub fn print_args(model: Option<&str>, session_id: &str, new: bool) -> Vec<String> {
@@ -29,35 +16,26 @@ pub fn print_args(model: Option<&str>, session_id: &str, new: bool) -> Vec<Strin
     args
 }
 
-/// The prompt follows `--`, and its `;` is escaped because Windows Terminal splits commands there.
+/// The prompt follows `--`, so it can never be read as an option.
 pub fn terminal_args(
     program: &str,
-    cwd: &str,
     model: Option<&str>,
     session_id: &str,
     new: bool,
     prompt: &str,
 ) -> Vec<String> {
-    let mut args = vec![
-        "-d".into(),
-        cwd.into(),
-        program.into(),
-        "--session-id".into(),
-        session_id.into(),
-    ];
+    let mut args = vec![program.into(), "--session-id".into(), session_id.into()];
     if let Some(model) = model.filter(|_| new) {
         args.extend(["--model".into(), model.into()]);
     }
     if !prompt.is_empty() {
-        args.extend(["--".into(), prompt.replace(';', r"\;")]);
+        args.extend(["--".into(), prompt.into()]);
     }
     args
 }
 
-pub fn resume_in_terminal(program: &str, cwd: &str, native_id: &str) -> Vec<String> {
-    ["-d", cwd, program, "--session", native_id]
-        .map(String::from)
-        .into()
+pub fn resume_in_terminal(program: &str, native_id: &str) -> Vec<String> {
+    [program, "--session", native_id].map(String::from).into()
 }
 
 /// Pi retries a failed request on its own, so a run fails only when its last reply failed.
@@ -240,13 +218,10 @@ mod tests {
             ["-p", "--mode", "json", "--session-id", "abc"]
         );
         assert_eq!(
-            terminal_args("pi", "C:/p", None, "abc", true, "a; b"),
-            ["-d", "C:/p", "pi", "--session-id", "abc", "--", r"a\; b"]
+            terminal_args("pi", None, "abc", true, "a; b"),
+            ["pi", "--session-id", "abc", "--", "a; b"]
         );
-        assert_eq!(
-            resume_in_terminal("pi", "C:/p", "abc"),
-            ["-d", "C:/p", "pi", "--session", "abc"]
-        );
+        assert_eq!(resume_in_terminal("pi", "abc"), ["pi", "--session", "abc"]);
     }
 
     #[test]
@@ -268,18 +243,5 @@ mod tests {
             ]
         );
         assert_eq!(parse_models("No models available.\n"), []);
-    }
-
-    #[test]
-    fn env_keeps_provider_keys_only() {
-        let kept: Vec<_> = pi_env([
-            ("ANTHROPIC_API_KEY".into(), "a".into()),
-            ("PI_OFFLINE".into(), "1".into()),
-            ("GITHUB_TOKEN".into(), "g".into()),
-        ])
-        .into_iter()
-        .map(|(k, _)| k)
-        .collect();
-        assert_eq!(kept, ["ANTHROPIC_API_KEY", "PI_OFFLINE"]);
     }
 }

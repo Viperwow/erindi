@@ -84,7 +84,11 @@ fn check(agent: Agent) -> AgentStatus {
 
 fn cli_output(program: &Path, args: &[&str]) -> Result<String, String> {
     let mut command = std::process::Command::new(program);
-    command.args(args);
+    // npm-installed CLIs look for `node` on PATH, which a macOS app only has from the login shell.
+    command
+        .args(args)
+        .envs(erindi_core::shell_env::vars())
+        .env("PATH", erindi_core::cli::current_path());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -118,7 +122,10 @@ impl Agents {
     /// Checks every agent on this thread, emits `agents-changed` when anything changed, and
     /// returns what it found.
     pub fn check_now(&self, app: &AppHandle) -> Vec<AgentStatus> {
-        let (fresh, changed) = self.check_once(|| Agent::ALL.into_iter().map(check).collect());
+        let (fresh, changed) = self.check_once(|| {
+            erindi_core::shell_env::refresh();
+            Agent::ALL.into_iter().map(check).collect()
+        });
         if changed {
             let _ = app.emit_to("settings", "agents-changed", fresh.clone());
         }

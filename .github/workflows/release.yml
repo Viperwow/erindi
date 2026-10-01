@@ -1,7 +1,7 @@
 name: Release
 
-# Every merge into main publishes a Windows build as the rolling "latest" pre-release.
-# A feat or fix since the last tag also makes a vX.Y.Z release that keeps its own build.
+# Every merge into main publishes Windows and macOS builds as the rolling "latest" pre-release.
+# A feat or fix since the last tag also makes a vX.Y.Z release that keeps its own builds.
 on:
   push:
     branches: [main]
@@ -39,7 +39,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm exec semantic-release
 
-  windows:
+  build-windows:
     needs: version
     runs-on: windows-latest
     steps:
@@ -87,15 +87,74 @@ jobs:
           pnpm tauri build --no-bundle
       - name: Package
         run: ./scripts/package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/erindi-*.zip
+
+  build-macos:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-latest, target: aarch64-apple-darwin }
+          - { arch: x64, runner: macos-15-intel, target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - run: scripts/fetch-llama-macos.sh ${{ matrix.arch }}
+      - name: Build
+        working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm tauri build --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          version=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/bundle/dmg/*.dmg "dist/erindi-$version-macos-${{ matrix.arch }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/erindi-*.dmg
+
+  publish:
+    needs: [version, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag || github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          gh release delete latest --cleanup-tag --yes 2>$null
-          gh release create latest dist/erindi-*.zip --prerelease --target ${{ github.sha }} --title "Erindi $version (latest build)" --notes "Erindi $version, built from ${{ github.sha }}. Work in progress; replaced on every merge into main."
+          version=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest dist/* --prerelease --target ${{ github.sha }} --title "Erindi $version (latest build)" --notes-file - <<EOF
+          Erindi $version, built from ${{ github.sha }}. Work in progress; replaced on every merge into main.
+
+          **macOS:** Erindi is not notarized by Apple, so macOS blocks its first launch. Open System Settings → Privacy & Security and click **Open Anyway**.
+          EOF
       - name: Attach to the version release
         if: needs.version.outputs.tag
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload ${{ needs.version.outputs.tag }} dist/erindi-*.zip
+        run: gh release upload ${{ needs.version.outputs.tag }} dist/*

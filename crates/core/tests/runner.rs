@@ -18,12 +18,22 @@ fn spec(mode: &str, cwd: PathBuf) -> RunSpec {
 
 async fn collect(spec: RunSpec, cancel: CancellationToken) -> (RunEnd, Vec<String>, String) {
     let mut lines = vec![];
-    let outcome = run(spec, cancel, |l| lines.push(l.to_string()))
+    let outcome = run(spec, cancel, |l| lines.push(l.to_string()), |_| {})
         .await
         .unwrap();
     (outcome.end, lines, outcome.stderr_tail)
 }
 
+#[cfg(unix)]
+fn alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .unwrap()
+        .success()
+}
+
+#[cfg(windows)]
 fn alive(pid: u32) -> bool {
     let out = std::process::Command::new("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/NH"])
@@ -76,10 +86,15 @@ async fn cancel_kills_whole_tree() {
     let mut grandchild = None;
     let started = Instant::now();
     let c = cancel.clone();
-    let outcome = run(spec("tree", dir.path().into()), cancel, |l| {
-        grandchild = l.parse::<u32>().ok();
-        c.cancel();
-    })
+    let outcome = run(
+        spec("tree", dir.path().into()),
+        cancel,
+        |l| {
+            grandchild = l.parse::<u32>().ok();
+            c.cancel();
+        },
+        |_| {},
+    )
     .await
     .unwrap();
 
@@ -87,6 +102,18 @@ async fn cancel_kills_whole_tree() {
     assert!(started.elapsed() < Duration::from_secs(10));
     let pid = grandchild.expect("grandchild pid");
     assert!(!alive(pid), "grandchild {pid} survived cancel");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_exited_run_leaves_no_background_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let (end, lines, _) =
+        collect(spec("orphan", dir.path().into()), CancellationToken::new()).await;
+    assert_eq!(end, RunEnd::Exited { success: true });
+    let pid: u32 = lines[0].parse().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!alive(pid), "background process {pid} outlived the run");
 }
 
 #[tokio::test]
@@ -121,5 +148,9 @@ async fn missing_program_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = spec("echo", dir.path().into());
     s.program = dir.path().join("no-such-agent.exe");
-    assert!(run(s, CancellationToken::new(), |_| {}).await.is_err());
+    assert!(
+        run(s, CancellationToken::new(), |_| {}, |_| {})
+            .await
+            .is_err()
+    );
 }

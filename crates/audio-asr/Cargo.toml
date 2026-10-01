@@ -7,4 +7,9 @@ license.workspace = true
 [dependencies]
 cpal = "0.18.2"
 rubato = "5.0.0"
+
+[target.'cfg(windows)'.dependencies]
 sherpa-onnx = { version = "1.13.8", default-features = false, features = ["shared"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+sherpa-onnx = "1.13.8"

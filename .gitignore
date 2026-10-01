@@ -7,3 +7,4 @@ dist/
 /apps/desktop/src-tauri/gen/
 /dist/
 /.serena/
+/apps/desktop/src-tauri/llama/

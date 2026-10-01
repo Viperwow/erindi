@@ -190,7 +190,7 @@ impl Runtime {
     }
 }
 
-/// Reopens session `id` in Windows Terminal with the agent that started it.
+/// Reopens session `id` in a terminal with the agent that started it.
 fn open_terminal(
     history: &Mutex<History>,
     cwd: &str,
@@ -208,18 +208,21 @@ fn open_terminal(
     let program = erindi_core::cli::locate(agent).ok_or_else(|| missing(agent))?;
     let args = agent::resume_in_terminal(&program.display().to_string(), cwd, agent, &native)
         .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
-    std::process::Command::new("wt.exe")
-        .args(args)
-        .spawn()
-        .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
-    Ok(())
+    crate::terminal::open(&args)
+}
+
+pub fn home() -> Option<PathBuf> {
+    std::env::home_dir()
 }
 
 pub fn models_dir() -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from));
+    #[cfg(windows)]
     let data_dir = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Erindi"));
+    #[cfg(not(windows))]
+    let data_dir = home().map(|h| h.join("Library/Application Support/Erindi"));
     pick_models_dir(
         std::env::var_os("ERINDI_MODELS"),
         exe_dir,
@@ -239,7 +242,12 @@ fn pick_models_dir(
     if let Some(env) = env {
         return env.into();
     }
-    if let Some(dir) = exe_dir.map(|d| d.join("models")).filter(|d| d.is_dir()) {
+    // Writing inside the macOS app bundle breaks its signature, so only Windows looks there.
+    if let Some(dir) = exe_dir
+        .filter(|_| cfg!(windows))
+        .map(|d| d.join("models"))
+        .filter(|d| d.is_dir())
+    {
         return dir;
     }
     match data_dir {
@@ -251,7 +259,7 @@ fn pick_models_dir(
 /// The command model server. It starts when model commands are turned on and stays loaded.
 #[derive(Clone, Default)]
 struct Refiner {
-    server: Arc<Mutex<Option<LlamaServer>>>,
+    server: Arc<Mutex<Option<Guarded>>>,
     enabled: Arc<AtomicBool>,
 }
 
@@ -294,12 +302,38 @@ impl Refiner {
     }
 }
 
-fn start_llama() -> Option<LlamaServer> {
+/// A server the process guard knows about for as long as it lives.
+struct Guarded(LlamaServer);
+
+impl std::ops::Deref for Guarded {
+    type Target = LlamaServer;
+    fn deref(&self) -> &LlamaServer {
+        &self.0
+    }
+}
+
+impl Drop for Guarded {
+    fn drop(&mut self) {
+        crate::guard::untrack(self.0.pid());
+    }
+}
+
+fn start_llama() -> Option<Guarded> {
     let model = models_dir().join(erindi_core::models::CLEANUP_GGUF);
     let started = Instant::now();
-    let server = LlamaServer::start(&llama_server_exe(), &model)
-        .map_err(|e| eprintln!("{e}"))
-        .ok()?;
+    let spawned = std::cell::Cell::new(None);
+    let server = LlamaServer::start(&llama_server_exe(), &model, |pid| {
+        crate::guard::track(pid);
+        spawned.set(Some(pid));
+    })
+    .map_err(|e| {
+        if let Some(pid) = spawned.get() {
+            crate::guard::untrack(pid);
+        }
+        eprintln!("{e}");
+    })
+    .ok()?;
+    let server = Guarded(server);
     let _ = server.classify(erindi_core::classify::WARM_UP);
     eprintln!("llama-server ready and warm in {:?}", started.elapsed());
     Some(server)
@@ -314,10 +348,14 @@ pub fn llama_server_exe() -> PathBuf {
 
 /// The release zip ships `llama/` next to the exe; development builds use `models/llama/`.
 fn pick_llama_server(exe_dir: Option<PathBuf>, models: &Path) -> PathBuf {
+    #[cfg(windows)]
+    let (bundled, name) = ("llama/llama-server.exe", "llama/llama-server.exe");
+    #[cfg(not(windows))]
+    let (bundled, name) = ("../Resources/llama/llama-server", "llama/llama-server");
     exe_dir
-        .map(|d| d.join("llama/llama-server.exe"))
+        .map(|d| d.join(bundled))
         .filter(|p| p.is_file())
-        .unwrap_or_else(|| models.join("llama/llama-server.exe"))
+        .unwrap_or_else(|| models.join(name))
 }
 
 /// Applies the dictionary as currently saved in settings.
@@ -568,10 +606,7 @@ impl Executor {
                 let args =
                     agent::terminal_args(&program.display().to_string(), &cwd, &request, &prompt)
                         .map_err(|e| format!("Cannot open a terminal in {cwd}: {e:?}"))?;
-                std::process::Command::new("wt.exe")
-                    .args(args)
-                    .spawn()
-                    .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
+                crate::terminal::open(&args)?;
                 Ok(start)
             });
         let start = match started {
@@ -636,9 +671,9 @@ impl Executor {
             program,
             args,
             cwd: cwd.clone().into(),
-            env: agent::env(
-                agent,
-                run_env(std::env::vars(), erindi_core::cli::current_path()),
+            env: agent_env(
+                erindi_core::shell_env::vars(),
+                erindi_core::cli::current_path(),
             ),
             stdin: prompt.clone(),
             timeout: RUN_TIMEOUT,
@@ -665,19 +700,31 @@ impl Executor {
         tauri::async_runtime::spawn(async move {
             let mut parser = EventParser::new(agent);
             let mut native_seen = false;
-            let outcome = run(spec, token, |line| {
-                for event in parser.feed(line) {
-                    if let RunEvent::SessionStarted { native_id } = &event {
-                        native_seen = true;
-                        if let Err(e) = history.lock().unwrap().set_native(id, native_id) {
-                            eprintln!("cannot save session history: {e}");
+            let mut pgid = None;
+            let outcome = run(
+                spec,
+                token,
+                |line| {
+                    for event in parser.feed(line) {
+                        if let RunEvent::SessionStarted { native_id } = &event {
+                            native_seen = true;
+                            if let Err(e) = history.lock().unwrap().set_native(id, native_id) {
+                                eprintln!("cannot save session history: {e}");
+                            }
+                            let _ = app.emit_to("settings", "sessions-changed", ());
                         }
-                        let _ = app.emit_to("settings", "sessions-changed", ());
+                        let _ = tx.send(Msg::Run { op, event });
                     }
-                    let _ = tx.send(Msg::Run { op, event });
-                }
-            })
+                },
+                |pid| {
+                    pgid = Some(pid);
+                    crate::guard::track(pid);
+                },
+            )
             .await;
+            if let Some(pid) = pgid {
+                crate::guard::untrack(pid);
+            }
             let msg = match outcome {
                 Ok(outcome) => Msg::RunExited {
                     op,
@@ -719,8 +766,7 @@ fn continue_flags(started: &Start, live: Option<Details>) -> (Option<String>, Op
 
 /// Codex skips this folder's hooks and MCP servers until it trusts the folder.
 pub fn codex_limited(cwd: &str) -> bool {
-    let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
-    let Some(path) = erindi_core::codex::config_path(home) else {
+    let Some(path) = erindi_core::codex::config_path(home()) else {
         return false;
     };
     let config = std::fs::read_to_string(path).unwrap_or_default();
@@ -738,17 +784,12 @@ pub fn trust_in_codex(cwd: &str) -> Result<(), String> {
     };
     let args = agent::terminal_args(&program.display().to_string(), cwd, &request, "")
         .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
-    std::process::Command::new("wt.exe")
-        .args(args)
-        .spawn()
-        .map_err(|e| format!("Cannot start Windows Terminal: {e}"))?;
-    Ok(())
+    crate::terminal::open(&args)
 }
 
 /// What the agent's own log says about session `native_id` now.
 fn session_details(agent: Agent, native_id: &str) -> Option<Details> {
-    let home = std::env::var_os("USERPROFILE").map(PathBuf::from)?;
-    let logs = erindi_core::transcript::find_logs(agent, &home);
+    let logs = erindi_core::transcript::find_logs(agent, &home()?);
     erindi_core::transcript::read(agent, logs.get(native_id)?)
 }
 
@@ -775,6 +816,14 @@ fn forget_after_run(agent: Agent, new: bool, native_seen: bool) -> bool {
 }
 
 /// The launcher's environment with PATH as it is now, so tools installed after launch are found.
+/// An agent gets the full environment, as when started by hand; only PATH is refreshed.
+fn agent_env(
+    vars: impl IntoIterator<Item = (String, String)>,
+    path: String,
+) -> Vec<(String, String)> {
+    run_env(vars, path)
+}
+
 fn run_env(
     vars: impl IntoIterator<Item = (String, String)>,
     path: String,
@@ -869,6 +918,20 @@ mod tests {
     }
 
     #[test]
+    fn agents_keep_every_variable() {
+        let vars = [
+            ("GITHUB_TOKEN", "t"),
+            ("OPENAI_API_KEY", "k"),
+            ("Path", "old"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let env = agent_env(vars, "new".into());
+        assert!(env.contains(&("GITHUB_TOKEN".into(), "t".into())));
+        assert!(env.contains(&("OPENAI_API_KEY".into(), "k".into())));
+        assert!(env.contains(&("PATH".into(), "new".into())));
+    }
+
+    #[test]
     fn run_env_replaces_path_whatever_its_case() {
         let vars = [("Path", "old"), ("TEMP", "t")].map(|(k, v)| (k.to_string(), v.to_string()));
         assert_eq!(
@@ -890,6 +953,19 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn models_next_to_the_app_are_ignored() {
+        let exe = tempfile::tempdir().unwrap();
+        std::fs::create_dir(exe.path().join("models")).unwrap();
+        let data = PathBuf::from("/Users/me/Library/Application Support/Erindi");
+        assert_eq!(
+            pick_models_dir(None, Some(exe.path().into()), Some(data.clone()), false),
+            data.join("models")
+        );
+    }
+
+    #[cfg(windows)]
     #[test]
     fn models_next_to_exe_beat_repository() {
         let dir = tempfile::tempdir().unwrap();
@@ -916,9 +992,10 @@ mod tests {
             Some(r"D:\data".into()),
             false,
         );
-        assert_eq!(picked, PathBuf::from(r"D:\data\models"));
+        assert_eq!(picked, PathBuf::from(r"D:\data").join("models"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn bundled_llama_server_beats_models_folder() {
         let dir = tempfile::tempdir().unwrap();
@@ -931,6 +1008,24 @@ mod tests {
         assert_eq!(
             pick_llama_server(None, Path::new("M:/models")),
             Path::new("M:/models").join("llama/llama-server.exe")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn llama_server_is_found_in_the_bundle() {
+        let dir = tempfile::tempdir().unwrap();
+        let contents = dir.path().join("Erindi.app/Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        std::fs::create_dir_all(contents.join("Resources/llama")).unwrap();
+        std::fs::write(contents.join("Resources/llama/llama-server"), "").unwrap();
+        assert_eq!(
+            pick_llama_server(Some(contents.join("MacOS")), Path::new("/models")),
+            contents.join("MacOS/../Resources/llama/llama-server")
+        );
+        assert_eq!(
+            pick_llama_server(None, Path::new("/models")),
+            Path::new("/models").join("llama/llama-server")
         );
     }
 }

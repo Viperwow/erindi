@@ -3,19 +3,38 @@ use std::path::PathBuf;
 use crate::agent::Agent;
 
 /// The first `name` + extension from `pathext` in the directories of `path`.
+/// Off Windows `path` is split on `:` and `pathext` is ignored: the CLI has no extension.
 pub fn find(name: &str, path: &str, pathext: &str) -> Option<PathBuf> {
-    let exts: Vec<&str> = pathext.split(';').filter(|e| !e.is_empty()).collect();
-    path.split(';')
+    let exts: Vec<&str> = if cfg!(windows) {
+        pathext.split(';').filter(|e| !e.is_empty()).collect()
+    } else {
+        vec![""]
+    };
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    path.split(separator)
         .map(|d| d.trim().trim_matches('"'))
         .filter(|d| !d.is_empty())
         .find_map(|dir| {
             exts.iter()
                 .map(|ext| PathBuf::from(dir).join(format!("{name}{}", ext.to_lowercase())))
-                .find(|p| p.is_file())
+                .find(|p| runnable(p))
         })
 }
 
+#[cfg(unix)]
+fn runnable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn runnable(path: &std::path::Path) -> bool {
+    path.is_file()
+}
+
 /// Windows builds a process PATH from the system value followed by the user value.
+#[cfg(windows)]
 fn merge(system: &str, user: &str) -> String {
     [system, user]
         .into_iter()
@@ -41,7 +60,7 @@ pub fn current_path() -> String {
 
 #[cfg(not(windows))]
 pub fn current_path() -> String {
-    std::env::var("PATH").unwrap_or_default()
+    crate::shell_env::path()
 }
 
 /// `Path` under `subkey`, with `%VARS%` expanded by the registry API.
@@ -90,6 +109,36 @@ mod tests {
         p
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_bare_cli_is_found_on_a_colon_path() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let cli = executable(b.path(), "codex");
+        let path = format!("{}:{}", a.path().display(), b.path().display());
+        assert_eq!(find("codex", &path, ""), Some(cli));
+    }
+
+    #[cfg(unix)]
+    fn executable(dir: &std::path::Path, name: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = touch(dir, name);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_cannot_run_is_skipped() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        touch(a.path(), "codex");
+        let cli = executable(b.path(), "codex");
+        let path = format!("{}:{}", a.path().display(), b.path().display());
+        assert_eq!(find("codex", &path, ""), Some(cli));
+    }
+
+    #[cfg(windows)]
     #[test]
     fn cmd_files_are_found_through_pathext() {
         let a = tempfile::tempdir().unwrap();
@@ -99,6 +148,7 @@ mod tests {
         assert_eq!(find("codex", &path, ".COM;.EXE;.BAT;.CMD"), Some(cmd));
     }
 
+    #[cfg(windows)]
     #[test]
     fn earlier_directories_win_and_exe_beats_cmd_in_one_directory() {
         let a = tempfile::tempdir().unwrap();
@@ -114,6 +164,7 @@ mod tests {
         assert_eq!(find("codex", "", ".EXE"), None);
     }
 
+    #[cfg(windows)]
     #[test]
     fn quoted_entries_are_unquoted() {
         let a = tempfile::tempdir().unwrap();
@@ -122,6 +173,7 @@ mod tests {
         assert_eq!(find("codex", &path, ".EXE"), Some(exe));
     }
 
+    #[cfg(windows)]
     #[test]
     fn merge_puts_system_entries_first() {
         assert_eq!(

@@ -53,6 +53,38 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .visible(false)
         .build()?;
     window.set_ignore_cursor_events(true)?;
+    #[cfg(target_os = "macos")]
+    to_panel(&window)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+tauri_nspanel::tauri_panel! {
+    panel!(OverlayPanel {
+        config: {
+            can_become_key_window: false,
+            is_floating_panel: true
+        }
+    })
+}
+
+/// A plain window steals focus from the app the user talks over and stays off full-screen
+/// Spaces; a non-activating panel does neither.
+#[cfg(target_os = "macos")]
+fn to_panel(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use tauri_nspanel::{CollectionBehavior, PanelLevel, StyleMask, WebviewWindowExt};
+    let panel = window.to_panel::<OverlayPanel>()?;
+    panel.set_level(PanelLevel::Status.value());
+    panel
+        .add_style_mask(StyleMask::empty().nonactivating_panel().into())
+        .map_err(|e| tauri::Error::Anyhow(e.into()))?;
+    panel.set_collection_behavior(
+        CollectionBehavior::new()
+            .can_join_all_spaces()
+            .full_screen_auxiliary()
+            .stationary()
+            .into(),
+    );
     Ok(())
 }
 

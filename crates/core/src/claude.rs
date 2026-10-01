@@ -31,58 +31,6 @@ pub struct ClaudeRequest {
 #[derive(Debug, PartialEq, Eq)]
 pub struct InvalidModel;
 
-/// Environment variables Claude Code needs on Windows; everything else stays with the launcher.
-const ENV_ALLOW: &[&str] = &[
-    "PATH",
-    "PATHEXT",
-    "SYSTEMROOT",
-    "SYSTEMDRIVE",
-    "WINDIR",
-    "COMSPEC",
-    "USERPROFILE",
-    "HOMEDRIVE",
-    "HOMEPATH",
-    "HOME",
-    "APPDATA",
-    "LOCALAPPDATA",
-    "PROGRAMDATA",
-    "PROGRAMFILES",
-    "PROGRAMFILES(X86)",
-    "PROGRAMW6432",
-    "COMMONPROGRAMFILES",
-    "COMMONPROGRAMFILES(X86)",
-    "COMMONPROGRAMW6432",
-    "TEMP",
-    "TMP",
-    "USERNAME",
-    "USERDOMAIN",
-    "COMPUTERNAME",
-    "NUMBER_OF_PROCESSORS",
-    "PROCESSOR_ARCHITECTURE",
-    "OS",
-    "LANG",
-    "LC_ALL",
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "NO_PROXY",
-    "NODE_EXTRA_CA_CERTS",
-    "SSL_CERT_FILE",
-];
-const ENV_ALLOW_PREFIX: &[&str] = &["ANTHROPIC_", "CLAUDE_"];
-
-pub(crate) fn base_env_allowed(upper: &str) -> bool {
-    ENV_ALLOW.contains(&upper)
-}
-
-pub fn claude_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
-    vars.into_iter()
-        .filter(|(k, _)| {
-            let k = k.to_uppercase();
-            base_env_allowed(&k) || ENV_ALLOW_PREFIX.iter().any(|p| k.starts_with(p))
-        })
-        .collect()
-}
-
 /// Arguments for a headless run. The prompt is written to stdin, never passed as an argument.
 pub fn claude_args(req: &ClaudeRequest) -> Result<Vec<String>, InvalidModel> {
     let mut args: Vec<String> = ["-p", "--output-format", "stream-json", "--verbose"]
@@ -132,9 +80,8 @@ pub enum InvalidTerminalRun {
     Model,
 }
 
-/// Windows Terminal arguments for an interactive Claude whose first message is `prompt`.
-/// The prompt follows `--`, so it can never be read as an option, and its `;` is escaped because
-/// Windows Terminal would otherwise split the command there.
+/// The command line of an interactive Claude whose first message is `prompt`.
+/// The prompt follows `--`, so it can never be read as an option.
 pub fn run_in_terminal(
     program: &str,
     cwd: &str,
@@ -144,15 +91,15 @@ pub fn run_in_terminal(
     if cwd.is_empty() || cwd.starts_with('-') || cwd.contains(';') {
         return Err(InvalidTerminalRun::Cwd);
     }
-    let mut args = vec!["-d".into(), cwd.into(), program.into()];
+    let mut args = vec![program.into()];
     args.extend(options(req).map_err(|_| InvalidTerminalRun::Model)?);
     if !prompt.is_empty() {
-        args.extend(["--".into(), prompt.replace(';', r"\;")]);
+        args.extend(["--".into(), prompt.into()]);
     }
     Ok(args)
 }
 
-/// Windows Terminal arguments that reopen a headless session interactively.
+/// The command line that reopens a headless session interactively.
 pub fn resume_in_terminal(
     program: &str,
     cwd: &str,
@@ -162,8 +109,6 @@ pub fn resume_in_terminal(
         return Err(InvalidCwd);
     }
     Ok(vec![
-        "-d".into(),
-        cwd.into(),
         program.into(),
         "--resume".into(),
         session_id.to_string(),
@@ -180,8 +125,6 @@ mod tests {
         assert_eq!(
             resume_in_terminal(r"C:\bin\claude.exe", "C:\\My Projects\\app", id).unwrap(),
             [
-                "-d",
-                "C:\\My Projects\\app",
                 r"C:\bin\claude.exe",
                 "--resume",
                 "00000000-0000-0000-0000-000000000000"
@@ -268,34 +211,6 @@ mod tests {
     }
 
     #[test]
-    fn env_keeps_only_allowlisted_vars() {
-        let vars = [
-            ("Path", "C:\\bin"),
-            ("SystemRoot", "C:\\Windows"),
-            ("USERPROFILE", "C:\\Users\\me"),
-            ("ANTHROPIC_API_KEY", "sk"),
-            ("CLAUDE_CODE_GIT_BASH_PATH", "C:\\git\\bash.exe"),
-            ("https_proxy", "http://proxy"),
-            ("OPENAI_API_KEY", "leak"),
-            ("GITHUB_TOKEN", "leak"),
-            ("RUST_LOG", "debug"),
-        ]
-        .map(|(k, v)| (k.to_string(), v.to_string()));
-        let kept: Vec<_> = claude_env(vars).into_iter().map(|(k, _)| k).collect();
-        assert_eq!(
-            kept,
-            [
-                "Path",
-                "SystemRoot",
-                "USERPROFILE",
-                "ANTHROPIC_API_KEY",
-                "CLAUDE_CODE_GIT_BASH_PATH",
-                "https_proxy"
-            ]
-        );
-    }
-
-    #[test]
     fn serde_uses_cli_names() {
         assert_eq!(
             serde_json::to_string(&ClaudeMode::AcceptEdits).unwrap(),
@@ -314,8 +229,6 @@ mod tests {
         assert_eq!(
             args,
             [
-                "-d",
-                "C:/p",
                 "claude",
                 "--session-id",
                 &Uuid::nil().to_string(),
@@ -324,7 +237,7 @@ mod tests {
                 "--model",
                 "opus",
                 "--",
-                r"--help\; rm -rf /",
+                "--help; rm -rf /",
             ]
         );
         let args = run_in_terminal("claude", "C:/p", &req, "").unwrap();

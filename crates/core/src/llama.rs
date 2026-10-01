@@ -21,7 +21,8 @@ pub struct LlamaServer {
 }
 
 impl LlamaServer {
-    pub fn start(exe: &Path, model: &Path) -> Result<Self, String> {
+    /// `on_spawn` gets the server's pid as soon as it runs, before the model has loaded.
+    pub fn start(exe: &Path, model: &Path, on_spawn: impl FnOnce(u32)) -> Result<Self, String> {
         let port = TcpListener::bind("127.0.0.1:0")
             .and_then(|l| l.local_addr())
             .map_err(|e| format!("No free port for llama-server: {e}"))?
@@ -41,9 +42,15 @@ impl LlamaServer {
             use windows::Win32::System::Threading::CREATE_NO_WINDOW;
             command.creation_flags(CREATE_NO_WINDOW.0);
         }
+        // Its own group, so Erindi's guard can kill the server with everything it started.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        // Only the Windows job setup below needs to kill the child on failure.
+        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut child = command
             .spawn()
             .map_err(|e| format!("Cannot start llama-server: {e}"))?;
+        on_spawn(child.id());
         // process-wrap's std job does not kill on close, so a quit without destructors would leave
         // the server running; this job dies with Erindi however it exits.
         #[cfg(windows)]
@@ -66,6 +73,11 @@ impl LlamaServer {
         };
         server.wait_ready()?;
         Ok(server)
+    }
+
+    /// The server's pid, which on unix is also its process group id.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
     }
 
     fn wait_ready(&mut self) -> Result<(), String> {
@@ -113,10 +125,27 @@ mod tests {
 
     #[test]
     fn missing_server_is_an_error() {
-        let err = LlamaServer::start(Path::new("C:/nope/llama-server.exe"), Path::new("m.gguf"))
-            .err()
-            .unwrap();
+        let err = LlamaServer::start(
+            Path::new("C:/nope/llama-server.exe"),
+            Path::new("m.gguf"),
+            |_| {},
+        )
+        .err()
+        .unwrap();
         assert!(err.contains("llama-server"), "{err}");
+    }
+
+    #[test]
+    fn the_pid_is_reported_before_the_server_is_ready() {
+        let mut spawned = None;
+        // The test binary rejects llama-server's arguments and exits before it is ever ready.
+        let result = LlamaServer::start(
+            &std::env::current_exe().unwrap(),
+            Path::new("m.gguf"),
+            |pid| spawned = Some(pid),
+        );
+        assert!(result.is_err());
+        assert!(spawned.is_some());
     }
 
     /// `ERINDI_LLAMA=<llama-server.exe>;<model.gguf> cargo test -p erindi-core llama -- --ignored`
@@ -125,7 +154,7 @@ mod tests {
     fn classifies_with_a_live_server() {
         let var = std::env::var("ERINDI_LLAMA").unwrap();
         let (exe, model) = var.split_once(';').unwrap();
-        let server = LlamaServer::start(Path::new(exe), Path::new(model)).unwrap();
+        let server = LlamaServer::start(Path::new(exe), Path::new(model), |_| {}).unwrap();
         let (command, _) = server
             .classify("давай с чистого листа, напиши README")
             .unwrap()
