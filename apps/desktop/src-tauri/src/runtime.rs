@@ -979,7 +979,7 @@ mod tests {
             Some(r"D:\data".into()),
             false,
         );
-        assert_eq!(picked, PathBuf::from(r"D:\data\models"));
+        assert_eq!(picked, PathBuf::from(r"D:\data").join("models"));
     }
 
     #[test]
