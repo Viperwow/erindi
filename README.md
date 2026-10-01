@@ -39,10 +39,7 @@ Download from [Releases](https://github.com/Viperwow/erindi/releases):
 
 **Windows:** unpack the archive and start `erindi.exe`.
 
-**macOS:** open the dmg and drag Erindi to Applications. Erindi is not notarized by Apple, so macOS blocks its first launch. Allow it in one of two ways:
-
-- Open System Settings → Privacy & Security, scroll to Security and click **Open Anyway**, then enter your password. The button stays for about an hour after the blocked launch.
-- Or run `xattr -dr com.apple.quarantine /Applications/Erindi.app` in Terminal. This is the only way when macOS says the app is damaged.
+**macOS:** open the dmg and drag Erindi to Applications. Erindi is not notarized by Apple, so macOS blocks its first launch. To allow it, open System Settings → Privacy & Security, scroll to Security and click **Open Anyway**, then enter your password. The button stays for about an hour after the blocked launch.
 
 macOS asks for the microphone the first time you talk. Erindi lives in the menu bar, not in the Dock.
 
