@@ -17,8 +17,20 @@ pub fn find(name: &str, path: &str, pathext: &str) -> Option<PathBuf> {
         .find_map(|dir| {
             exts.iter()
                 .map(|ext| PathBuf::from(dir).join(format!("{name}{}", ext.to_lowercase())))
-                .find(|p| p.is_file())
+                .find(|p| runnable(p))
         })
+}
+
+#[cfg(unix)]
+fn runnable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn runnable(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 /// Windows builds a process PATH from the system value followed by the user value.
@@ -102,7 +114,26 @@ mod tests {
     fn a_bare_cli_is_found_on_a_colon_path() {
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
-        let cli = touch(b.path(), "codex");
+        let cli = executable(b.path(), "codex");
+        let path = format!("{}:{}", a.path().display(), b.path().display());
+        assert_eq!(find("codex", &path, ""), Some(cli));
+    }
+
+    #[cfg(unix)]
+    fn executable(dir: &std::path::Path, name: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = touch(dir, name);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_cannot_run_is_skipped() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        touch(a.path(), "codex");
+        let cli = executable(b.path(), "codex");
         let path = format!("{}:{}", a.path().display(), b.path().display());
         assert_eq!(find("codex", &path, ""), Some(cli));
     }
