@@ -152,13 +152,7 @@ export function ModelRow(props: { model: ModelStatus; onInstalled: () => void })
             Downloaded
           </span>
         ) : progress !== null ? (
-          <progress
-            key="progress"
-            class={`w-32 shrink-0 ${fadeIn}`}
-            value={progress}
-            max={1}
-            aria-label="Download progress"
-          />
+          <ProgressRing key="progress" value={progress} label="Download progress" />
         ) : (
           <button
             key="download"
@@ -200,6 +194,34 @@ export function GestureSelect(props: { value: Gesture; label: string; onChange: 
         <option value={value}>{name}</option>
       ))}
     </select>
+  );
+}
+
+/** A ring that fills clockwise with `value` from 0 to 1. */
+function ProgressRing(props: { value: number; label: string }) {
+  const percent = Math.floor(props.value * 100);
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      class={`h-5 w-5 shrink-0 -rotate-90 ${fadeIn}`}
+      role="progressbar"
+      aria-label={props.label}
+      aria-valuenow={percent}
+    >
+      <circle cx="10" cy="10" r="8" fill="none" stroke-width="2.5" class="stroke-neutral-200 dark:stroke-neutral-700" />
+      <circle
+        cx="10"
+        cy="10"
+        r="8"
+        fill="none"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        pathLength={100}
+        stroke-dasharray="100"
+        stroke-dashoffset={100 - percent}
+        class="stroke-blue-500 transition-[stroke-dashoffset] duration-300"
+      />
+    </svg>
   );
 }
 
