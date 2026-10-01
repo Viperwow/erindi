@@ -2,8 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AgentIcon, useAgents } from "./agents";
-import { type Agent, Reveal, type Settings, agentLabels, useBusy } from "./controls";
-import { displayHotkey, isMac } from "./hotkey";
+import { type Agent, Keys, Reveal, type Settings, agentLabels, useBusy } from "./controls";
 import { sessionLine } from "./model";
 import { ago } from "./time";
 
@@ -98,7 +97,7 @@ export function SessionsView() {
   if (data.entries.length === 0) {
     return (
       <div class="p-6 text-neutral-500">
-        No sessions yet. Hold <kbd class="font-mono">{displayHotkey(talk, isMac)}</kbd> and say a task.
+        No sessions yet. Hold <Keys combo={talk} /> and say a task.
       </div>
     );
   }

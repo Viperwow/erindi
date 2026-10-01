@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { accelerator, displayHotkey, heldModifiers, isMac } from "./hotkey";
+import { accelerator, heldModifiers, hotkeyKeys, isMac } from "./hotkey";
 import type { Agent } from "./agent.ts";
 
 export type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
@@ -238,16 +238,35 @@ export function HotkeyInput(props: { value: string; label: string; onChange: (va
       type="button"
       aria-label={props.label}
       aria-pressed={recording}
-      class={`${input} min-w-0 flex-1 truncate text-left font-mono ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
+      class={`${input} min-w-0 flex-1 truncate text-left ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
       onClick={() => setRecording(!recording)}
       onBlur={() => setRecording(false)}
     >
-      {recording
-        ? held
-          ? `${isMac ? displayHotkey(held, true) : held.replaceAll("+", " + ")} + …`
-          : "Press keys… (Esc to cancel)"
-        : displayHotkey(props.value, isMac)}
+      {recording ? (
+        held ? (
+          <span class="flex items-center gap-1">
+            <Keys combo={held} />…
+          </span>
+        ) : (
+          "Press keys… (Esc to cancel)"
+        )
+      ) : (
+        <Keys combo={props.value} />
+      )}
     </button>
+  );
+}
+
+/** A shortcut as a row of keycaps. */
+export function Keys(props: { combo: string }) {
+  return (
+    <span class="inline-flex items-center gap-1">
+      {hotkeyKeys(props.combo, isMac).map((key) => (
+        <kbd class="rounded border border-neutral-300 bg-neutral-100 px-1.5 font-sans text-xs leading-5 text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
+          {key}
+        </kbd>
+      ))}
+    </span>
   );
 }
 
