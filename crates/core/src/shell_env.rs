@@ -48,7 +48,8 @@ pub fn parse(output: &str) -> Option<Vec<(String, String)>> {
 /// after `timeout` so a slow or prompting rc file cannot hold Erindi.
 #[cfg(unix)]
 pub fn read_env(shell: &str, timeout: Duration) -> Option<Vec<(String, String)>> {
-    use std::io::Read;
+    use std::io::BufRead;
+    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe().ok()?.display().to_string();
     let quoted = format!("'{}'", exe.replace('\'', r"'\''"));
@@ -57,17 +58,28 @@ pub fn read_env(shell: &str, timeout: Duration) -> Option<Vec<(String, String)>>
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        .process_group(0)
         .spawn()
         .ok()?;
-    let mut stdout = child.stdout.take()?;
+    let stdout = child.stdout.take()?;
     let (tx, rx) = std::sync::mpsc::channel();
+    // Stops at the end marker: a job the rc files left in the background keeps stdout open.
     std::thread::spawn(move || {
         let mut out = String::new();
-        let _ = stdout.read_to_string(&mut out);
+        for line in std::io::BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            out.push_str(&line);
+            out.push('\n');
+            if line == END {
+                break;
+            }
+        }
         let _ = tx.send(out);
     });
     let out = rx.recv_timeout(timeout);
-    let _ = child.kill();
+    let _ = Command::new("kill")
+        .args(["-KILL", &format!("-{}", child.id())])
+        .status();
     let _ = child.wait();
     parse(&out.ok()?)
 }
@@ -161,5 +173,37 @@ mod tests {
         let started = std::time::Instant::now();
         assert_eq!(read_env(&sh, std::time::Duration::from_secs(1)), None);
         assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_background_job_holding_stdout_does_not_hide_the_block() {
+        let (_dir, sh) = fake_shell(
+            "sleep 30 & echo ERINDI-ENV-BEGIN; echo '{\"PATH\":\"/x\"}'; echo ERINDI-ENV-END",
+        );
+        let started = std::time::Instant::now();
+        let vars = read_env(&sh, std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(vars, [("PATH".to_string(), "/x".to_string())]);
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hanging_shell_leaves_no_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("pid");
+        let (_sh_dir, sh) = fake_shell(&format!(
+            "sleep 30 & echo $! > '{}'; wait",
+            pid_file.display()
+        ));
+        assert_eq!(read_env(&sh, std::time::Duration::from_secs(2)), None);
+        let pid = std::fs::read_to_string(&pid_file).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let alive = std::process::Command::new("kill")
+            .args(["-0", pid.trim()])
+            .status()
+            .unwrap()
+            .success();
+        assert!(!alive, "the rc file's background job outlived the timeout");
     }
 }
