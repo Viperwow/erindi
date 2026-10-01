@@ -24,7 +24,10 @@ use crate::runtime::{Runtime, SharedSettings};
 use crate::settings::Settings;
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+    builder
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             show_settings(app)
         }))
@@ -54,6 +57,8 @@ pub fn run() {
             recheck_agents
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             guard::start();
             app.manage(overlay::BubbleRect::default());
             overlay::create(app.handle())?;
@@ -91,7 +96,8 @@ pub fn run() {
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             TrayIconBuilder::new()
-                .icon(app.default_window_icon().cloned().expect("bundled icon"))
+                .icon(tray_icon(app))
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("Erindi")
                 .menu(&Menu::with_items(app, &[&settings, &quit])?)
                 .show_menu_on_left_click(false)
@@ -124,6 +130,15 @@ pub fn run() {
                 api.prevent_exit();
             }
         });
+}
+
+/// The menu bar draws only a black-on-transparent template, recolored for light and dark menus.
+fn tray_icon(app: &tauri::App) -> tauri::image::Image<'_> {
+    if cfg!(target_os = "macos") {
+        tauri::include_image!("icons/tray-template.png")
+    } else {
+        app.default_window_icon().cloned().expect("bundled icon")
+    }
 }
 
 #[tauri::command]
