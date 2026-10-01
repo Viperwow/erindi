@@ -53,11 +53,10 @@ const MAC_SYMBOLS: [string, string][] = [
   ["Super", "⌘"],
 ];
 
-/** A stored shortcut as the platform writes it: macOS uses key symbols in Apple's order. */
-export function displayHotkey(combo: string, mac: boolean): string {
-  if (!mac) return combo;
-  const parts = combo.split("+");
+/** The keys of a stored shortcut, one per keycap; macOS shows modifiers as symbols in Apple's order. */
+export function hotkeyKeys(combo: string, mac: boolean): string[] {
+  const parts = combo.split("+").filter(Boolean);
+  if (!mac) return parts;
   const symbols = MAC_SYMBOLS.filter(([name]) => parts.includes(name)).map(([, symbol]) => symbol);
-  const key = parts.filter((p) => !MAC_SYMBOLS.some(([name]) => name === p));
-  return symbols.join("") + key.join("+");
+  return [...symbols, ...parts.filter((p) => !MAC_SYMBOLS.some(([name]) => name === p))];
 }
