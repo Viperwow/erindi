@@ -103,20 +103,20 @@ fn shortcut(windows: &str, mac: &str) -> String {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            talk_hotkey: shortcut("Ctrl+Space", "Alt+Space"),
+            talk_hotkey: shortcut("Ctrl+Space", "Ctrl+Shift+Space"),
             talk_gesture: Gesture::Hold,
-            cancel_hotkey: shortcut("Ctrl+Space", "Alt+Space"),
+            cancel_hotkey: shortcut("Ctrl+Space", "Ctrl+Shift+Space"),
             cancel_gesture: Gesture::Tap,
-            hands_free_hotkey: shortcut("Ctrl+Alt+Space", "Super+Shift+Space"),
+            hands_free_hotkey: shortcut("Ctrl+Alt+Space", "Ctrl+Shift+Super+Space"),
             hands_free_gesture: Gesture::DoubleTap,
             new_session_hands_free_hotkey: shortcut(
                 "Ctrl+Alt+Shift+Space",
-                "Super+Alt+Shift+Space",
+                "Ctrl+Alt+Shift+Super+Space",
             ),
             new_session_hands_free_gesture: Gesture::DoubleTap,
-            new_session_hotkey: shortcut("Ctrl+Shift+Space", "Alt+Shift+Space"),
+            new_session_hotkey: shortcut("Ctrl+Shift+Space", "Ctrl+Alt+Shift+Space"),
             new_session_gesture: Gesture::Hold,
-            terminal_hotkey: shortcut("Ctrl+Alt+T", "Super+Alt+T"),
+            terminal_hotkey: "Ctrl+Alt+T".into(),
             terminal_gesture: Gesture::Tap,
             patterns: Patterns::default(),
             cwd: crate::runtime::home()
@@ -531,11 +531,11 @@ mod tests {
         assert_eq!(
             combos,
             [
-                "Alt+Space",
-                "Alt+Shift+Space",
-                "Super+Alt+T",
-                "Super+Shift+Space",
-                "Super+Alt+Shift+Space"
+                "Ctrl+Shift+Space",
+                "Ctrl+Alt+Shift+Space",
+                "Ctrl+Alt+T",
+                "Ctrl+Shift+Super+Space",
+                "Ctrl+Alt+Shift+Super+Space"
             ]
         );
         assert_eq!(

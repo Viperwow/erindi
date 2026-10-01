@@ -51,11 +51,11 @@ The `latest` pre-release is rebuilt on every merge into `main`.
 
 | Windows | macOS | Action |
 |---|---|---|
-| `Ctrl+Space` | `⌥Space` | Hold to talk; tap to cancel |
-| `Ctrl+Alt+Space` | `⇧⌘Space` | Double-tap to turn hands-free listening on or off |
-| `Ctrl+Shift+Space` | `⌥⇧Space` | Hold to talk into a new session |
-| `Ctrl+Alt+Shift+Space` | `⌥⇧⌘Space` | Double-tap for hands-free listening into a new session |
-| `Ctrl+Alt+T` | `⌥⌘T` | Tap to open the active session in a terminal |
+| `Ctrl+Space` | `⌃⇧Space` | Hold to talk; tap to cancel |
+| `Ctrl+Alt+Space` | `⌃⇧⌘Space` | Double-tap to turn hands-free listening on or off |
+| `Ctrl+Shift+Space` | `⌃⌥⇧Space` | Hold to talk into a new session |
+| `Ctrl+Alt+Shift+Space` | `⌃⌥⇧⌘Space` | Double-tap for hands-free listening into a new session |
+| `Ctrl+Alt+T` | `⌃⌥T` | Tap to open the active session in a terminal |
 
 Each shortcut and its mode (Tap, Hold or Double-tap) can be changed in Settings.
 
