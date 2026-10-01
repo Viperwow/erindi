@@ -80,6 +80,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 ## From the original plan
 
 - [ ] Adapters for Gemini, then Copilot, Qwen and Kimi.
+- [ ] **Cursor.** Cursor Agent runs next to Claude Code, Codex and Pi through its CLI.
 - [ ] HTTP providers: OpenAI-compatible APIs, Ollama, OpenRouter.
 - [ ] API keys stored in the OS keychain.
 - [ ] Wake word activation, as a second way to start a recording next to the hotkeys.
