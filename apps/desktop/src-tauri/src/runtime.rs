@@ -339,10 +339,14 @@ pub fn llama_server_exe() -> PathBuf {
 
 /// The release zip ships `llama/` next to the exe; development builds use `models/llama/`.
 fn pick_llama_server(exe_dir: Option<PathBuf>, models: &Path) -> PathBuf {
+    #[cfg(windows)]
+    let (bundled, name) = ("llama/llama-server.exe", "llama/llama-server.exe");
+    #[cfg(not(windows))]
+    let (bundled, name) = ("../Resources/llama/llama-server", "llama/llama-server");
     exe_dir
-        .map(|d| d.join("llama/llama-server.exe"))
+        .map(|d| d.join(bundled))
         .filter(|p| p.is_file())
-        .unwrap_or_else(|| models.join("llama/llama-server.exe"))
+        .unwrap_or_else(|| models.join(name))
 }
 
 /// Applies the dictionary as currently saved in settings.
@@ -982,6 +986,7 @@ mod tests {
         assert_eq!(picked, PathBuf::from(r"D:\data").join("models"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn bundled_llama_server_beats_models_folder() {
         let dir = tempfile::tempdir().unwrap();
@@ -994,6 +999,24 @@ mod tests {
         assert_eq!(
             pick_llama_server(None, Path::new("M:/models")),
             Path::new("M:/models").join("llama/llama-server.exe")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn llama_server_is_found_in_the_bundle() {
+        let dir = tempfile::tempdir().unwrap();
+        let contents = dir.path().join("Erindi.app/Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        std::fs::create_dir_all(contents.join("Resources/llama")).unwrap();
+        std::fs::write(contents.join("Resources/llama/llama-server"), "").unwrap();
+        assert_eq!(
+            pick_llama_server(Some(contents.join("MacOS")), Path::new("/models")),
+            contents.join("MacOS/../Resources/llama/llama-server")
+        );
+        assert_eq!(
+            pick_llama_server(None, Path::new("/models")),
+            Path::new("/models").join("llama/llama-server")
         );
     }
 }
