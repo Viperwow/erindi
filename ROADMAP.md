@@ -24,6 +24,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Codex.** Codex runs next to Claude Code: a default agent in Settings, a spoken agent name for a new session, and the agent, model and permission of each session on the Sessions tab.
 - [x] **Pi.** Pi runs next to Claude Code and Codex: a default agent in Settings, the spoken "pi" for a new session, models from `pi --list-models`, and its sessions on the Sessions tab.
 - [ ] **More voice commands.** Switch the project folder by name.
+- [ ] **Browse for the project folder.** A Browse button next to the project folder field opens the system folder picker.
+- [ ] **Installed agents only.** Erindi checks which supported agents are installed and lists only those in the agent picker: the built-in agents first, then custom agents once they arrive.
 - [ ] **Unload the command model** after idle time, for machines short on memory.
 - [ ] **Command model device.** Auto, GPU or CPU; a CUDA build if Vulkan is not fast enough.
 - [ ] **Command model endpoints.** Cloud, Ollama and LM Studio by address and API key.
