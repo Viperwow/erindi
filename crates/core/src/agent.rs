@@ -217,7 +217,7 @@ impl TerminalCommand {
         let q = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
         let argv: Vec<String> = self.argv.iter().map(|a| q(a)).collect();
         format!(
-            "#!/bin/zsh -il\ncd {} && exec {}\n",
+            "#!/bin/zsh -il\nrm -f -- \"$0\"\ncd {} && exec {}\n",
             q(&self.cwd),
             argv.join(" ")
         )
@@ -456,6 +456,7 @@ mod tests {
             cmd.command_script(),
             concat!(
                 "#!/bin/zsh -il\n",
+                "rm -f -- \"$0\"\n",
                 r"cd '/Users/me/it'\''s here' && exec 'claude' '--' 'a '\''b'\'' $HOME `x`",
                 "\nпривет'\n"
             )

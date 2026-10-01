@@ -14,8 +14,8 @@ fn spawn(command: &TerminalCommand) -> std::io::Result<()> {
         .map(drop)
 }
 
-/// Terminal.app runs a `.command` file without asking for Automation permission. The file is
-/// removed once Terminal has had time to read it.
+/// Terminal.app runs a `.command` file without asking for Automation permission. The script
+/// removes itself once zsh has it open, however long the user's rc files take.
 #[cfg(not(windows))]
 fn spawn(command: &TerminalCommand) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
@@ -31,12 +31,11 @@ fn spawn(command: &TerminalCommand) -> std::io::Result<()> {
         .args(["-a", "Terminal"])
         .arg(&path)
         .status();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(10));
-        let _ = std::fs::remove_file(path);
-    });
-    match opened? {
-        status if status.success() => Ok(()),
-        status => Err(std::io::Error::other(format!("open exited with {status}"))),
-    }
+    let error = match opened {
+        Ok(status) if status.success() => return Ok(()),
+        Ok(status) => std::io::Error::other(format!("open exited with {status}")),
+        Err(e) => e,
+    };
+    let _ = std::fs::remove_file(&path);
+    Err(error)
 }
