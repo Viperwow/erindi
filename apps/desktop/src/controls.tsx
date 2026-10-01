@@ -147,23 +147,28 @@ export function ModelRow(props: { model: ModelStatus; onInstalled: () => void })
         <select class={input} disabled aria-label="Model">
           <option>{props.model.label}</option>
         </select>
-        {props.model.installed ? (
-          <span key="installed" class={`shrink-0 text-green-700 dark:text-green-400 ${fadeIn}`}>
-            Downloaded
-          </span>
-        ) : progress !== null ? (
-          <ProgressRing key="progress" value={progress} label="Download progress" />
-        ) : (
-          <button
-            key="download"
-            type="button"
-            class="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-            onClick={download}
-          >
-            Download
-          </button>
-        )}
-        {progress !== null && <span class="w-10 shrink-0 tabular-nums">{Math.floor(progress * 100)}%</span>}
+        {/* One fixed slot for all three states, so the row never changes width. */}
+        <div class="flex h-8 w-28 shrink-0 items-center justify-center">
+          {props.model.installed ? (
+            <span key="installed" class={`text-green-700 dark:text-green-400 ${fadeIn}`}>
+              Downloaded
+            </span>
+          ) : progress !== null ? (
+            <span key="progress" class={`flex items-center gap-2 ${fadeIn}`}>
+              <ProgressRing value={progress} label="Download progress" />
+              <span class="w-9 tabular-nums">{Math.floor(progress * 100)}%</span>
+            </span>
+          ) : (
+            <button
+              key="download"
+              type="button"
+              class="w-full rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              onClick={download}
+            >
+              Download
+            </button>
+          )}
+        </div>
       </div>
       <Reveal open={!!error}>
         <p class="text-xs text-red-600">{error}</p>
@@ -203,7 +208,7 @@ function ProgressRing(props: { value: number; label: string }) {
   return (
     <svg
       viewBox="0 0 20 20"
-      class={`h-5 w-5 shrink-0 -rotate-90 ${fadeIn}`}
+      class="h-5 w-5 shrink-0 -rotate-90"
       role="progressbar"
       aria-label={props.label}
       aria-valuenow={percent}
