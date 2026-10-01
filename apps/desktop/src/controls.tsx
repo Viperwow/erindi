@@ -147,29 +147,28 @@ export function ModelRow(props: { model: ModelStatus; onInstalled: () => void })
         <select class={input} disabled aria-label="Model">
           <option>{props.model.label}</option>
         </select>
-        {props.model.installed ? (
-          <span key="installed" class={`shrink-0 text-green-700 dark:text-green-400 ${fadeIn}`}>
-            Downloaded
-          </span>
-        ) : progress !== null ? (
-          <progress
-            key="progress"
-            class={`w-32 shrink-0 ${fadeIn}`}
-            value={progress}
-            max={1}
-            aria-label="Download progress"
-          />
-        ) : (
-          <button
-            key="download"
-            type="button"
-            class="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-            onClick={download}
-          >
-            Download
-          </button>
-        )}
-        {progress !== null && <span class="w-10 shrink-0 tabular-nums">{Math.floor(progress * 100)}%</span>}
+        {/* One fixed slot for all three states, so the row never changes width. */}
+        <div class="flex h-8 w-28 shrink-0 items-center justify-center">
+          {props.model.installed ? (
+            <span key="installed" class={`text-green-700 dark:text-green-400 ${fadeIn}`}>
+              Downloaded
+            </span>
+          ) : progress !== null ? (
+            <span key="progress" class={`flex items-center gap-2 ${fadeIn}`}>
+              <ProgressRing value={progress} label="Download progress" />
+              <span class="w-9 tabular-nums">{Math.floor(progress * 100)}%</span>
+            </span>
+          ) : (
+            <button
+              key="download"
+              type="button"
+              class="w-full rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              onClick={download}
+            >
+              Download
+            </button>
+          )}
+        </div>
       </div>
       <Reveal open={!!error}>
         <p class="text-xs text-red-600">{error}</p>
@@ -200,6 +199,34 @@ export function GestureSelect(props: { value: Gesture; label: string; onChange: 
         <option value={value}>{name}</option>
       ))}
     </select>
+  );
+}
+
+/** A ring that fills clockwise with `value` from 0 to 1. */
+function ProgressRing(props: { value: number; label: string }) {
+  const percent = Math.floor(props.value * 100);
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      class="h-5 w-5 shrink-0 -rotate-90"
+      role="progressbar"
+      aria-label={props.label}
+      aria-valuenow={percent}
+    >
+      <circle cx="10" cy="10" r="8" fill="none" stroke-width="2.5" class="stroke-neutral-200 dark:stroke-neutral-700" />
+      <circle
+        cx="10"
+        cy="10"
+        r="8"
+        fill="none"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        pathLength={100}
+        stroke-dasharray="100"
+        stroke-dashoffset={100 - percent}
+        class="stroke-blue-500 transition-[stroke-dashoffset] duration-300"
+      />
+    </svg>
   );
 }
 
