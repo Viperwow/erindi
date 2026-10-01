@@ -7,7 +7,11 @@ on:
 
 jobs:
   check:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -17,6 +21,7 @@ jobs:
       # sherpa-onnx-sys downloads its libraries into target/, which rust-cache does not keep while it
       # keeps the build script marked as done. Providing SHERPA_ONNX_LIB_DIR avoids that dependency.
       - name: Locate sherpa-onnx libraries
+        if: runner.os == 'Windows'
         id: sherpa
         run: |
           $line = (Select-String -Path Cargo.lock -Pattern '^name = "sherpa-onnx-sys"$' -Context 0,1).Context.PostContext[0]
@@ -26,11 +31,22 @@ jobs:
           "SHERPA_ONNX_LIB_DIR=$lib" >> $env:GITHUB_ENV
           # A cached build skips the build script that copies these DLLs next to the test binaries.
           $lib >> $env:GITHUB_PATH
+      # The same for the static libraries linked into the macOS build.
+      - name: Locate sherpa-onnx libraries
+        if: runner.os == 'macOS'
+        id: sherpa-mac
+        run: |
+          v=$(grep -A1 '^name = "sherpa-onnx-sys"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          arch=$([ "$RUNNER_ARCH" = ARM64 ] && echo arm64 || echo x64)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "name=sherpa-onnx-v$v-osx-$arch-static-lib" >> "$GITHUB_OUTPUT"
+          echo "SHERPA_ONNX_LIB_DIR=$RUNNER_TEMP/sherpa-onnx/sherpa-onnx-v$v-osx-$arch-static-lib/lib" >> "$GITHUB_ENV"
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/sherpa-onnx
-          key: sherpa-onnx-${{ runner.os }}-${{ steps.sherpa.outputs.version }}
+          key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ steps.sherpa.outputs.version }}${{ steps.sherpa-mac.outputs.version }}
       - name: Download sherpa-onnx libraries
+        if: runner.os == 'Windows'
         run: |
           if (-not (Test-Path $env:SHERPA_ONNX_LIB_DIR)) {
             $v = "${{ steps.sherpa.outputs.version }}"
@@ -40,6 +56,15 @@ jobs:
             Invoke-WebRequest "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$v/$name" -OutFile "$dir\$name"
             tar -xjf "$dir\$name" -C $dir
           }
+      - name: Download sherpa-onnx libraries
+        if: runner.os == 'macOS'
+        run: |
+          if [ ! -d "$SHERPA_ONNX_LIB_DIR" ]; then
+            name=${{ steps.sherpa-mac.outputs.name }}
+            mkdir -p "$RUNNER_TEMP/sherpa-onnx"
+            curl -fsSL -o "$RUNNER_TEMP/sherpa-onnx/$name.tar.bz2" "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${{ steps.sherpa-mac.outputs.version }}/$name.tar.bz2"
+            tar -xjf "$RUNNER_TEMP/sherpa-onnx/$name.tar.bz2" -C "$RUNNER_TEMP/sherpa-onnx"
+          fi
       - uses: pnpm/action-setup@v4
         with:
           version: 10
