@@ -38,7 +38,8 @@ fn name(commands: &[Command]) -> String {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let server = LlamaServer::start(Path::new(&args[1]), Path::new(&args[2])).expect("server");
+    let server =
+        LlamaServer::start(Path::new(&args[1]), Path::new(&args[2]), |_| {}).expect("server");
     let _ = server.classify(WARM_UP);
     let parser = Parser::new(&Patterns::default()).unwrap();
 

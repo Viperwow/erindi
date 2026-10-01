@@ -321,13 +321,22 @@ impl Drop for Guarded {
 fn start_llama() -> Option<Guarded> {
     let model = models_dir().join(erindi_core::models::CLEANUP_GGUF);
     let started = Instant::now();
-    let server = LlamaServer::start(&llama_server_exe(), &model)
-        .map_err(|e| eprintln!("{e}"))
-        .ok()?;
+    let spawned = std::cell::Cell::new(None);
+    let server = LlamaServer::start(&llama_server_exe(), &model, |pid| {
+        crate::guard::track(pid);
+        spawned.set(Some(pid));
+    })
+    .map_err(|e| {
+        if let Some(pid) = spawned.get() {
+            crate::guard::untrack(pid);
+        }
+        eprintln!("{e}");
+    })
+    .ok()?;
+    let server = Guarded(server);
     let _ = server.classify(erindi_core::classify::WARM_UP);
     eprintln!("llama-server ready and warm in {:?}", started.elapsed());
-    crate::guard::track(server.pid());
-    Some(Guarded(server))
+    Some(server)
 }
 
 pub fn llama_server_exe() -> PathBuf {
