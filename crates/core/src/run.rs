@@ -63,7 +63,8 @@ pub async fn run(
     #[cfg(unix)]
     wrap.wrap(ProcessGroup::leader());
     let mut child = wrap.spawn()?;
-    if let Some(pid) = child.id() {
+    let pgid = child.id();
+    if let Some(pid) = pgid {
         on_spawn(pid);
     }
 
@@ -108,9 +109,18 @@ pub async fn run(
             Box::into_pin(child.kill()).await?;
             end
         }
-        None => RunEnd::Exited {
-            success: child.wait().await?.success(),
-        },
+        None => {
+            let success = child.wait().await?.success();
+            // A background job the agent left in its group would outlive it.
+            #[cfg(unix)]
+            if let Some(pgid) = pgid {
+                let _ = tokio::process::Command::new("kill")
+                    .args(["-KILL", &format!("-{pgid}")])
+                    .status()
+                    .await;
+            }
+            RunEnd::Exited { success }
+        }
     };
     stdin_task.abort();
     let stderr_tail = stderr_task.await.unwrap_or_default();

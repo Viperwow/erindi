@@ -104,6 +104,18 @@ async fn cancel_kills_whole_tree() {
     assert!(!alive(pid), "grandchild {pid} survived cancel");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn an_exited_run_leaves_no_background_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let (end, lines, _) =
+        collect(spec("orphan", dir.path().into()), CancellationToken::new()).await;
+    assert_eq!(end, RunEnd::Exited { success: true });
+    let pid: u32 = lines[0].parse().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!alive(pid), "background process {pid} outlived the run");
+}
+
 #[tokio::test]
 async fn timeout_kills_run() {
     let dir = tempfile::tempdir().unwrap();

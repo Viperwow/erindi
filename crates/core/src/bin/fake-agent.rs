@@ -28,6 +28,18 @@ fn main() {
             out.flush().unwrap();
             child.wait().unwrap();
         }
+        "orphan" => {
+            // Left running on purpose: the run must end it.
+            #[allow(clippy::zombie_processes)]
+            let child = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("sleep")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            writeln!(out, "{}", child.id()).unwrap();
+        }
         "sleep" => std::thread::sleep(Duration::from_secs(60)),
         "flood" => {
             writeln!(out, "{}", "x".repeat(4 << 20)).unwrap();
