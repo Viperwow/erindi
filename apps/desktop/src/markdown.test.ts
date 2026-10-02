@@ -15,3 +15,10 @@ test("HTML in a reply shows as text, never runs", () => {
 test("a streaming reply ends with a caret inside its last line", () => {
   assert.equal(markdown("- a\n- b", true), '<ul>\n<li>a</li>\n<li>b<span class="caret" aria-hidden="true"></span></li>\n</ul>\n');
 });
+
+test("a mermaid block is marked for drawing, its source escaped", () => {
+  assert.equal(
+    markdown("```mermaid\ngraph TD; A-->B<script>\n```"),
+    '<pre class="mermaid-source"><code>graph TD; A--&gt;B&lt;script&gt;</code></pre>\n',
+  );
+});

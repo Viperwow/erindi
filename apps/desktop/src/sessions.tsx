@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AgentIcon, useAgents } from "./agents";
 import { type Agent, Keys, Reveal, type Settings, agentName, useBusy } from "./controls";
+import { drawDiagrams } from "./diagram";
 import { markdown } from "./markdown";
 import { type Prompt, replyOf, sessionLine, textOf } from "./model";
 import { ago } from "./time";
@@ -206,7 +207,14 @@ export function SessionsView() {
                           {reply !== null && (
                             <div aria-busy={streaming}>
                               {formatted ? (
-                                <div class="markdown mt-1 text-neutral-700 dark:text-neutral-300" dangerouslySetInnerHTML={{ __html: markdown(reply, streaming) }} />
+                                <div
+                                  class="markdown mt-1 text-neutral-700 dark:text-neutral-300"
+                                  // A diagram still streaming does not parse yet, so it is drawn once the reply ends.
+                                  ref={(el) => {
+                                    if (el && !streaming) void drawDiagrams(el);
+                                  }}
+                                  dangerouslySetInnerHTML={{ __html: markdown(reply, streaming) }}
+                                />
                               ) : (
                                 <span class="mt-1 block whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">
                                   {reply}

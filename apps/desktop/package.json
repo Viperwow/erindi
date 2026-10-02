@@ -13,6 +13,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "marked": "^18.0.14",
+    "mermaid": "^12.1.0",
     "preact": "^10.29.8"
   },
   "devDependencies": {

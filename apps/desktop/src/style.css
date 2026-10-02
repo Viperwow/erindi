@@ -365,3 +365,11 @@ body.overlay {
     animation: none;
   }
 }
+
+.markdown .diagram {
+  overflow-x: auto;
+}
+.markdown .diagram svg {
+  max-width: 100%;
+  height: auto;
+}

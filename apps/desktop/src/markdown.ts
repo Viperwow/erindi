@@ -17,6 +17,9 @@ const marked = new Marked({
       return /^(https?:|mailto:)/i.test(href) ? `<a href="${escape(href)}" target="_blank" rel="noreferrer">${text}</a>` : text;
     },
     image: ({ text }) => escape(text),
+    code: ({ text, lang }) =>
+      lang === "mermaid" ? `<pre class="mermaid-source"><code>${escape(text)}</code></pre>
+` : false,
   },
 });
 
