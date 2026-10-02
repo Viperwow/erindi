@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::claude::{self, ClaudeMode, ClaudeRequest, Session};
 use crate::codex;
+use crate::cursor;
 use crate::pi;
 use crate::stream::{self, RunEvent};
 
@@ -15,18 +16,26 @@ pub enum Agent {
     Claude,
     Codex,
     Pi,
+    Cursor,
     /// A model behind an OpenAI-compatible API, reached over HTTP instead of a CLI.
     Api,
 }
 
 impl Agent {
-    pub const ALL: [Agent; 4] = [Agent::Claude, Agent::Codex, Agent::Pi, Agent::Api];
+    pub const ALL: [Agent; 5] = [
+        Agent::Claude,
+        Agent::Codex,
+        Agent::Pi,
+        Agent::Cursor,
+        Agent::Api,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Agent::Claude => "Claude",
             Agent::Codex => "Codex",
             Agent::Pi => "Pi",
+            Agent::Cursor => "Cursor",
             Agent::Api => "Local model",
         }
     }
@@ -37,6 +46,7 @@ impl Agent {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
             Agent::Pi => "pi",
+            Agent::Cursor => "cursor-agent",
             Agent::Api => "",
         }
     }
@@ -56,6 +66,7 @@ impl Agent {
                 "bypassPermissions",
             ],
             Agent::Codex => &["read-only", "workspace-write", "danger-full-access"],
+            Agent::Cursor => &["plan", "ask", "force"],
             // Pi has no permission modes; it always runs with all its tools.
             Agent::Pi | Agent::Api => &[],
         }
@@ -195,6 +206,22 @@ pub fn headless_args(req: &AgentRequest, cwd: &str) -> Result<Vec<String>, Inval
             let (id, new) = pi_session(&req.target)?;
             Ok(pi::print_args(req.model.as_deref(), &id, new))
         }
+        Agent::Cursor => {
+            check(req)?;
+            Ok(cursor::print_args(
+                req.model.as_deref(),
+                req.permission.as_deref(),
+                cursor_resume(&req.target)?,
+            ))
+        }
+    }
+}
+
+/// Cursor picks the ID of a new session and reports it when the run starts.
+fn cursor_resume(target: &Target) -> Result<Option<&str>, InvalidRequest> {
+    match target {
+        Target::New(_) => Ok(None),
+        Target::Resume(id) => native_ok(id).map(|()| Some(id.as_str())),
     }
 }
 
@@ -275,6 +302,16 @@ pub fn terminal_args(
                 prompt,
             ))
         }
+        Agent::Cursor => {
+            check(req)?;
+            Ok(cursor::terminal_args(
+                program,
+                req.model.as_deref(),
+                req.permission.as_deref(),
+                cursor_resume(&req.target)?,
+                prompt,
+            ))
+        }
     }?;
     Ok(TerminalCommand {
         cwd: cwd.into(),
@@ -320,6 +357,10 @@ pub fn resume_in_terminal(
             native_ok(native_id)?;
             Ok(pi::resume_in_terminal(program, native_id))
         }
+        Agent::Cursor => {
+            native_ok(native_id)?;
+            Ok(cursor::resume_in_terminal(program, native_id))
+        }
     }?;
     Ok(TerminalCommand {
         cwd: cwd.into(),
@@ -348,6 +389,7 @@ impl EventParser {
             Agent::Claude => stream::parse_line(line),
             Agent::Codex => codex::parse_line(line),
             Agent::Pi => self.pi.feed(line),
+            Agent::Cursor => cursor::parse_line(line),
             Agent::Api => vec![],
         };
         events

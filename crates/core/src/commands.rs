@@ -12,6 +12,7 @@ pub enum Command {
     Claude,
     Codex,
     Pi,
+    Cursor,
     Api,
 }
 
@@ -21,6 +22,7 @@ impl Command {
             Command::Claude => Some(crate::agent::Agent::Claude),
             Command::Codex => Some(crate::agent::Agent::Codex),
             Command::Pi => Some(crate::agent::Agent::Pi),
+            Command::Cursor => Some(crate::agent::Agent::Cursor),
             Command::Api => Some(crate::agent::Agent::Api),
             _ => None,
         }
@@ -37,6 +39,7 @@ pub struct Patterns {
     pub claude: Vec<String>,
     pub codex: Vec<String>,
     pub pi: Vec<String>,
+    pub cursor: Vec<String>,
     pub api: Vec<String>,
 }
 
@@ -54,6 +57,7 @@ impl Default for Patterns {
             codex: list(&[r"((в|с|через) )?(кодекс|codex)\w*", r"((in|with) )?codex"]),
             // No `\w*` here: it would take "пишет" or "pick" for the agent.
             pi: list(&[r"((в|с|через) )?(пай|пи|pi)", r"((in|with) )?pi"]),
+            cursor: list(&[r"((в|с|через) )?(курсор|cursor)\w*", r"((in|with) )?cursor"]),
             api: list(&[
                 r"((в|с|через) )?модел\w*",
                 r"((in|with) )?(the )?local model",
@@ -87,6 +91,7 @@ impl Parser {
             (Command::Claude, &patterns.claude),
             (Command::Codex, &patterns.codex),
             (Command::Pi, &patterns.pi),
+            (Command::Cursor, &patterns.cursor),
             (Command::Api, &patterns.api),
         ];
         let mut entries = vec![];
@@ -382,6 +387,20 @@ mod tests {
     }
 
     #[test]
+    fn cursor_is_named_by_voice() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        for text in [
+            "курсор, объясни этот файл",
+            "через курсор объясни этот файл",
+            "Cursor, explain this file",
+            "in cursor explain this file",
+        ] {
+            assert_eq!(parser.parse(text).0, [Command::Cursor], "{text}");
+        }
+        assert_eq!(Command::Cursor.agent(), Some(crate::agent::Agent::Cursor));
+    }
+
+    #[test]
     fn the_local_model_is_named_by_voice() {
         let parser = Parser::new(&Patterns::default()).unwrap();
         for text in [
@@ -399,5 +418,6 @@ mod tests {
     fn old_patterns_get_the_local_model_defaults() {
         let old: Patterns = serde_json::from_str(r#"{"pi":["пи"]}"#).unwrap();
         assert_eq!(old.api, Patterns::default().api);
+        assert_eq!(old.cursor, Patterns::default().cursor);
     }
 }

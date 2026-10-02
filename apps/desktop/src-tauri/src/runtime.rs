@@ -728,6 +728,9 @@ impl Executor {
                 stderr,
             });
         };
+        if let Some(reason) = refusal(agent, &cwd, home().as_deref()) {
+            return fail(&self.tx, reason.into());
+        }
         let (program, request, start) = match self.request(session, agent) {
             Ok(r) => r,
             Err(e) => return fail(&self.tx, e),
@@ -868,6 +871,33 @@ fn continue_flags(started: &Start, live: Option<Details>) -> (Option<String>, Op
 }
 
 /// Codex skips this folder's hooks and MCP servers until it trusts the folder.
+/// Why `agent` must not run in `cwd` yet: Cursor runs only in a folder it was told to trust.
+fn refusal(agent: Agent, cwd: &str, home: Option<&std::path::Path>) -> Option<&'static str> {
+    let untrusted = match agent {
+        Agent::Cursor => !home.is_some_and(|h| erindi_core::cursor::trusted(h, cwd)),
+        _ => false,
+    };
+    untrusted.then_some("Cursor doesn't trust this folder yet. Trust it in Settings")
+}
+
+pub fn cursor_untrusted(cwd: &str) -> bool {
+    refusal(Agent::Cursor, cwd, home().as_deref()).is_some()
+}
+
+/// Opens Cursor in `cwd`, where Cursor asks on its own whether to trust the folder.
+pub fn trust_in_cursor(cwd: &str) -> Result<(), String> {
+    let program = erindi_core::cli::locate(Agent::Cursor).ok_or_else(|| missing(Agent::Cursor))?;
+    let request = AgentRequest {
+        agent: Agent::Cursor,
+        model: None,
+        permission: None,
+        target: Target::New(uuid::Uuid::nil()),
+    };
+    let args = agent::terminal_args(&program.display().to_string(), cwd, &request, "")
+        .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
+    crate::terminal::open(&args)
+}
+
 pub fn codex_limited(cwd: &str) -> bool {
     let Some(path) = erindi_core::codex::config_path(home()) else {
         return false;
@@ -939,6 +969,27 @@ fn run_env(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cursor_waits_for_the_folder_to_be_trusted() {
+        let home = tempfile::tempdir().unwrap();
+        let folder = home.path().join("app");
+        let cwd = folder.to_str().unwrap();
+        assert!(refusal(Agent::Cursor, cwd, Some(home.path())).is_some());
+        assert!(refusal(Agent::Codex, cwd, Some(home.path())).is_none());
+        let slug: String = cwd
+            .chars()
+            .filter(|&c| c != ':')
+            .map(|c| if c == '\\' || c == '/' { '-' } else { c })
+            .collect();
+        let marker = home
+            .path()
+            .join(".cursor/projects")
+            .join(slug.trim_matches('-'));
+        std::fs::create_dir_all(&marker).unwrap();
+        std::fs::write(marker.join(".workspace-trusted"), "").unwrap();
+        assert!(refusal(Agent::Cursor, cwd, Some(home.path())).is_none());
+    }
+
     use super::*;
     use crate::history;
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-trust-in-cursor"
+description = "Enables the trust_in_cursor command without any pre-configured scope."
+commands.allow = ["trust_in_cursor"]
+
+[[permission]]
+identifier = "deny-trust-in-cursor"
+description = "Denies the trust_in_cursor command without any pre-configured scope."
+commands.deny = ["trust_in_cursor"]

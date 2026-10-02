@@ -7,7 +7,7 @@ import type { Agent } from "./agent.ts";
 
 export type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
 
-export type Command = "newSession" | "openTerminal" | "cancel" | "claude" | "codex" | "pi" | "api";
+export type Command = "newSession" | "openTerminal" | "cancel" | "claude" | "codex" | "pi" | "cursor" | "api";
 
 export type Patterns = Record<Command, string[]>;
 
@@ -66,7 +66,7 @@ export type AgentStatus = {
   permissions: string[];
 };
 
-export const unsafePermissions = ["bypassPermissions", "danger-full-access"];
+export const unsafePermissions = ["bypassPermissions", "danger-full-access", "force"];
 
 export const policies: [SessionPolicy, string][] = [
   ["continue", "Continue the active session"],
