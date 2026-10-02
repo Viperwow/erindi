@@ -131,6 +131,8 @@ pub enum Msg {
         double: Duration,
         /// The actions of each combination and the gesture that fires each.
         bindings: Vec<Vec<(Action, Gesture)>>,
+        /// The name the person gave the local model.
+        api_name: String,
     },
     /// The double-press window has passed since the tap numbered `seq`.
     GestureTimeout {
@@ -246,6 +248,8 @@ pub struct View {
     pub detail: String,
     /// The local model's reply so far, while it streams.
     pub reply: String,
+    /// The name the person gave the local model.
+    pub api_name: String,
     pub agent: Agent,
     pub limited: bool,
     pub session_id: Option<Uuid>,
@@ -282,6 +286,7 @@ pub struct Controller {
     result: Option<(bool, String)>,
     detail: String,
     reply: String,
+    api_name: String,
     run_agent: Agent,
     limited: bool,
     global_error: Option<String>,
@@ -325,6 +330,7 @@ impl Controller {
             result: None,
             detail: String::new(),
             reply: String::new(),
+            api_name: String::new(),
             run_agent: Agent::Claude,
             limited: false,
             global_error: None,
@@ -372,6 +378,7 @@ impl Controller {
             phrases,
             detail: self.detail.clone(),
             reply: self.reply.clone(),
+            api_name: self.api_name.clone(),
             agent: self.run_agent,
             limited: self.limited,
             session_id: self.active.as_ref().map(|a| a.id),
@@ -593,7 +600,9 @@ impl Controller {
                 hide_after,
                 double,
                 bindings,
+                api_name,
             } => {
+                self.api_name = api_name;
                 self.bindings = bindings;
                 self.agent = agent;
                 self.hide_after = hide_after;
@@ -1366,6 +1375,7 @@ mod tests {
                 hide_after,
                 double,
                 bindings,
+                api_name: String::new(),
             },
             _ => unreachable!(),
         }
@@ -1382,6 +1392,7 @@ mod tests {
             hide_after: HIDE_AFTER,
             double: DOUBLE,
             bindings: bindings(),
+            api_name: String::new(),
         }
     }
 
@@ -2008,6 +2019,7 @@ mod tests {
             hide_after: HIDE_AFTER,
             double: Duration::from_millis(700),
             bindings: bindings(),
+            api_name: String::new(),
         });
         let fx = t.quick(Key::HandsFree);
         assert!(fx.contains(&Effect::GestureTimer {
@@ -2829,6 +2841,7 @@ mod tests {
             hide_after: HIDE_AFTER,
             double: DOUBLE,
             bindings: bindings(),
+            api_name: String::new(),
         });
         t
     }
@@ -2977,6 +2990,7 @@ mod tests {
             hide_after: HIDE_AFTER,
             double: DOUBLE,
             bindings: bindings(),
+            api_name: String::new(),
         });
     }
 

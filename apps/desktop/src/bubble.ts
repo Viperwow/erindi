@@ -25,6 +25,7 @@ export type View = {
   phrases: Phrase[];
   detail: string;
   reply: string;
+  apiName: string;
   agent: Agent;
   limited: boolean;
   sessionId: string | null;
@@ -77,8 +78,8 @@ function outcome(p: Phrase): string | null {
   }
 }
 
-/** `hidesIn` is the seconds left before an idle bubble hides. `apiName` is the local model's name. */
-export function bubble(view: View, hidesIn: number | null = null, apiName = ""): Bubble {
+/** `hidesIn` is the seconds left before an idle bubble hides. */
+export function bubble(view: View, hidesIn: number | null = null): Bubble {
   const agent = view.phrases.find((p) => p.status === "classifying" || p.status === "running" || p.status === "cancelling");
   const busy = agent !== undefined || view.phrases.some((p) => p.status === "queued");
   const clickable = view.sessionId !== null && !busy && view.phrases.some(finished);
@@ -98,7 +99,7 @@ export function bubble(view: View, hidesIn: number | null = null, apiName = ""):
 
   let running: Running = null;
   if (agent?.status === "running") {
-    const status = withDetail(`${agentName(view.agent, { apiName })} is working`, view.limited ? "limited mode" : view.detail);
+    const status = withDetail(`${agentName(view.agent, view)} is working`, view.limited ? "limited mode" : view.detail);
     running = { icon: "terminal", text: status, dots: false };
   } else if (agent?.status === "cancelling") {
     running = { icon: "terminal", text: "Cancelling", dots: false };

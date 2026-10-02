@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "overlay",
-  "description": "The overlay renders state pushed from Rust, reads the local model's name, and can ask to open the finished session.",
+  "description": "The overlay renders state pushed from Rust and can ask to open the finished session.",
   "windows": ["overlay"],
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-open-session", "allow-set-bubble-rect", "allow-get-settings"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-open-session", "allow-set-bubble-rect"]
 }

@@ -152,13 +152,6 @@ function Overlay() {
     };
   }, []);
 
-  // A new series may follow a rename in Settings.
-  const [apiName, setApiName] = useState("");
-  const series = view?.series;
-  useEffect(() => {
-    invoke<{ apiName: string }>("get_settings").then((s) => setApiName(s.apiName));
-  }, [series]);
-
   // Counts down from the moment the idle stretch started; a new stretch restarts it.
   const [hidesIn, setHidesIn] = useState<number | null>(null);
   const hideAfter = view?.hideAfterMs ?? null;
@@ -190,7 +183,7 @@ function Overlay() {
   }, [view]);
 
   if (!view) return null;
-  const b = bubble(view, hidesIn, apiName);
+  const b = bubble(view, hidesIn);
   return (
     <div class="fixed inset-0 flex items-end justify-center pb-3 select-none">
       <div

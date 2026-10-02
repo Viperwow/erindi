@@ -223,6 +223,7 @@ impl Settings {
             hide_after: std::time::Duration::from_secs_f32(self.hide_secs),
             double: std::time::Duration::from_millis((self.double_secs * 1000.0).round() as u64),
             bindings: self.bindings().1,
+            api_name: self.api_name.clone(),
         }
     }
 
@@ -657,6 +658,17 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn the_bubble_learns_the_local_model_name() {
+        let s = Settings {
+            api_name: "LM Studio".into(),
+            ..Settings::default()
+        };
+        assert!(
+            matches!(s.session_msg(), Msg::Settings { api_name, .. } if api_name == "LM Studio")
+        );
     }
 
     #[test]

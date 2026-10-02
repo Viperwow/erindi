@@ -23,6 +23,7 @@ const view = (overrides: Partial<View>): View => ({
   phrases: [],
   detail: "",
   reply: "",
+  apiName: "",
   agent: "claude",
   limited: false,
   sessionId: null,
@@ -171,6 +172,6 @@ test("a running phrase's tooltip shows the reply as it streams", () => {
 });
 
 test("the local model works under the name the person gave it", () => {
-  const b = bubble(view({ agent: "api", phrases: [phrase("running")] }), null, "LM Studio");
+  const b = bubble(view({ agent: "api", apiName: "LM Studio", phrases: [phrase("running")] }));
   assert.equal(b.running?.text, "LM Studio is working");
 });
