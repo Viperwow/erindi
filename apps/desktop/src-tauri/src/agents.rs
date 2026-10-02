@@ -74,6 +74,7 @@ fn check(agent: Agent) -> AgentStatus {
         (Agent::Codex, None) => Ok(vec![]),
         (Agent::Codex, Some(program)) => cli_output(program, &["debug", "models"])
             .and_then(|out| erindi_core::codex::parse_models(&out)),
+        (Agent::Api, _) => Ok(vec![]),
         (Agent::Pi, None) => Ok(vec![]),
         (Agent::Pi, Some(program)) => {
             cli_output(program, &["--list-models"]).map(|out| erindi_core::pi::parse_models(&out))

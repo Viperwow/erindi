@@ -15,16 +15,19 @@ pub enum Agent {
     Claude,
     Codex,
     Pi,
+    /// A model behind an OpenAI-compatible API, reached over HTTP instead of a CLI.
+    Api,
 }
 
 impl Agent {
-    pub const ALL: [Agent; 3] = [Agent::Claude, Agent::Codex, Agent::Pi];
+    pub const ALL: [Agent; 4] = [Agent::Claude, Agent::Codex, Agent::Pi, Agent::Api];
 
     pub fn label(self) -> &'static str {
         match self {
             Agent::Claude => "Claude",
             Agent::Codex => "Codex",
             Agent::Pi => "Pi",
+            Agent::Api => "Local model",
         }
     }
 
@@ -34,7 +37,12 @@ impl Agent {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
             Agent::Pi => "pi",
+            Agent::Api => "",
         }
+    }
+
+    pub fn is_cli(self) -> bool {
+        self != Agent::Api
     }
 
     /// Permission values besides the default, as the CLI spells them.
@@ -49,13 +57,13 @@ impl Agent {
             ],
             Agent::Codex => &["read-only", "workspace-write", "danger-full-access"],
             // Pi has no permission modes; it always runs with all its tools.
-            Agent::Pi => &[],
+            Agent::Pi | Agent::Api => &[],
         }
     }
 
     /// New sessions take Erindi's ID, so they can be resumed before the agent reports anything.
     pub fn uses_erindi_id(self) -> bool {
-        matches!(self, Agent::Claude | Agent::Pi)
+        matches!(self, Agent::Claude | Agent::Pi | Agent::Api)
     }
 }
 
@@ -101,6 +109,8 @@ pub enum InvalidRequest {
     Permission,
     Cwd,
     NativeId,
+    /// The agent has no command line to run.
+    NotCli,
 }
 
 pub fn valid_model(model: &str) -> bool {
@@ -163,6 +173,7 @@ fn cwd_ok(cwd: &str) -> Result<(), InvalidRequest> {
 /// Arguments for a headless run in `cwd`. The prompt goes to stdin.
 pub fn headless_args(req: &AgentRequest, cwd: &str) -> Result<Vec<String>, InvalidRequest> {
     match req.agent {
+        Agent::Api => Err(InvalidRequest::NotCli),
         // Claude runs in the process folder; `cwd` matters only to Codex (`-C`).
         Agent::Claude => {
             claude::claude_args(&claude_request(req)?).map_err(|_| InvalidRequest::Model)
@@ -234,6 +245,7 @@ pub fn terminal_args(
     cwd_ok(cwd)?;
     let prompt = &cmd_safe(program, prompt);
     let argv = match req.agent {
+        Agent::Api => Err(InvalidRequest::NotCli),
         Agent::Claude => claude::run_in_terminal(program, cwd, &claude_request(req)?, prompt)
             .map_err(|e| match e {
                 claude::InvalidTerminalRun::Cwd => InvalidRequest::Cwd,
@@ -295,6 +307,7 @@ pub fn resume_in_terminal(
 ) -> Result<TerminalCommand, InvalidRequest> {
     cwd_ok(cwd)?;
     let argv = match agent {
+        Agent::Api => Err(InvalidRequest::NotCli),
         Agent::Claude => {
             let id = Uuid::parse_str(native_id).map_err(|_| InvalidRequest::NativeId)?;
             claude::resume_in_terminal(program, cwd, id).map_err(|_| InvalidRequest::Cwd)
@@ -335,6 +348,7 @@ impl EventParser {
             Agent::Claude => stream::parse_line(line),
             Agent::Codex => codex::parse_line(line),
             Agent::Pi => self.pi.feed(line),
+            Agent::Api => vec![],
         };
         events
             .into_iter()
@@ -355,6 +369,24 @@ impl EventParser {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_the_local_model_is_not_a_cli() {
+        assert!(!Agent::Api.is_cli());
+        assert!(Agent::Claude.is_cli() && Agent::Codex.is_cli() && Agent::Pi.is_cli());
+        assert_eq!(
+            headless_args(
+                &AgentRequest {
+                    agent: Agent::Api,
+                    model: None,
+                    permission: None,
+                    target: Target::New(Uuid::nil())
+                },
+                "C:/p"
+            ),
+            Err(InvalidRequest::NotCli)
+        );
+    }
+
     use super::*;
 
     fn claude(model: Option<&str>, permission: Option<&str>, target: Target) -> AgentRequest {

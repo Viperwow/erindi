@@ -67,6 +67,8 @@ pub enum Gesture {
 /// A registered key combination, by its index in `Msg::Settings::bindings`.
 pub type Combo = usize;
 
+// `Settings` is sent once per save, so its size costs nothing worth boxing it for.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
     ModelReady,
