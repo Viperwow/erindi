@@ -141,9 +141,11 @@ function SettingsView() {
                 <option value={agent}>{agentName(agent, s)}</option>
               ))}
             </select>
-            <RecheckButton
-              recheck={() => recheck().then((fresh) => !!fresh.find((a) => a.agent === s.agent)?.path)}
-            />
+            {s.agent !== "api" && (
+              <RecheckButton
+                recheck={() => recheck().then((fresh) => !!fresh.find((a) => a.agent === s.agent)?.path)}
+              />
+            )}
           </div>
         </Field>
         {s.agent === "api" ? (
