@@ -23,6 +23,9 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Commands in your own words.** A local model (Qwen2.5-3B on llama.cpp Vulkan) recognises commands the patterns miss; it never changes the text that reaches the agent.
 - [x] **Codex.** Codex runs next to Claude Code: a default agent in Settings, a spoken agent name for a new session, and the agent, model and permission of each session on the Sessions tab.
 - [x] **Pi.** Pi runs next to Claude Code and Codex: a default agent in Settings, the spoken "pi" for a new session, models from `pi --list-models`, and its sessions on the Sessions tab.
+- [x] **Local model.** Any OpenAI-compatible server, such as LM Studio or Ollama, works as an agent: replies stream into the bubble and the conversation continues by voice.
+- [ ] **Several saved model connections.** Keep more than one OpenAI-compatible server, each with its own name, address, key and model.
+- [ ] **Trim long conversations.** Drop the oldest turns of a local model session to fit the model's context.
 - [ ] **More voice commands.** Switch the project folder by name.
 - [ ] **Browse for the project folder.** A Browse button next to the project folder field opens the system folder picker.
 - [ ] **Installed agents only.** Erindi checks which supported agents are installed and lists only those in the agent picker: the built-in agents first, then custom agents once they arrive.
