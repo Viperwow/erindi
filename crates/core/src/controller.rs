@@ -536,7 +536,12 @@ impl Controller {
                     self.limited = true;
                     vec![self.show()]
                 }
-                RunEvent::SessionStarted { .. } | RunEvent::Reply { .. } => vec![],
+                // Only the local model streams its reply; the bubble shows the newest words.
+                RunEvent::Reply { text } => {
+                    self.detail = tail(&text, 120);
+                    vec![self.show()]
+                }
+                RunEvent::SessionStarted { .. } => vec![],
             },
             Msg::RunExited { op, end, stderr } => {
                 let Some(status) = self.agent_phrase(op) else {
@@ -1123,6 +1128,17 @@ fn session_id(session: Session) -> Uuid {
     match session {
         Session::New(id) | Session::Resume(id) => id,
     }
+}
+
+/// The last `max` characters of `text`, marked with `…` when cut.
+fn tail(text: &str, max: usize) -> String {
+    let text = text.trim();
+    let count = text.chars().count();
+    if count <= max {
+        return text.to_string();
+    }
+    let rest: String = text.chars().skip(count - max).collect();
+    format!("…{}", rest.trim_start())
 }
 
 #[cfg(test)]
@@ -2374,6 +2390,30 @@ mod tests {
             },
         });
         assert_eq!(shown(&fx).unwrap().detail, "Permission denied: Bash");
+    }
+
+    #[test]
+    fn a_streamed_reply_grows_in_the_bubble() {
+        let mut t = T::new();
+        let op = t.run();
+        let fx = t.send(Msg::Run {
+            op,
+            event: RunEvent::Reply {
+                text: "The capital".into(),
+            },
+        });
+        assert_eq!(shown(&fx).unwrap().detail, "The capital");
+        let long = format!("{} end of the reply", "word ".repeat(60));
+        let fx = t.send(Msg::Run {
+            op,
+            event: RunEvent::Reply { text: long },
+        });
+        let detail = shown(&fx).unwrap().detail.clone();
+        assert!(
+            detail.starts_with('…') && detail.ends_with("end of the reply"),
+            "{detail}"
+        );
+        assert!(detail.chars().count() <= 121, "{}", detail.chars().count());
     }
 
     #[test]
