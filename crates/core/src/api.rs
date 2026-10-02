@@ -117,11 +117,14 @@ pub fn stream_chat(
             v["choices"][0]["message"]["content"].as_str(),
         ) {
             (Some(e), _) => finish(false, e, &mut on_event),
-            (None, Some(text)) => finish(true, text.to_string(), &mut on_event),
-            (None, None) => finish(false, "The server gave no reply".into(), &mut on_event),
+            (None, Some(text)) if !spoken(text).is_empty() => {
+                finish(true, spoken(text).to_string(), &mut on_event)
+            }
+            (None, _) => finish(false, "The server gave no reply".into(), &mut on_event),
         };
     }
     let mut text = String::new();
+    let mut shown = 0;
     for line in std::io::BufReader::new(body.into_reader()).lines() {
         if cancel.load(Ordering::SeqCst) {
             return RunEnd::Cancelled;
@@ -144,17 +147,39 @@ pub fn stream_chat(
             .filter(|p| !p.is_empty())
         {
             text.push_str(piece);
-            on_event(RunEvent::Reply { text: text.clone() });
+            let said = spoken(&text);
+            if !said.is_empty() && said.len() != shown {
+                shown = said.len();
+                on_event(RunEvent::Reply {
+                    text: said.to_string(),
+                });
+            }
         }
     }
     if cancel.load(Ordering::SeqCst) {
         return RunEnd::Cancelled;
     }
     // A stream cut before `[DONE]` still gave whatever text arrived.
-    if text.is_empty() {
-        finish(false, "The server gave no reply".into(), &mut on_event)
-    } else {
-        finish(true, text, &mut on_event)
+    match spoken(&text) {
+        "" => finish(false, "The server gave no reply".into(), &mut on_event),
+        said => finish(true, said.to_string(), &mut on_event),
+    }
+}
+
+/// The reply without the `<think>` block that reasoning models put before it. While that block
+/// is still open, or its tag is still arriving, there is nothing to say yet.
+fn spoken(text: &str) -> &str {
+    const OPEN: &str = "<think>";
+    let head = text.trim_start();
+    if OPEN.starts_with(head) {
+        return "";
+    }
+    let Some(inner) = head.strip_prefix(OPEN) else {
+        return text;
+    };
+    match inner.find("</think>") {
+        Some(end) => inner[end + "</think>".len()..].trim_start(),
+        None => "",
     }
 }
 
@@ -345,6 +370,33 @@ mod tests {
         let (_, events) = chat(&base, None);
         assert_eq!(replies(&events), ["a", "ab"]);
         assert_eq!(result(&events), Some((true, "ab")));
+    }
+
+    #[test]
+    fn thinking_is_left_out_of_the_reply() {
+        let (base, _) = serve(concat!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"<thi\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"nk>let me see</th\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"ink>\\n\\nParis\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\" it is.\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        ));
+        let (_, events) = chat(&base, None);
+        assert_eq!(replies(&events), ["Paris", "Paris it is."]);
+        assert_eq!(result(&events), Some((true, "Paris it is.")));
+    }
+
+    #[test]
+    fn a_reply_that_never_ends_its_thinking_has_no_text() {
+        let (base, _) = serve(concat!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"<think>still thinking\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        ));
+        let (_, events) = chat(&base, None);
+        assert!(replies(&events).is_empty());
+        assert_eq!(result(&events).map(|(ok, _)| ok), Some(false));
     }
 
     #[test]
