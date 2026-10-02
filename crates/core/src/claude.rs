@@ -115,9 +115,62 @@ pub fn resume_in_terminal(
     ])
 }
 
+/// Claude's own settings file, which records the folders whose trust dialog was accepted.
+pub fn config_path(home: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(dir) => Some(std::path::PathBuf::from(dir).join(".claude.json")),
+        None => home.map(|h| h.join(".claude.json")),
+    }
+}
+
+/// `claude -p` skips the trust dialog, so Erindi asks Claude's record instead: a folder is trusted
+/// when it or a folder above it was accepted. Claude writes paths with either slash.
+pub fn trusted(config: &str, folder: &str) -> bool {
+    let Ok(config) = serde_json::from_str::<serde_json::Value>(config) else {
+        return false;
+    };
+    let norm = |p: &str| {
+        let p = p.replace('\\', "/").trim_end_matches('/').to_string();
+        if cfg!(windows) { p.to_lowercase() } else { p }
+    };
+    let accepted: Vec<String> = config["projects"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, v)| v["hasTrustDialogAccepted"] == true)
+        .map(|(k, _)| norm(k))
+        .collect();
+    let folder = norm(folder);
+    accepted.iter().any(|a| {
+        folder == *a
+            || folder
+                .strip_prefix(a.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_is_trusted_when_it_or_a_parent_was_accepted() {
+        let config = r#"{"projects":{
+            "D:/Projects/whispio":{"hasTrustDialogAccepted":true},
+            "C:\\Users\\me":{"hasTrustDialogAccepted":true},
+            "D:/Projects/other":{"hasTrustDialogAccepted":false}}}"#;
+        assert!(trusted(config, r"D:\Projects\whispio"));
+        assert!(trusted(config, "D:/Projects/whispio/"));
+        assert!(trusted(config, r"D:\Projects\whispio\apps\desktop"));
+        assert!(trusted(config, "C:/Users/me/code"));
+        assert!(!trusted(config, r"D:\Projects\other"));
+        assert!(!trusted(config, r"D:\Projects"));
+        assert!(!trusted(config, r"D:\Projects\whispio2"));
+        assert!(!trusted("", r"D:\Projects\whispio"));
+        if cfg!(windows) {
+            assert!(trusted(config, r"d:\projects\Whispio"));
+        }
+    }
 
     #[test]
     fn resume_opens_session_in_cwd() {
