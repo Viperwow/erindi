@@ -87,6 +87,11 @@ pub struct Settings {
     /// Show the window on launch instead of staying in the tray.
     pub open_on_launch: bool,
     pub launch_at_login: bool,
+    /// The local model's name in the interface.
+    pub api_name: String,
+    /// The OpenAI-compatible server, up to and including `/v1`.
+    pub api_base_url: String,
+    pub api_model: String,
 }
 
 /// macOS keeps Ctrl+Space and Ctrl+Option+Space for input sources, so its defaults use Option
@@ -138,11 +143,26 @@ impl Default for Settings {
             model_commands: false,
             open_on_launch: false,
             launch_at_login: false,
+            api_name: "Local model".into(),
+            api_base_url: "http://localhost:1234/v1".into(),
+            api_model: String::new(),
         }
     }
 }
 
 impl Settings {
+    /// The local model connection; `key` comes from the credential store.
+    pub fn api_config(&self, key: Option<String>) -> Result<erindi_core::api::ApiConfig, String> {
+        if self.api_model.trim().is_empty() || self.api_base_url.trim().is_empty() {
+            return Err("Choose a model in Settings".into());
+        }
+        Ok(erindi_core::api::ApiConfig {
+            base_url: self.api_base_url.clone(),
+            key,
+            model: self.api_model.trim().to_string(),
+        })
+    }
+
     /// Missing or unreadable files fall back to defaults.
     pub fn load(path: &Path) -> Self {
         std::fs::read_to_string(path)
@@ -203,6 +223,7 @@ impl Settings {
             hide_after: std::time::Duration::from_secs_f32(self.hide_secs),
             double: std::time::Duration::from_millis((self.double_secs * 1000.0).round() as u64),
             bindings: self.bindings().1,
+            api_name: self.api_name.clone(),
         }
     }
 
@@ -640,11 +661,54 @@ mod tests {
     }
 
     #[test]
+    fn the_bubble_learns_the_local_model_name() {
+        let s = Settings {
+            api_name: "LM Studio".into(),
+            ..Settings::default()
+        };
+        assert!(
+            matches!(s.session_msg(), Msg::Settings { api_name, .. } if api_name == "LM Studio")
+        );
+    }
+
+    #[test]
     fn old_settings_keys_still_load() {
         let json = r#"{"holdHotkey":"F9","toggleHotkey":"F10","cleanup":true}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.talk_hotkey, "F9");
         assert!(s.model_commands);
         assert_eq!(s.patterns, Patterns::default());
+    }
+
+    #[test]
+    fn old_settings_get_the_local_model_defaults() {
+        let s = Settings::from_json(r#"{"cwd":"C:/p"}"#).unwrap();
+        assert_eq!(s.api_name, "Local model");
+        assert_eq!(s.api_base_url, "http://localhost:1234/v1");
+        assert_eq!(s.api_model, "");
+    }
+
+    #[test]
+    fn a_blank_model_asks_to_choose_one() {
+        let s = Settings::default();
+        assert_eq!(
+            s.api_config(None).err().as_deref(),
+            Some("Choose a model in Settings")
+        );
+        let s = Settings {
+            api_model: "qwen".into(),
+            api_base_url: " ".into(),
+            ..Settings::default()
+        };
+        assert_eq!(
+            s.api_config(None).err().as_deref(),
+            Some("Choose a model in Settings")
+        );
+        let s = Settings {
+            api_model: "qwen".into(),
+            ..Settings::default()
+        };
+        let c = s.api_config(Some("k".into())).unwrap();
+        assert_eq!((c.model.as_str(), c.key.as_deref()), ("qwen", Some("k")));
     }
 }

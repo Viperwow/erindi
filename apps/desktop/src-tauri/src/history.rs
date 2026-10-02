@@ -12,7 +12,26 @@ pub const MAX_ENTRIES: usize = 200;
 #[serde(untagged)]
 pub enum Prompt {
     Plain(String),
-    Refined { text: String, raw: String },
+    Refined {
+        text: String,
+        raw: String,
+    },
+    /// A phrase to the local model with the model's reply.
+    Answered {
+        text: String,
+        reply: String,
+    },
+}
+
+impl Prompt {
+    /// What was sent to the agent.
+    pub fn text(&self) -> &str {
+        match self {
+            Prompt::Plain(text) | Prompt::Refined { text, .. } | Prompt::Answered { text, .. } => {
+                text
+            }
+        }
+    }
 }
 
 /// A session started from Erindi, with everything the user said in it.
@@ -132,6 +151,40 @@ impl History {
             e.native_id = Some(native_id.to_string());
         }
         self.save()
+    }
+
+    /// Stores the model's reply to the last prompt of session `id`.
+    pub fn set_reply(&mut self, id: Uuid, reply: String) -> Result<(), String> {
+        if let Some(last) = self
+            .entries
+            .iter_mut()
+            .find(|e| e.id == id)
+            .and_then(|e| e.prompts.last_mut())
+        {
+            *last = Prompt::Answered {
+                text: last.text().to_string(),
+                reply,
+            };
+        }
+        self.save()
+    }
+
+    /// Session `id`'s conversation so far, for the local model.
+    pub fn turns(&self, id: Uuid) -> Vec<erindi_core::api::Turn> {
+        self.get(id)
+            .map(|e| {
+                e.prompts
+                    .iter()
+                    .map(|p| erindi_core::api::Turn {
+                        prompt: p.text().to_string(),
+                        reply: match p {
+                            Prompt::Answered { reply, .. } => Some(reply.clone()),
+                            _ => None,
+                        },
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn active(&self) -> Option<&Entry> {
@@ -377,5 +430,57 @@ mod tests {
         assert_eq!(h.entries().len(), MAX_ENTRIES);
         assert!(h.get(id(0)).is_none());
         assert!(h.get(id(MAX_ENTRIES as u128)).is_some());
+    }
+
+    fn api_start(id: Uuid) -> Start {
+        Start {
+            agent: Agent::Api,
+            native_id: Some(id.to_string()),
+            model: None,
+            permission: None,
+        }
+    }
+
+    #[test]
+    fn a_reply_attaches_to_the_last_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.json");
+        let mut h = History::load(&path);
+        h.record(id(1), "C:/a", plain("a"), 1, &api_start(id(1)))
+            .unwrap();
+        h.set_reply(id(1), "ra".into()).unwrap();
+        h.record(id(1), "C:/a", plain("b"), 2, &api_start(id(1)))
+            .unwrap();
+        h.set_reply(id(1), "rb".into()).unwrap();
+        let h = History::load(&path);
+        let answered = |text: &str, reply: &str| Prompt::Answered {
+            text: text.into(),
+            reply: reply.into(),
+        };
+        assert_eq!(
+            h.get(id(1)).unwrap().prompts,
+            [answered("a", "ra"), answered("b", "rb")]
+        );
+        assert_eq!(h.get(id(1)).unwrap().prompts[1].text(), "b");
+    }
+
+    #[test]
+    fn turns_pair_prompts_with_replies() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = History::load(&dir.path().join("s.json"));
+        h.record(id(1), "C:/a", plain("a"), 1, &api_start(id(1)))
+            .unwrap();
+        h.set_reply(id(1), "ra".into()).unwrap();
+        h.record(id(1), "C:/a", plain("b"), 2, &api_start(id(1)))
+            .unwrap();
+        let turns = h.turns(id(1));
+        assert_eq!(
+            turns
+                .iter()
+                .map(|t| (t.prompt.as_str(), t.reply.as_deref()))
+                .collect::<Vec<_>>(),
+            [("a", Some("ra")), ("b", None)]
+        );
+        assert!(h.turns(id(9)).is_empty());
     }
 }

@@ -12,6 +12,7 @@ pub enum Command {
     Claude,
     Codex,
     Pi,
+    Api,
 }
 
 impl Command {
@@ -20,6 +21,7 @@ impl Command {
             Command::Claude => Some(crate::agent::Agent::Claude),
             Command::Codex => Some(crate::agent::Agent::Codex),
             Command::Pi => Some(crate::agent::Agent::Pi),
+            Command::Api => Some(crate::agent::Agent::Api),
             _ => None,
         }
     }
@@ -35,6 +37,7 @@ pub struct Patterns {
     pub claude: Vec<String>,
     pub codex: Vec<String>,
     pub pi: Vec<String>,
+    pub api: Vec<String>,
 }
 
 impl Default for Patterns {
@@ -51,6 +54,10 @@ impl Default for Patterns {
             codex: list(&[r"((в|с|через) )?(кодекс|codex)\w*", r"((in|with) )?codex"]),
             // No `\w*` here: it would take "пишет" or "pick" for the agent.
             pi: list(&[r"((в|с|через) )?(пай|пи|pi)", r"((in|with) )?pi"]),
+            api: list(&[
+                r"((в|с|через) )?модел\w*",
+                r"((in|with) )?(the )?local model",
+            ]),
         }
     }
 }
@@ -80,6 +87,7 @@ impl Parser {
             (Command::Claude, &patterns.claude),
             (Command::Codex, &patterns.codex),
             (Command::Pi, &patterns.pi),
+            (Command::Api, &patterns.api),
         ];
         let mut entries = vec![];
         for (command, list) in groups {
@@ -371,5 +379,25 @@ mod tests {
             assert_eq!(parser.parse(text), (vec![], text.to_string()), "{text}");
         }
         assert_eq!(Command::Pi.agent(), Some(crate::agent::Agent::Pi));
+    }
+
+    #[test]
+    fn the_local_model_is_named_by_voice() {
+        let parser = Parser::new(&Patterns::default()).unwrap();
+        for text in [
+            "модель, расскажи анекдот",
+            "через модель расскажи анекдот",
+            "local model, what time is it",
+            "in the local model what time is it",
+        ] {
+            assert_eq!(parser.parse(text).0, [Command::Api], "{text}");
+        }
+        assert_eq!(Command::Api.agent(), Some(crate::agent::Agent::Api));
+    }
+
+    #[test]
+    fn old_patterns_get_the_local_model_defaults() {
+        let old: Patterns = serde_json::from_str(r#"{"pi":["пи"]}"#).unwrap();
+        assert_eq!(old.api, Patterns::default().api);
     }
 }

@@ -18,6 +18,10 @@
     "allow-default-patterns",
     "allow-agent-status",
     "allow-recheck-agents",
+    "allow-has-api-key",
+    "allow-set-api-key",
+    "allow-clear-api-key",
+    "allow-api-models",
     "allow-codex-limited",
     "allow-trust-in-codex"
   ]

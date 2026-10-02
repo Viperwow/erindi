@@ -1,4 +1,5 @@
 mod agents;
+mod api_key;
 pub mod guard;
 mod history;
 mod overlay;
@@ -54,7 +55,11 @@ pub fn run() {
             test_command,
             default_patterns,
             agent_status,
-            recheck_agents
+            recheck_agents,
+            has_api_key,
+            set_api_key,
+            clear_api_key,
+            api_models
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -139,6 +144,31 @@ fn tray_icon(app: &tauri::App) -> tauri::image::Image<'_> {
     } else {
         app.default_window_icon().cloned().expect("bundled icon")
     }
+}
+
+/// The models the local model server offers, read off the main thread.
+#[tauri::command]
+async fn api_models(base_url: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        erindi_core::api::list_models(&base_url, api_key::get().as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn has_api_key() -> bool {
+    api_key::get().is_some()
+}
+
+#[tauri::command]
+fn set_api_key(key: String) -> Result<(), String> {
+    api_key::set(key.trim())
+}
+
+#[tauri::command]
+fn clear_api_key() -> Result<(), String> {
+    api_key::clear()
 }
 
 #[tauri::command]

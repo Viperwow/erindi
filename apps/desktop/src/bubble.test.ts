@@ -22,6 +22,8 @@ const view = (overrides: Partial<View>): View => ({
   transcribing: false,
   phrases: [],
   detail: "",
+  reply: "",
+  apiName: "",
   agent: "claude",
   limited: false,
   sessionId: null,
@@ -158,4 +160,18 @@ test("the countdown shows while nothing runs", () => {
 test("no countdown while the agent works", () => {
   const b = bubble(view({ phrases: [phrase("running")] }), 5);
   assert.equal(b.countdown, null);
+});
+
+test("a running phrase's tooltip shows the reply as it streams", () => {
+  const b = bubble(view({ agent: "api", reply: "Paris is", phrases: [phrase("running")] }));
+  assert.equal(b.phrases[0].outcome, "Paris is");
+  const long = bubble(view({ agent: "api", reply: `${"word ".repeat(100)}end`, phrases: [phrase("running")] }));
+  const tip = long.phrases[0].outcome ?? "";
+  assert.ok(tip.startsWith("…") && tip.endsWith("end") && tip.length <= 301, tip);
+  assert.equal(bubble(view({ phrases: [phrase("running")] })).phrases[0].outcome, null);
+});
+
+test("the local model works under the name the person gave it", () => {
+  const b = bubble(view({ agent: "api", apiName: "LM Studio", phrases: [phrase("running")] }));
+  assert.equal(b.running?.text, "LM Studio is working");
 });

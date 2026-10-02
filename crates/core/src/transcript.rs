@@ -28,6 +28,7 @@ pub fn read(agent: Agent, path: &Path) -> Option<Details> {
             continue;
         };
         let (model, permission) = match agent {
+            Agent::Api => return None,
             Agent::Claude => (
                 v["message"]["model"]
                     .as_str()
@@ -84,6 +85,8 @@ fn tail(path: &Path) -> std::io::Result<String> {
 pub fn find_logs(agent: Agent, home: &Path) -> HashMap<String, PathBuf> {
     let mut found = HashMap::new();
     match agent {
+        // Erindi keeps these conversations itself.
+        Agent::Api => {}
         // One folder per project, one `<id>.jsonl` per session.
         Agent::Claude => {
             for dir in read_dir(&home.join(".claude/projects")) {

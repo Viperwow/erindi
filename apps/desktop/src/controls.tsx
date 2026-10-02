@@ -7,7 +7,7 @@ import type { Agent } from "./agent.ts";
 
 export type SessionPolicy = "continue" | "continueIfRecent" | "alwaysNew";
 
-export type Command = "newSession" | "openTerminal" | "cancel" | "claude" | "codex" | "pi";
+export type Command = "newSession" | "openTerminal" | "cancel" | "claude" | "codex" | "pi" | "api";
 
 export type Patterns = Record<Command, string[]>;
 
@@ -39,6 +39,9 @@ export type Settings = {
   modelCommands: boolean;
   openOnLaunch: boolean;
   launchAtLogin: boolean;
+  apiName: string;
+  apiBaseUrl: string;
+  apiModel: string;
 };
 
 export type ModelStatus = {
@@ -48,7 +51,7 @@ export type ModelStatus = {
   downloading: boolean;
 };
 
-export { type Agent, agentLabels } from "./agent.ts";
+export { type Agent, agentLabels, agentName } from "./agent.ts";
 
 export type ModelChoice = { listed: string } | { custom: string } | null;
 

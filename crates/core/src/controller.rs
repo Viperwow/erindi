@@ -67,6 +67,8 @@ pub enum Gesture {
 /// A registered key combination, by its index in `Msg::Settings::bindings`.
 pub type Combo = usize;
 
+// `Settings` is sent once per save, so its size costs nothing worth boxing it for.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
     ModelReady,
@@ -129,6 +131,8 @@ pub enum Msg {
         double: Duration,
         /// The actions of each combination and the gesture that fires each.
         bindings: Vec<Vec<(Action, Gesture)>>,
+        /// The name the person gave the local model.
+        api_name: String,
     },
     /// The double-press window has passed since the tap numbered `seq`.
     GestureTimeout {
@@ -242,6 +246,10 @@ pub struct View {
     pub phrases: Vec<Phrase>,
     /// The running agent's current step.
     pub detail: String,
+    /// The local model's reply so far, while it streams.
+    pub reply: String,
+    /// The name the person gave the local model.
+    pub api_name: String,
     pub agent: Agent,
     pub limited: bool,
     pub session_id: Option<Uuid>,
@@ -277,6 +285,8 @@ pub struct Controller {
     waiting: VecDeque<(PhraseId, Vec<f32>)>,
     result: Option<(bool, String)>,
     detail: String,
+    reply: String,
+    api_name: String,
     run_agent: Agent,
     limited: bool,
     global_error: Option<String>,
@@ -319,6 +329,8 @@ impl Controller {
             waiting: VecDeque::new(),
             result: None,
             detail: String::new(),
+            reply: String::new(),
+            api_name: String::new(),
             run_agent: Agent::Claude,
             limited: false,
             global_error: None,
@@ -365,6 +377,8 @@ impl Controller {
                 .is_some_and(|id| self.series.get(id).is_some()),
             phrases,
             detail: self.detail.clone(),
+            reply: self.reply.clone(),
+            api_name: self.api_name.clone(),
             agent: self.run_agent,
             limited: self.limited,
             session_id: self.active.as_ref().map(|a| a.id),
@@ -534,7 +548,13 @@ impl Controller {
                     self.limited = true;
                     vec![self.show()]
                 }
-                RunEvent::SessionStarted { .. } | RunEvent::Reply { .. } => vec![],
+                // Only the local model streams its reply; the bubble shows the newest words.
+                RunEvent::Reply { text } => {
+                    self.detail = tail(&text, 120);
+                    self.reply = text;
+                    vec![self.show()]
+                }
+                RunEvent::SessionStarted { .. } => vec![],
             },
             Msg::RunExited { op, end, stderr } => {
                 let Some(status) = self.agent_phrase(op) else {
@@ -560,6 +580,7 @@ impl Controller {
                 };
                 self.series.finish(op, status, outcome);
                 self.detail.clear();
+                self.reply.clear();
                 fx.extend(self.pump(now));
                 fx.push(self.show());
                 fx
@@ -579,7 +600,9 @@ impl Controller {
                 hide_after,
                 double,
                 bindings,
+                api_name,
             } => {
+                self.api_name = api_name;
                 self.bindings = bindings;
                 self.agent = agent;
                 self.hide_after = hide_after;
@@ -1021,6 +1044,7 @@ impl Controller {
         self.run_agent = agent;
         self.limited = false;
         self.detail.clear();
+        self.reply.clear();
         if let Some(p) = self.series.get_mut(op) {
             p.status = Status::Running;
             p.text = prompt.clone();
@@ -1121,6 +1145,17 @@ fn session_id(session: Session) -> Uuid {
     match session {
         Session::New(id) | Session::Resume(id) => id,
     }
+}
+
+/// The last `max` characters of `text`, marked with `…` when cut.
+fn tail(text: &str, max: usize) -> String {
+    let text = text.trim();
+    let count = text.chars().count();
+    if count <= max {
+        return text.to_string();
+    }
+    let rest: String = text.chars().skip(count - max).collect();
+    format!("…{}", rest.trim_start())
 }
 
 #[cfg(test)]
@@ -1340,6 +1375,7 @@ mod tests {
                 hide_after,
                 double,
                 bindings,
+                api_name: String::new(),
             },
             _ => unreachable!(),
         }
@@ -1356,6 +1392,7 @@ mod tests {
             hide_after: HIDE_AFTER,
             double: DOUBLE,
             bindings: bindings(),
+            api_name: String::new(),
         }
     }
 
@@ -1982,6 +2019,7 @@ mod tests {
             hide_after: HIDE_AFTER,
             double: Duration::from_millis(700),
             bindings: bindings(),
+            api_name: String::new(),
         });
         let fx = t.quick(Key::HandsFree);
         assert!(fx.contains(&Effect::GestureTimer {
@@ -2375,6 +2413,48 @@ mod tests {
     }
 
     #[test]
+    fn a_streamed_reply_grows_in_the_bubble() {
+        let mut t = T::new();
+        let op = t.run();
+        let fx = t.send(Msg::Run {
+            op,
+            event: RunEvent::Reply {
+                text: "The capital".into(),
+            },
+        });
+        assert_eq!(shown(&fx).unwrap().detail, "The capital");
+        let long = format!("{} end of the reply", "word ".repeat(60));
+        let fx = t.send(Msg::Run {
+            op,
+            event: RunEvent::Reply { text: long },
+        });
+        let detail = shown(&fx).unwrap().detail.clone();
+        assert!(
+            detail.starts_with('…') && detail.ends_with("end of the reply"),
+            "{detail}"
+        );
+        assert!(detail.chars().count() <= 121, "{}", detail.chars().count());
+    }
+
+    #[test]
+    fn the_whole_streamed_reply_is_kept_until_the_run_ends() {
+        let mut t = T::new();
+        let op = t.run();
+        let long = "word ".repeat(60);
+        let fx = t.send(Msg::Run {
+            op,
+            event: RunEvent::Reply { text: long.clone() },
+        });
+        assert_eq!(shown(&fx).unwrap().reply, long);
+        let fx = t.send(Msg::RunExited {
+            op,
+            end: RunEnd::Exited { success: true },
+            stderr: String::new(),
+        });
+        assert_eq!(shown(&fx).unwrap().reply, "");
+    }
+
+    #[test]
     fn limited_run_is_marked_until_the_next_run() {
         let mut t = T::new();
         let op = t.run();
@@ -2761,6 +2841,7 @@ mod tests {
             hide_after: HIDE_AFTER,
             double: DOUBLE,
             bindings: bindings(),
+            api_name: String::new(),
         });
         t
     }
@@ -2909,6 +2990,7 @@ mod tests {
             hide_after: HIDE_AFTER,
             double: DOUBLE,
             bindings: bindings(),
+            api_name: String::new(),
         });
     }
 

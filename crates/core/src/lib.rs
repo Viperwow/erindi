@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod api;
 pub mod classify;
 pub mod claude;
 pub mod cli;

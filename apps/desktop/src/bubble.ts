@@ -1,4 +1,4 @@
-import { type Agent, agentLabels } from "./agent.ts";
+import { type Agent, agentName } from "./agent.ts";
 
 export type Status =
   | "speaking"
@@ -24,6 +24,8 @@ export type View = {
   transcribing: boolean;
   phrases: Phrase[];
   detail: string;
+  reply: string;
+  apiName: string;
   agent: Agent;
   limited: boolean;
   sessionId: string | null;
@@ -58,6 +60,9 @@ const rails: Record<Status, Rail> = {
 
 const finished = (p: Phrase) => p.status === "done" || p.status === "failed" || p.status === "cancelled";
 
+/** The newest words of a streaming reply, so the tooltip stays inside the bubble's window. */
+const tail = (text: string, max = 300) => (text.length <= max ? text : `…${text.slice(-(max - 1)).trimStart()}`);
+
 const withDetail = (text: string, detail: string) => (detail ? `${text} · ${detail}` : text);
 
 function outcome(p: Phrase): string | null {
@@ -85,11 +90,16 @@ export function bubble(view: View, hidesIn: number | null = null): Bubble {
   const phrases = view.phrases
     .map((p) => ({ p, text: p.text || (finished(p) ? (outcome(p) ?? "") : "") }))
     .filter(({ text }) => text)
-    .map(({ p, text }) => ({ text, rail: rails[p.status], outcome: outcome(p), clickHint: p === newest ? hint : null }));
+    .map(({ p, text }) => ({
+      text,
+      rail: rails[p.status],
+      outcome: p === agent && p.status === "running" && view.reply ? tail(view.reply) : outcome(p),
+      clickHint: p === newest ? hint : null,
+    }));
 
   let running: Running = null;
   if (agent?.status === "running") {
-    const status = withDetail(`${agentLabels[view.agent]} is working`, view.limited ? "limited mode" : view.detail);
+    const status = withDetail(`${agentName(view.agent, view)} is working`, view.limited ? "limited mode" : view.detail);
     running = { icon: "terminal", text: status, dots: false };
   } else if (agent?.status === "cancelling") {
     running = { icon: "terminal", text: "Cancelling", dots: false };

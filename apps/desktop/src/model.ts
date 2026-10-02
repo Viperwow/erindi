@@ -15,3 +15,11 @@ export const sessionLine = (agent: string, model: string | null, permission: str
   const name = model ? (listed ?? modelLabel(model).replace(new RegExp(`^${agent} `), "")) : "Default model";
   return [agent, name, permission].join(" · ");
 };
+
+/** One phrase of a session, as the history stores it. */
+export type Prompt = string | { text: string; raw: string } | { text: string; reply: string };
+
+export const textOf = (p: Prompt) => (typeof p === "string" ? p : p.text);
+
+/** The local model's reply to the phrase, if it has one. */
+export const replyOf = (p: Prompt) => (typeof p !== "string" && "reply" in p ? p.reply : null);

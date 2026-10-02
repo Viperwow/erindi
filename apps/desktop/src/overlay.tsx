@@ -37,7 +37,7 @@ const TerminalIcon = () => (
   </svg>
 );
 
-const Dot = ({ kind }: { kind: "ok" | "err" }) => (
+const Dot = ({ kind }: { kind: "ok" | "err" | "run" }) => (
   <svg class={`dot ${kind}`} viewBox="0 0 13 13">
     <circle cx="6.5" cy="6.5" r="3.5" fill="currentColor" />
   </svg>
@@ -47,7 +47,7 @@ const Dot = ({ kind }: { kind: "ok" | "err" }) => (
 function Tip(props: {
   text: string;
   outcome?: string | null;
-  kind?: "ok" | "err";
+  kind?: "ok" | "err" | "run";
   clickHint?: string | null;
   class: string;
   children: ComponentChildren;
@@ -81,7 +81,7 @@ function Tip(props: {
 const live = new Set(["run", "speak", "decode"]);
 
 function PhraseRow({ phrase }: { phrase: Row }) {
-  const kind = phrase.rail === "ok" ? "ok" : phrase.rail === "err" ? "err" : undefined;
+  const kind = phrase.rail === "ok" || phrase.rail === "err" || phrase.rail === "run" ? phrase.rail : undefined;
   return (
     <Tip
       text={phrase.text}

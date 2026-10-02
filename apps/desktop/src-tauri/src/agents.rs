@@ -68,12 +68,17 @@ fn status_of(
 }
 
 fn check(agent: Agent) -> AgentStatus {
+    // The local model is a server, not a CLI; Settings reads its models from the server itself.
+    if !agent.is_cli() {
+        return status_of(agent, Some(String::new()), Ok(vec![]));
+    }
     let path = erindi_core::cli::locate(agent);
     let models = match (agent, &path) {
         (Agent::Claude, _) => Ok(claude_models()),
         (Agent::Codex, None) => Ok(vec![]),
         (Agent::Codex, Some(program)) => cli_output(program, &["debug", "models"])
             .and_then(|out| erindi_core::codex::parse_models(&out)),
+        (Agent::Api, _) => unreachable!("the local model is checked above"),
         (Agent::Pi, None) => Ok(vec![]),
         (Agent::Pi, Some(program)) => {
             cli_output(program, &["--list-models"]).map(|out| erindi_core::pi::parse_models(&out))

@@ -16,11 +16,13 @@ serde_json = "1.0.151"
 tauri = { version = "2.11.6", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-single-instance = "2.4.5"
+tokio = { version = "1.53.1", features = ["macros"] }
 tokio-util = { version = "0.7.19", default-features = false }
 uuid = "1.26.1"
 erindi-audio-asr = { path = "../../../crates/audio-asr" }
 erindi-core = { path = "../../../crates/core" }
 tauri-plugin-autostart = "2.5"
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = "2.1"
