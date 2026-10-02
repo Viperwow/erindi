@@ -48,19 +48,21 @@ function SettingsView() {
   const [models, setModels] = useState<ModelStatus[]>([]);
   const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
   const { agents, checking: checkingAgents, recheck } = useAgents();
-  // The saved folder as Codex and Cursor see it: Codex runs it limited, Cursor not at all, until trusted.
-  const [untrusted, setUntrusted] = useState({ codex: false, cursor: false });
+  // The saved folder as each agent sees it: Codex runs it limited, Claude and Cursor not at all, until trusted.
+  const [untrusted, setUntrusted] = useState<Partial<Record<Agent, boolean>>>({});
   const { run: guard, busy } = useBusy();
   // The notice follows the saved folder, so typing a path shows nothing until Save.
   const [cwd, setCwd] = useState<string>();
   useEffect(() => {
     if (cwd === undefined) return;
     let current = true;
-    setUntrusted({ codex: false, cursor: false });
+    setUntrusted({});
     const check = () =>
-      Promise.all([invoke<boolean>("codex_limited", { cwd }), invoke<boolean>("cursor_untrusted", { cwd })]).then(
-        ([codex, cursor]) => current && setUntrusted({ codex, cursor }),
-      );
+      Promise.all([
+        invoke<boolean>("codex_limited", { cwd }),
+        invoke<boolean>("folder_untrusted", { agent: "claude", cwd }),
+        invoke<boolean>("folder_untrusted", { agent: "cursor", cwd }),
+      ]).then(([codex, claude, cursor]) => current && setUntrusted({ codex, claude, cursor }));
     check();
     window.addEventListener("focus", check);
     return () => {
@@ -113,26 +115,26 @@ function SettingsView() {
             <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
           </Field>
           <Reveal
-            open={(s.agent === "codex" || s.agent === "cursor") && untrusted[s.agent] && s.cwd === cwd && !!agentStatus?.path}
+            open={!!untrusted[s.agent] && s.cwd === cwd && !!agentStatus?.path}
           >
             <div class="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
               <span class="min-w-0 flex-1">
-                {s.agent === "cursor"
-                  ? "Cursor won't run in this folder until you trust it."
-                  : "Codex runs this folder read-only, without its hooks and MCP servers, until you trust it."}
+                {s.agent === "codex"
+                  ? "Codex runs this folder read-only, without its hooks and MCP servers, until you trust it."
+                  : `${agentLabels[s.agent]} won't run in this folder until you trust it.`}
               </span>
               <button
                 type="button"
                 disabled={busy}
                 class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-amber-400 px-3 py-1.5 disabled:opacity-70 hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/40"
                 onClick={guard(() =>
-                  invoke(s.agent === "cursor" ? "trust_in_cursor" : "trust_in_codex", { cwd }).catch((err) =>
+                  invoke("trust_folder", { agent: s.agent, cwd }).catch((err) =>
                     setStatus({ ok: false, text: String(err) }),
                   ),
                 )}
               >
                 {busy && <Spinner />}
-                Trust in {s.agent === "cursor" ? "Cursor" : "Codex"}
+                Trust in {agentLabels[s.agent]}
               </button>
             </div>
           </Reveal>

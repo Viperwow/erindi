@@ -41,9 +41,8 @@ pub fn run() {
             open_session,
             overlay::set_bubble_rect,
             codex_limited,
-            cursor_untrusted,
-            trust_in_cursor,
-            trust_in_codex,
+            folder_untrusted,
+            trust_folder,
             get_settings,
             save_settings,
             list_microphones,
@@ -179,23 +178,18 @@ fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn cursor_untrusted(cwd: String) -> bool {
-    runtime::cursor_untrusted(&cwd)
+fn folder_untrusted(agent: Agent, cwd: String) -> bool {
+    runtime::folder_untrusted(agent, &cwd)
 }
 
 #[tauri::command]
-fn trust_in_cursor(cwd: String) -> Result<(), String> {
-    runtime::trust_in_cursor(&cwd)
+fn trust_folder(agent: Agent, cwd: String) -> Result<(), String> {
+    runtime::trust_folder(agent, &cwd)
 }
 
 #[tauri::command]
 fn codex_limited(cwd: String) -> bool {
     runtime::codex_limited(&cwd)
-}
-
-#[tauri::command]
-fn trust_in_codex(cwd: String) -> Result<(), String> {
-    runtime::trust_in_codex(&cwd)
 }
 
 #[derive(serde::Serialize)]

@@ -729,7 +729,7 @@ impl Executor {
             });
         };
         if let Some(reason) = refusal(agent, &cwd, home().as_deref()) {
-            return fail(&self.tx, reason.into());
+            return fail(&self.tx, reason);
         }
         let (program, request, start) = match self.request(session, agent) {
             Ok(r) => r,
@@ -871,27 +871,38 @@ fn continue_flags(started: &Start, live: Option<Details>) -> (Option<String>, Op
 }
 
 /// Codex skips this folder's hooks and MCP servers until it trusts the folder.
-/// Why `agent` must not run in `cwd` yet: Cursor runs only in a folder it was told to trust.
-fn refusal(agent: Agent, cwd: &str, home: Option<&std::path::Path>) -> Option<&'static str> {
-    let untrusted = match agent {
+/// Why `agent` must not run in `cwd` yet: Claude and Cursor run only in a folder they trust.
+fn refusal(agent: Agent, cwd: &str, home: Option<&std::path::Path>) -> Option<String> {
+    untrusted(agent, cwd, home).then(|| {
+        format!(
+            "{} doesn't trust this folder yet. Trust it in Settings",
+            agent.label()
+        )
+    })
+}
+
+fn untrusted(agent: Agent, cwd: &str, home: Option<&std::path::Path>) -> bool {
+    match agent {
         Agent::Cursor => !home.is_some_and(|h| erindi_core::cursor::trusted(h, cwd)),
+        Agent::Claude => !erindi_core::claude::config_path(home)
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .is_some_and(|config| erindi_core::claude::trusted(&config, cwd)),
         _ => false,
-    };
-    untrusted.then_some("Cursor doesn't trust this folder yet. Trust it in Settings")
+    }
 }
 
-pub fn cursor_untrusted(cwd: &str) -> bool {
-    refusal(Agent::Cursor, cwd, home().as_deref()).is_some()
+pub fn folder_untrusted(agent: Agent, cwd: &str) -> bool {
+    untrusted(agent, cwd, home().as_deref())
 }
 
-/// Opens Cursor in `cwd`, where Cursor asks on its own whether to trust the folder.
-pub fn trust_in_cursor(cwd: &str) -> Result<(), String> {
-    let program = erindi_core::cli::locate(Agent::Cursor).ok_or_else(|| missing(Agent::Cursor))?;
+/// Opens `agent` in `cwd`, where the agent asks on its own whether to trust the folder.
+pub fn trust_folder(agent: Agent, cwd: &str) -> Result<(), String> {
+    let program = erindi_core::cli::locate(agent).ok_or_else(|| missing(agent))?;
     let request = AgentRequest {
-        agent: Agent::Cursor,
+        agent,
         model: None,
         permission: None,
-        target: Target::New(uuid::Uuid::nil()),
+        target: Target::New(uuid::Uuid::new_v4()),
     };
     let args = agent::terminal_args(&program.display().to_string(), cwd, &request, "")
         .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
@@ -904,20 +915,6 @@ pub fn codex_limited(cwd: &str) -> bool {
     };
     let config = std::fs::read_to_string(path).unwrap_or_default();
     erindi_core::codex::limited(std::path::Path::new(cwd), &config)
-}
-
-/// Opens Codex in `cwd`, where Codex asks on its own whether to trust the folder and its hooks.
-pub fn trust_in_codex(cwd: &str) -> Result<(), String> {
-    let program = erindi_core::cli::locate(Agent::Codex).ok_or_else(|| missing(Agent::Codex))?;
-    let request = AgentRequest {
-        agent: Agent::Codex,
-        model: None,
-        permission: None,
-        target: Target::New(uuid::Uuid::nil()),
-    };
-    let args = agent::terminal_args(&program.display().to_string(), cwd, &request, "")
-        .map_err(|_| format!("Cannot open a terminal in {cwd}"))?;
-    crate::terminal::open(&args)
 }
 
 /// What the agent's own log says about session `native_id` now.
@@ -969,6 +966,22 @@ fn run_env(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn claude_waits_for_the_folder_to_be_trusted() {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = home.path().join("app").display().to_string();
+        let refused = refusal(Agent::Claude, &cwd, Some(home.path()));
+        assert_eq!(
+            refused.as_deref(),
+            Some("Claude doesn't trust this folder yet. Trust it in Settings")
+        );
+        let config =
+            serde_json::json!({ "projects": { cwd.clone(): { "hasTrustDialogAccepted": true } } });
+        std::fs::write(home.path().join(".claude.json"), config.to_string()).unwrap();
+        assert_eq!(refusal(Agent::Claude, &cwd, Some(home.path())), None);
+        assert_eq!(refusal(Agent::Pi, &cwd, None), None);
+    }
+
     #[test]
     fn cursor_waits_for_the_folder_to_be_trusted() {
         let home = tempfile::tempdir().unwrap();
