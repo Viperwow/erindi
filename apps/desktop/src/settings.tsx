@@ -1,13 +1,14 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
-import { AgentFields, RecheckButton, useAgents } from "./agents";
+import { AgentFields, ApiFields, RecheckButton, useAgents } from "./agents";
 import { CommandsView } from "./commands";
 import { DictionaryView } from "./dictionary";
 import {
   type Agent,
   type AgentStatus,
   agentLabels,
+  agentName,
   Field,
   GestureSelect,
   HotkeyInput,
@@ -41,6 +42,7 @@ const checking = (agent: Agent): AgentStatus => ({
 
 function SettingsView() {
   const [s, setS] = useState<Settings | null>(null);
+  const [apiKey, setApiKey] = useState("");
   const [mics, setMics] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>(null);
   const [models, setModels] = useState<ModelStatus[]>([]);
@@ -83,6 +85,10 @@ function SettingsView() {
     e.preventDefault();
     try {
       await invoke("save_settings", { settings: s });
+      if (apiKey.trim()) {
+        await invoke("set_api_key", { key: apiKey });
+        setApiKey("");
+      }
       setStatus({ ok: true, text: "Saved" });
       setCwd(s.cwd);
     } catch (err) {
@@ -122,17 +128,17 @@ function SettingsView() {
 
         <Field
           label="Agent"
-          hint="New sessions use it. Say “claude”, “codex” or “pi” to pick one for a new session. Installed or updated a CLI? Re-check finds it and reloads its models."
+          hint="New sessions use it. Say “claude”, “codex”, “pi” or “model” to pick one for a new session. Installed or updated a CLI? Re-check finds it and reloads its models."
           error={
-            agentStatus && !agentStatus.path
+            s.agent !== "api" && agentStatus && !agentStatus.path
               ? `${agentStatus.label} CLI not found. Install it, then press Re-check.`
               : undefined
           }
         >
           <div class="flex items-center gap-3">
             <select class={input} aria-label="Agent" value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
-              {Object.entries(agentLabels).map(([agent, label]) => (
-                <option value={agent}>{label}</option>
+              {(Object.keys(agentLabels) as Agent[]).map((agent) => (
+                <option value={agent}>{agentName(agent, s)}</option>
               ))}
             </select>
             <RecheckButton
@@ -140,12 +146,25 @@ function SettingsView() {
             />
           </div>
         </Field>
-        <AgentFields
-          status={agentStatus ?? checking(s.agent)}
-          checking={checkingAgents}
-          value={s.agents[s.agent] ?? { model: null, permission: "default" }}
-          onChange={(v) => set({ agents: { ...s.agents, [s.agent]: v } })}
-        />
+        {s.agent === "api" ? (
+          <ApiFields
+            name={s.apiName}
+            baseUrl={s.apiBaseUrl}
+            model={s.apiModel}
+            apiKey={apiKey}
+            onChange={({ apiKey: key, ...rest }) => {
+              if (key !== undefined) setApiKey(key);
+              if (Object.keys(rest).length) set(rest);
+            }}
+          />
+        ) : (
+          <AgentFields
+            status={agentStatus ?? checking(s.agent)}
+            checking={checkingAgents}
+            value={s.agents[s.agent] ?? { model: null, permission: "default" }}
+            onChange={(v) => set({ agents: { ...s.agents, [s.agent]: v } })}
+          />
+        )}
 
         <div class={pair}>
           <Field label="Session" hint={'Say "new session" to start a new one.'}>

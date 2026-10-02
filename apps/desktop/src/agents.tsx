@@ -4,14 +4,20 @@ import { listen } from "@tauri-apps/api/event";
 import { type Agent, type AgentSettings, type AgentStatus, Field, Spinner, input, pair, unsafePermissions } from "./controls";
 import claudeIcon from "./icons/claude.svg";
 import openaiIcon from "./icons/openai.svg";
+import modelIcon from "./icons/model.svg";
 import piIcon from "./icons/pi.svg";
 
-const icons: Record<Agent, string> = { claude: claudeIcon, codex: openaiIcon, pi: piIcon };
-const placeholders: Record<Agent, string> = { claude: "claude-opus-4-8", codex: "gpt-5.5", pi: "anthropic/claude-sonnet-5" };
+const icons: Record<Agent, string> = { claude: claudeIcon, codex: openaiIcon, pi: piIcon, api: modelIcon };
+const placeholders: Record<Agent, string> = {
+  claude: "claude-opus-4-8",
+  codex: "gpt-5.5",
+  pi: "anthropic/claude-sonnet-5",
+  api: "qwen2.5-7b-instruct",
+};
 
 export function AgentIcon(props: { agent: Agent; class?: string }) {
   // OpenAI allows its mark only in black or white; the other marks keep their brand colors.
-  const tone = props.agent === "codex" ? "dark:invert" : "";
+  const tone = props.agent === "codex" || props.agent === "api" ? "dark:invert" : "";
   return <img src={icons[props.agent]} alt="" class={`${tone} ${props.class ?? "h-4 w-4"}`} />;
 }
 
@@ -154,6 +160,109 @@ export function AgentFields(props: {
           onInput={(e) => props.onChange({ ...value, model: { custom: e.currentTarget.value } })}
         />
       </Field>
+    </div>
+  );
+}
+
+/**
+ * The local model's connection. `apiKey` is the key typed this time: empty keeps the stored one.
+ * The model list comes from the server; when it does not answer, the model is typed instead.
+ */
+export function ApiFields(props: {
+  name: string;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  onChange: (v: { apiName?: string; apiBaseUrl?: string; apiModel?: string; apiKey?: string }) => void;
+}) {
+  const [models, setModels] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [stored, setStored] = useState(false);
+  const refresh = () => {
+    setLoading(true);
+    invoke<string[]>("api_models", { baseUrl: props.baseUrl })
+      .then((list) => {
+        setModels(list);
+        setError(null);
+      })
+      .catch((e) => {
+        setModels(null);
+        setError(String(e));
+      })
+      .finally(() => setLoading(false));
+  };
+  useEffect(refresh, []);
+  useEffect(() => {
+    invoke<boolean>("has_api_key").then(setStored);
+  }, []);
+  const clear = () => invoke("clear_api_key").then(() => setStored(false));
+  const listed = models !== null && models.length > 0;
+  return (
+    <div class="space-y-3">
+      <div class={pair}>
+        <Field label="Name" hint="Shown in the bubble and on Sessions.">
+          <input class={input} value={props.name} onInput={(e) => props.onChange({ apiName: e.currentTarget.value })} />
+        </Field>
+        <Field label="Server address" hint="Any OpenAI-compatible server: LM Studio, Ollama or a cloud service.">
+          <input
+            class={input}
+            value={props.baseUrl}
+            placeholder="http://localhost:1234/v1"
+            onInput={(e) => props.onChange({ apiBaseUrl: e.currentTarget.value })}
+            onBlur={refresh}
+          />
+        </Field>
+      </div>
+      <div class={pair}>
+        <Field label="Model" error={loading ? undefined : (error ?? undefined)}>
+          <div class="flex items-center gap-3">
+            {listed ? (
+              <select class={input} value={props.model} onChange={(e) => props.onChange({ apiModel: e.currentTarget.value })}>
+                {!models.includes(props.model) && <option value={props.model}>{props.model || "Choose a model"}</option>}
+                {models.map((m) => (
+                  <option value={m}>{m}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                class={input}
+                value={props.model}
+                placeholder={placeholders.api}
+                onInput={(e) => props.onChange({ apiModel: e.currentTarget.value })}
+              />
+            )}
+            <button
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              onClick={refresh}
+            >
+              {loading && <Spinner />}
+              Refresh
+            </button>
+          </div>
+        </Field>
+        <Field label="API key" hint="Only for servers that ask for one. Kept in the system's credential store.">
+          <div class="flex items-center gap-3">
+            <input
+              class={input}
+              type="password"
+              autocomplete="off"
+              value={props.apiKey}
+              placeholder={stored ? "Stored" : "None"}
+              onInput={(e) => props.onChange({ apiKey: e.currentTarget.value })}
+            />
+            <button
+              type="button"
+              disabled={!stored}
+              class="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              onClick={clear}
+            >
+              Clear
+            </button>
+          </div>
+        </Field>
+      </div>
     </div>
   );
 }
