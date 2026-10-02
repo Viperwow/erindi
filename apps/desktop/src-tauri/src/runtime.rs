@@ -670,13 +670,18 @@ impl Executor {
         let (tx, history, app) = (self.tx.clone(), self.history.clone(), self.app.clone());
         tauri::async_runtime::spawn(async move {
             let cancel = Arc::new(AtomicBool::new(false));
-            let (flag, events) = (cancel.clone(), tx.clone());
+            let (flag, events, sessions) = (cancel.clone(), tx.clone(), app.clone());
             let blocking = tauri::async_runtime::spawn_blocking(move || {
                 run_api(&config, &history, id, &flag, |event| {
                     // A cancelled run's late chunks must not reach the next phrase's bubble.
-                    if !flag.load(Ordering::SeqCst) {
-                        let _ = events.send(Msg::Run { op, event });
+                    if flag.load(Ordering::SeqCst) {
+                        return;
                     }
+                    if let RunEvent::Reply { text } = &event {
+                        let reply = serde_json::json!({ "id": id, "text": text });
+                        let _ = sessions.emit_to("settings", "session-reply", reply);
+                    }
+                    let _ = events.send(Msg::Run { op, event });
                 })
             });
             let end = tokio::select! {

@@ -244,6 +244,8 @@ pub struct View {
     pub phrases: Vec<Phrase>,
     /// The running agent's current step.
     pub detail: String,
+    /// The local model's reply so far, while it streams.
+    pub reply: String,
     pub agent: Agent,
     pub limited: bool,
     pub session_id: Option<Uuid>,
@@ -279,6 +281,7 @@ pub struct Controller {
     waiting: VecDeque<(PhraseId, Vec<f32>)>,
     result: Option<(bool, String)>,
     detail: String,
+    reply: String,
     run_agent: Agent,
     limited: bool,
     global_error: Option<String>,
@@ -321,6 +324,7 @@ impl Controller {
             waiting: VecDeque::new(),
             result: None,
             detail: String::new(),
+            reply: String::new(),
             run_agent: Agent::Claude,
             limited: false,
             global_error: None,
@@ -367,6 +371,7 @@ impl Controller {
                 .is_some_and(|id| self.series.get(id).is_some()),
             phrases,
             detail: self.detail.clone(),
+            reply: self.reply.clone(),
             agent: self.run_agent,
             limited: self.limited,
             session_id: self.active.as_ref().map(|a| a.id),
@@ -539,6 +544,7 @@ impl Controller {
                 // Only the local model streams its reply; the bubble shows the newest words.
                 RunEvent::Reply { text } => {
                     self.detail = tail(&text, 120);
+                    self.reply = text;
                     vec![self.show()]
                 }
                 RunEvent::SessionStarted { .. } => vec![],
@@ -567,6 +573,7 @@ impl Controller {
                 };
                 self.series.finish(op, status, outcome);
                 self.detail.clear();
+                self.reply.clear();
                 fx.extend(self.pump(now));
                 fx.push(self.show());
                 fx
@@ -1028,6 +1035,7 @@ impl Controller {
         self.run_agent = agent;
         self.limited = false;
         self.detail.clear();
+        self.reply.clear();
         if let Some(p) = self.series.get_mut(op) {
             p.status = Status::Running;
             p.text = prompt.clone();
@@ -2414,6 +2422,24 @@ mod tests {
             "{detail}"
         );
         assert!(detail.chars().count() <= 121, "{}", detail.chars().count());
+    }
+
+    #[test]
+    fn the_whole_streamed_reply_is_kept_until_the_run_ends() {
+        let mut t = T::new();
+        let op = t.run();
+        let long = "word ".repeat(60);
+        let fx = t.send(Msg::Run {
+            op,
+            event: RunEvent::Reply { text: long.clone() },
+        });
+        assert_eq!(shown(&fx).unwrap().reply, long);
+        let fx = t.send(Msg::RunExited {
+            op,
+            end: RunEnd::Exited { success: true },
+            stderr: String::new(),
+        });
+        assert_eq!(shown(&fx).unwrap().reply, "");
     }
 
     #[test]

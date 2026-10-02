@@ -20,4 +20,11 @@ const marked = new Marked({
   },
 });
 
-export const markdown = (text: string) => marked.parse(text, { async: false });
+// A private-use character marks where the caret goes; the parser leaves it in the last line's text.
+const CARET = "";
+
+/** `caret` ends a reply that is still streaming with a blinking caret. */
+export const markdown = (text: string, caret = false) => {
+  const html = marked.parse(caret ? text + CARET : text, { async: false });
+  return caret ? html.replace(CARET, '<span class="caret" aria-hidden="true"></span>') : html;
+};

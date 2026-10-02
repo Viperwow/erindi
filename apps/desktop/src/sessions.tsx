@@ -53,6 +53,8 @@ export function SessionsView() {
   const [data, setData] = useState<Sessions | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [formatted, setFormatted] = useState(true);
+  // The local model's reply while it streams; the saved one replaces it when the run ends.
+  const [streamed, setStreamed] = useState<{ id: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const load = () => invoke<Sessions>("list_sessions").then(setData);
@@ -68,10 +70,15 @@ export function SessionsView() {
 
   useEffect(() => {
     load();
-    const off = listen("sessions-changed", load);
+    const off = listen("sessions-changed", () => {
+      setStreamed(null);
+      load();
+    });
+    const streaming = listen<{ id: string; text: string }>("session-reply", (e) => setStreamed(e.payload));
     window.addEventListener("focus", load);
     return () => {
       off.then((f) => f());
+      streaming.then((f) => f());
       window.removeEventListener("focus", load);
     };
   }, []);
@@ -182,25 +189,36 @@ export function SessionsView() {
               </div>
               <Reveal open={expanded}>
                 <ol class="mt-2 space-y-1.5 rounded-md bg-neutral-100 p-3 dark:bg-neutral-900">
-                  {entry.prompts.map((p, i) => (
-                    <li class="flex gap-2">
-                      <span class="w-5 shrink-0 text-right text-xs leading-5 text-neutral-500 tabular-nums">
-                        {i + 1}.
-                      </span>
-                      <span class="min-w-0 flex-1">
-                        {textOf(p)}
-                        {typeof p !== "string" && "raw" in p && (
-                          <span class="block text-xs text-neutral-500">Said: {p.raw}</span>
-                        )}
-                        {replyOf(p) !== null &&
-                          (formatted ? (
-                            <div class="markdown mt-1 text-neutral-700 dark:text-neutral-300" dangerouslySetInnerHTML={{ __html: markdown(replyOf(p)!) }} />
-                          ) : (
-                            <span class="mt-1 block whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">{replyOf(p)}</span>
-                          ))}
-                      </span>
-                    </li>
-                  ))}
+                  {entry.prompts.map((p, i) => {
+                    const last = i === entry.prompts.length - 1;
+                    const streaming = last && replyOf(p) === null && streamed?.id === entry.id;
+                    const reply = streaming ? streamed.text : replyOf(p);
+                    return (
+                      <li class="flex gap-2">
+                        <span class="w-5 shrink-0 text-right text-xs leading-5 text-neutral-500 tabular-nums">
+                          {i + 1}.
+                        </span>
+                        <span class="min-w-0 flex-1">
+                          {textOf(p)}
+                          {typeof p !== "string" && "raw" in p && (
+                            <span class="block text-xs text-neutral-500">Said: {p.raw}</span>
+                          )}
+                          {reply !== null && (
+                            <div aria-busy={streaming}>
+                              {formatted ? (
+                                <div class="markdown mt-1 text-neutral-700 dark:text-neutral-300" dangerouslySetInnerHTML={{ __html: markdown(reply, streaming) }} />
+                              ) : (
+                                <span class="mt-1 block whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">
+                                  {reply}
+                                  {streaming && <span class="caret" aria-hidden="true" />}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ol>
               </Reveal>
               <div class="mt-3 flex gap-2">

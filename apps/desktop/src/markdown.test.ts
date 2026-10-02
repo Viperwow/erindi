@@ -11,3 +11,7 @@ test("HTML in a reply shows as text, never runs", () => {
   assert.equal(markdown("a <b>b</b>"), "<p>a &lt;b&gt;b&lt;/b&gt;</p>\n");
   assert.ok(!markdown("[x](javascript:alert(1))").includes("javascript:"));
 });
+
+test("a streaming reply ends with a caret inside its last line", () => {
+  assert.equal(markdown("- a\n- b", true), '<ul>\n<li>a</li>\n<li>b<span class="caret" aria-hidden="true"></span></li>\n</ul>\n');
+});

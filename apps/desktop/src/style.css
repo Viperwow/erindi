@@ -170,6 +170,7 @@ body.overlay {
 .dot { --s: 13px; }
 .dot.ok { color: #22c55e; }
 .dot.err { color: #ef4444; }
+.dot.run { color: #f59e0b; }
 
 /* Three dots that appear one by one, in a fixed-width slot so the label does not move. */
 .ell {
@@ -269,6 +270,7 @@ body.overlay {
 
 .why.ok { color: #86efac; }
 .why.err { color: #fca5a5; }
+.why.run { color: #fcd34d; }
 
 .tip > .full {
   color: rgba(244, 244, 245, 0.85);
@@ -344,5 +346,22 @@ body.overlay {
   .markdown code,
   .markdown pre {
     background: rgb(255 255 255 / 0.08);
+  }
+}
+
+/* A reply still streaming ends with a blinking caret. */
+.caret::after {
+  content: "▍";
+  margin-left: 1px;
+  animation: caret 1s steps(1) infinite;
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caret::after {
+    animation: none;
   }
 }
