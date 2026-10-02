@@ -834,7 +834,8 @@ fn run_api(
         }
         on_event(event);
     });
-    if let Some(reply) = reply
+    // A run cancelled as it finished shows "Cancelled", so its reply must not join the conversation.
+    if let Some(reply) = reply.filter(|_| !cancel.load(Ordering::SeqCst))
         && let Err(e) = history.lock().unwrap().set_reply(id, reply)
     {
         eprintln!("cannot save session history: {e}");
@@ -1166,6 +1167,45 @@ mod tests {
                 .collect()
         });
         (base, handle)
+    }
+
+    #[test]
+    fn a_cancelled_api_run_keeps_no_reply() {
+        let dir = tempfile::tempdir().unwrap();
+        let history = Mutex::new(History::load(&dir.path().join("s.json")));
+        let (base, _) = model_server(&["Paris"]);
+        let config = erindi_core::api::ApiConfig {
+            base_url: base,
+            key: None,
+            model: "m".into(),
+        };
+        let id = uuid::Uuid::from_u128(8);
+        let start = Start {
+            agent: Agent::Api,
+            native_id: Some(id.to_string()),
+            model: Some("m".into()),
+            permission: None,
+        };
+        history
+            .lock()
+            .unwrap()
+            .record(
+                id,
+                "C:/a",
+                Prompt::Plain("Capital of France?".into()),
+                0,
+                &start,
+            )
+            .unwrap();
+        let cancel = AtomicBool::new(false);
+        // The person cancels as the last chunk arrives.
+        run_api(&config, &history, id, &cancel, |event| {
+            if matches!(event, RunEvent::Result { .. }) {
+                cancel.store(true, Ordering::SeqCst);
+            }
+        });
+        let prompts = history.lock().unwrap().get(id).unwrap().prompts.clone();
+        assert_eq!(prompts, [Prompt::Plain("Capital of France?".into())]);
     }
 
     #[test]
