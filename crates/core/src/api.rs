@@ -11,6 +11,10 @@ use crate::run::RunEnd;
 use crate::stream::RunEvent;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the model list may take; a server that accepts and stays silent must not hold Settings.
+const MODELS_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long one reply may stream, the same limit an agent CLI run has.
+const CHAT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 pub struct ApiConfig {
     pub base_url: String,
@@ -41,9 +45,10 @@ fn base(url: &str) -> &str {
     url.trim().trim_end_matches('/')
 }
 
-fn agent() -> ureq::Agent {
+fn agent(total: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_global(Some(total))
         .http_status_as_error(false)
         .build()
         .into()
@@ -90,7 +95,8 @@ pub fn stream_chat(
         on_event(RunEvent::Result { ok, text });
         RunEnd::Exited { success: ok }
     };
-    let mut request = agent().post(format!("{}/chat/completions", base(&config.base_url)));
+    let mut request =
+        agent(CHAT_TIMEOUT).post(format!("{}/chat/completions", base(&config.base_url)));
     if let Some(key) = config.key.as_deref().filter(|k| !k.is_empty()) {
         request = request.header("Authorization", format!("Bearer {key}"));
     }
@@ -185,7 +191,7 @@ fn spoken(text: &str) -> &str {
 
 /// The model ids the server offers.
 pub fn list_models(base_url: &str, key: Option<&str>) -> Result<Vec<String>, String> {
-    let mut request = agent().get(format!("{}/models", base(base_url)));
+    let mut request = agent(MODELS_TIMEOUT).get(format!("{}/models", base(base_url)));
     if let Some(key) = key.filter(|k| !k.is_empty()) {
         request = request.header("Authorization", format!("Bearer {key}"));
     }
@@ -501,6 +507,17 @@ mod tests {
                 .unwrap()
                 .starts_with("POST /v1/chat/completions ")
         );
+    }
+
+    #[test]
+    fn a_silent_server_does_not_hold_the_model_list() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let hold = std::thread::spawn(move || listener.accept().map(|(stream, _)| stream));
+        let started = std::time::Instant::now();
+        assert!(list_models(&base, None).is_err());
+        assert!(started.elapsed() < MODELS_TIMEOUT + Duration::from_secs(5));
+        drop(hold);
     }
 
     #[test]
