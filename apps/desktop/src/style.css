@@ -283,3 +283,66 @@ body.overlay {
   .strip { animation: none; }
   .ell::after { animation: none; content: "..."; }
 }
+
+/* A local model's reply on Sessions, formatted from its Markdown. */
+.markdown > * + * {
+  margin-top: 0.5rem;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-weight: 600;
+}
+.markdown h1 {
+  font-size: 1.25rem;
+}
+.markdown h2 {
+  font-size: 1.125rem;
+}
+.markdown ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.markdown ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+.markdown a {
+  text-decoration: underline;
+}
+.markdown code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.875em;
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+  background: rgb(0 0 0 / 0.07);
+}
+.markdown pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  background: rgb(0 0 0 / 0.07);
+}
+.markdown pre code {
+  padding: 0;
+  background: none;
+}
+.markdown blockquote {
+  padding-left: 0.75rem;
+  border-left: 3px solid rgb(127 127 127 / 0.4);
+}
+.markdown table {
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid rgb(127 127 127 / 0.3);
+}
+@media (prefers-color-scheme: dark) {
+  .markdown code,
+  .markdown pre {
+    background: rgb(255 255 255 / 0.08);
+  }
+}

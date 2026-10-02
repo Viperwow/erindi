@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AgentIcon, useAgents } from "./agents";
 import { type Agent, Keys, Reveal, type Settings, agentName, useBusy } from "./controls";
+import { markdown } from "./markdown";
 import { type Prompt, replyOf, sessionLine, textOf } from "./model";
 import { ago } from "./time";
 
@@ -51,6 +52,7 @@ function Note(props: { tone: "error" | "info"; text: string }) {
 export function SessionsView() {
   const [data, setData] = useState<Sessions | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [formatted, setFormatted] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const load = () => invoke<Sessions>("list_sessions").then(setData);
@@ -144,21 +146,40 @@ export function SessionsView() {
                 </span>
                 <span class="shrink-0">· {[ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}</span>
               </p>
-              <button
-                type="button"
-                class="mt-2 -ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                aria-expanded={expanded}
-                onClick={() => setOpen(expanded ? null : entry.id)}
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 16 16"
-                  class={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+              <div class="mt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  class="-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                  aria-expanded={expanded}
+                  onClick={() => setOpen(expanded ? null : entry.id)}
                 >
-                  <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                {expanded ? "Hide" : "Show"} {count} {count === 1 ? "prompt" : "prompts"}
-              </button>
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 16 16"
+                    class={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+                  >
+                    <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                  {expanded ? "Hide" : "Show"} {count} {count === 1 ? "prompt" : "prompts"}
+                </button>
+                {api && expanded && (
+                  <button
+                    type="button"
+                    aria-pressed={formatted}
+                    aria-label="Format Markdown"
+                    title={formatted ? "Showing formatted replies. Show plain text" : "Showing plain text. Format Markdown"}
+                    class={`rounded-md p-1 hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-blue-500 dark:hover:bg-neutral-800 ${
+                      formatted ? "text-blue-600 dark:text-blue-400" : "text-neutral-500"
+                    }`}
+                    onClick={() => setFormatted(!formatted)}
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 208 128" class="h-4 w-6">
+                      <rect x="5" y="5" width="198" height="118" rx="15" fill="none" stroke="currentColor" stroke-width="10" />
+                      <path d="M30 98V30h20l20 25 20-25h20v68H90V59L70 84 50 59v39zm125 0-30-33h20V30h20v35h20z" fill="currentColor" />
+                    </svg>
+                  </button>
+                )}
+              </div>
               <Reveal open={expanded}>
                 <ol class="mt-2 space-y-1.5 rounded-md bg-neutral-100 p-3 dark:bg-neutral-900">
                   {entry.prompts.map((p, i) => (
@@ -166,14 +187,17 @@ export function SessionsView() {
                       <span class="w-5 shrink-0 text-right text-xs leading-5 text-neutral-500 tabular-nums">
                         {i + 1}.
                       </span>
-                      <span>
+                      <span class="min-w-0 flex-1">
                         {textOf(p)}
                         {typeof p !== "string" && "raw" in p && (
                           <span class="block text-xs text-neutral-500">Said: {p.raw}</span>
                         )}
-                        {replyOf(p) !== null && (
-                          <span class="mt-1 block whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">{replyOf(p)}</span>
-                        )}
+                        {replyOf(p) !== null &&
+                          (formatted ? (
+                            <div class="markdown mt-1 text-neutral-700 dark:text-neutral-300" dangerouslySetInnerHTML={{ __html: markdown(replyOf(p)!) }} />
+                          ) : (
+                            <span class="mt-1 block whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">{replyOf(p)}</span>
+                          ))}
                       </span>
                     </li>
                   ))}
