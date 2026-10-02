@@ -4,20 +4,22 @@ import { listen } from "@tauri-apps/api/event";
 import { type Agent, type AgentSettings, type AgentStatus, Field, Spinner, input, pair, unsafePermissions } from "./controls";
 import claudeIcon from "./icons/claude.svg";
 import openaiIcon from "./icons/openai.svg";
+import cursorIcon from "./icons/cursor.svg";
 import modelIcon from "./icons/model.svg";
 import piIcon from "./icons/pi.svg";
 
-const icons: Record<Agent, string> = { claude: claudeIcon, codex: openaiIcon, pi: piIcon, api: modelIcon };
+const icons: Record<Agent, string> = { claude: claudeIcon, codex: openaiIcon, pi: piIcon, cursor: cursorIcon, api: modelIcon };
 const placeholders: Record<Agent, string> = {
   claude: "claude-opus-4-8",
   codex: "gpt-5.5",
   pi: "anthropic/claude-sonnet-5",
+  cursor: "auto",
   api: "qwen2.5-7b-instruct",
 };
 
 export function AgentIcon(props: { agent: Agent; class?: string }) {
   // OpenAI allows its mark only in black or white; the other marks keep their brand colors.
-  const tone = props.agent === "codex" || props.agent === "api" ? "dark:invert" : "";
+  const tone = props.agent === "codex" || props.agent === "cursor" || props.agent === "api" ? "dark:invert" : "";
   return <img src={icons[props.agent]} alt="" class={`${tone} ${props.class ?? "h-4 w-4"}`} />;
 }
 

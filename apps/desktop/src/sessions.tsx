@@ -145,7 +145,7 @@ export function SessionsView() {
                 {!resumable ? (
                   <Note tone="error" text="This session didn't start, so it can't be continued." />
                 ) : (
-                  !live && !api && <Note tone="info" text="Couldn't read the agent's log. Showing the values the session started with." />
+                  !live && !api && entry.agent !== "cursor" && <Note tone="info" text="Couldn't read the agent's log. Showing the values the session started with." />
                 )}
               </p>
               <p class="mt-1 flex min-w-0 gap-1 text-xs text-neutral-500">

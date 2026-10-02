@@ -41,6 +41,8 @@ pub fn run() {
             open_session,
             overlay::set_bubble_rect,
             codex_limited,
+            cursor_untrusted,
+            trust_in_cursor,
             trust_in_codex,
             get_settings,
             save_settings,
@@ -174,6 +176,16 @@ fn clear_api_key() -> Result<(), String> {
 #[tauri::command]
 fn open_session(runtime: tauri::State<Runtime>) -> Result<(), String> {
     runtime.open_session()
+}
+
+#[tauri::command]
+fn cursor_untrusted(cwd: String) -> bool {
+    runtime::cursor_untrusted(&cwd)
+}
+
+#[tauri::command]
+fn trust_in_cursor(cwd: String) -> Result<(), String> {
+    runtime::trust_in_cursor(&cwd)
 }
 
 #[tauri::command]

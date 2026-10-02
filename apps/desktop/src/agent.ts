@@ -1,6 +1,6 @@
-export type Agent = "claude" | "codex" | "pi" | "api";
+export type Agent = "claude" | "codex" | "pi" | "cursor" | "api";
 
-export const agentLabels: Record<Agent, string> = { claude: "Claude", codex: "Codex", pi: "Pi", api: "Local model" };
+export const agentLabels: Record<Agent, string> = { claude: "Claude", codex: "Codex", pi: "Pi", cursor: "Cursor", api: "Local model" };
 
 /** The local model shows the name the user gave it. */
 export function agentName(agent: Agent, settings: { apiName: string }): string {

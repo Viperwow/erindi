@@ -6,6 +6,7 @@ pub mod cli;
 pub mod codex;
 pub mod commands;
 pub mod controller;
+pub mod cursor;
 #[cfg(windows)]
 pub mod job;
 pub mod llama;

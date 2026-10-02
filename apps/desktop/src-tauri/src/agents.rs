@@ -83,6 +83,10 @@ fn check(agent: Agent) -> AgentStatus {
         (Agent::Pi, Some(program)) => {
             cli_output(program, &["--list-models"]).map(|out| erindi_core::pi::parse_models(&out))
         }
+        (Agent::Cursor, None) => Ok(vec![]),
+        (Agent::Cursor, Some(program)) => {
+            cli_output(program, &["models"]).map(|out| erindi_core::cursor::parse_models(&out))
+        }
     };
     status_of(agent, path.map(|p| p.display().to_string()), models)
 }

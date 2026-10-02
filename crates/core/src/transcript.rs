@@ -28,7 +28,7 @@ pub fn read(agent: Agent, path: &Path) -> Option<Details> {
             continue;
         };
         let (model, permission) = match agent {
-            Agent::Api => return None,
+            Agent::Api | Agent::Cursor => return None,
             Agent::Claude => (
                 v["message"]["model"]
                     .as_str()
@@ -87,6 +87,8 @@ pub fn find_logs(agent: Agent, home: &Path) -> HashMap<String, PathBuf> {
     match agent {
         // Erindi keeps these conversations itself.
         Agent::Api => {}
+        // Cursor keeps its sessions in SQLite, which Erindi does not read.
+        Agent::Cursor => {}
         // One folder per project, one `<id>.jsonl` per session.
         Agent::Claude => {
             for dir in read_dir(&home.join(".claude/projects")) {

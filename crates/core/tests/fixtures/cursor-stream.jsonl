@@ -1,0 +1,8 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"D:\\Projects\\whispio","session_id":"cf62eed9-a5f3-4b0f-827f-6404a8f8a4a1","model":"Auto","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Reply with the single word ok"}]},"session_id":"cf62eed9-a5f3-4b0f-827f-6404a8f8a4a1"}
+{"type":"thinking","subtype":"delta","text":"Preparing to reply with","session_id":"cf62eed9-a5f3-4b0f-827f-6404a8f8a4a1","timestamp_ms":1790967541959}
+{"type":"thinking","subtype":"delta","text":" the single word \"ok\".","session_id":"cf62eed9-a5f3-4b0f-827f-6404a8f8a4a1","timestamp_ms":1790967542281}
+{"type":"thinking","subtype":"completed","session_id":"cf62eed9-a5f3-4b0f-827f-6404a8f8a4a1","timestamp_ms":1790967542282}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]},"session_id":"cf62eed9-a5f3-4b0f-827f-6404a8f8a4a1","timestamp_ms":1790967542282}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]},"session_id":"cf62eed9-a5f3-4b0f-827f-6404a8f8a4a1"}
+{"type":"result","subtype":"success","duration_ms":3577,"duration_api_ms":3577,"is_error":false,"result":"ok","session_id":"cf62eed9-a5f3-4b0f-827f-6404a8f8a4a1","usage":{"inputTokens":12070,"outputTokens":62,"cacheReadTokens":3840,"cacheWriteTokens":0}}

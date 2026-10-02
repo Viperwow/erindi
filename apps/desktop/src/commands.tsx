@@ -39,6 +39,7 @@ const commands: { id: Command; name: string; example: string; shortcuts?: Shortc
   { id: "claude", name: "Claude", example: "claude, check the diff" },
   { id: "codex", name: "Codex", example: "codex, check the diff" },
   { id: "pi", name: "Pi", example: "pi, check the diff" },
+  { id: "cursor", name: "Cursor", example: "cursor, explain this file" },
   { id: "api", name: "Local model", example: "model, what time is it" },
 ];
 
@@ -49,6 +50,7 @@ const names: Record<Command, string> = {
   claude: "New Claude session",
   codex: "New Codex session",
   pi: "New Pi session",
+  cursor: "New Cursor session",
   api: "New local model session",
 };
 

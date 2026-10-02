@@ -25,6 +25,8 @@ fn main() {
         "recheck_agents",
         "codex_limited",
         "trust_in_codex",
+        "cursor_untrusted",
+        "trust_in_cursor",
         "has_api_key",
         "set_api_key",
         "clear_api_key",
