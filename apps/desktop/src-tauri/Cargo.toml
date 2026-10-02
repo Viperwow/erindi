@@ -21,6 +21,7 @@ uuid = "1.26.1"
 erindi-audio-asr = { path = "../../../crates/audio-asr" }
 erindi-core = { path = "../../../crates/core" }
 tauri-plugin-autostart = "2.5"
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = "2.1"
