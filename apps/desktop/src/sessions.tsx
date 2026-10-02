@@ -6,7 +6,7 @@ import { type Agent, Keys, Reveal, type Settings, agentLabels, useBusy } from ".
 import { sessionLine } from "./model";
 import { ago } from "./time";
 
-type Prompt = string | { text: string; raw: string };
+type Prompt = string | { text: string; raw: string } | { text: string; reply: string };
 
 const textOf = (p: Prompt) => (typeof p === "string" ? p : p.text);
 
