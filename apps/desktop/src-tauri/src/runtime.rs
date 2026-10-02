@@ -199,6 +199,9 @@ fn open_terminal(
 ) -> Result<(), String> {
     let entry = history.lock().unwrap().get(id).cloned();
     let agent = entry.as_ref().map_or(agent, |e| e.agent);
+    if !agent.is_cli() {
+        return Err("This agent has no terminal".into());
+    }
     // A Claude or Pi session opened empty in a terminal never reached history, and uses Erindi's ID.
     let native = match (entry.and_then(|e| e.native_id), agent) {
         (Some(native), _) => native,
@@ -629,6 +632,69 @@ impl Executor {
         }
     }
 
+    /// Sends the phrase to the local model; the reply streams into the bubble and joins the history.
+    fn start_api_run(&mut self, op: OpId, prompt: String, session: Session, cwd: String) {
+        let config = match self
+            .settings
+            .read()
+            .unwrap()
+            .api_config(crate::api_key::get())
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = self.tx.send(Msg::RunExited {
+                    op,
+                    end: RunEnd::Exited { success: false },
+                    stderr: e,
+                });
+                return;
+            }
+        };
+        let id = match session {
+            Session::New(id) | Session::Resume(id) => id,
+        };
+        let start = Start {
+            agent: Agent::Api,
+            native_id: Some(id.to_string()),
+            model: Some(config.model.clone()),
+            permission: None,
+        };
+        *self.last_session.lock().unwrap() = Some(LastRun {
+            id,
+            cwd: cwd.clone(),
+            agent: Agent::Api,
+        });
+        self.remember_prompt(session, &cwd, prompt, &start);
+        let token = CancellationToken::new();
+        self.cancel = Some(token.clone());
+        let (tx, history, app) = (self.tx.clone(), self.history.clone(), self.app.clone());
+        tauri::async_runtime::spawn(async move {
+            let cancel = Arc::new(AtomicBool::new(false));
+            let (flag, events) = (cancel.clone(), tx.clone());
+            let blocking = tauri::async_runtime::spawn_blocking(move || {
+                run_api(&config, &history, id, &flag, |event| {
+                    // A cancelled run's late chunks must not reach the next phrase's bubble.
+                    if !flag.load(Ordering::SeqCst) {
+                        let _ = events.send(Msg::Run { op, event });
+                    }
+                })
+            });
+            let end = tokio::select! {
+                end = blocking => end.unwrap_or(RunEnd::Exited { success: false }),
+                _ = token.cancelled() => {
+                    cancel.store(true, Ordering::SeqCst);
+                    RunEnd::Cancelled
+                }
+            };
+            let _ = app.emit_to("settings", "sessions-changed", ());
+            let _ = tx.send(Msg::RunExited {
+                op,
+                end,
+                stderr: String::new(),
+            });
+        });
+    }
+
     fn remember_prompt(&mut self, session: Session, cwd: &str, prompt: String, start: &Start) {
         let id = match session {
             Session::New(id) | Session::Resume(id) => id,
@@ -647,6 +713,9 @@ impl Executor {
     }
 
     fn start_run(&mut self, op: OpId, prompt: String, session: Session, cwd: String, agent: Agent) {
+        if agent == Agent::Api {
+            return self.start_api_run(op, prompt, session, cwd);
+        }
         let fail = |tx: &Sender<Msg>, stderr: String| {
             let _ = tx.send(Msg::RunExited {
                 op,
@@ -743,6 +812,34 @@ impl Executor {
             }
         });
     }
+}
+
+/// Sends session `id`'s last phrase with the conversation before it, and stores the reply.
+fn run_api(
+    config: &erindi_core::api::ApiConfig,
+    history: &Mutex<History>,
+    id: uuid::Uuid,
+    cancel: &AtomicBool,
+    mut on_event: impl FnMut(RunEvent),
+) -> RunEnd {
+    let mut turns = history.lock().unwrap().turns(id);
+    let Some(last) = turns.pop() else {
+        return RunEnd::Exited { success: false };
+    };
+    let messages = erindi_core::api::messages(&turns, &last.prompt);
+    let mut reply = None;
+    let end = erindi_core::api::stream_chat(config, &messages, cancel, |event| {
+        if let RunEvent::Result { ok: true, text } = &event {
+            reply = Some(text.clone());
+        }
+        on_event(event);
+    });
+    if let Some(reply) = reply
+        && let Err(e) = history.lock().unwrap().set_reply(id, reply)
+    {
+        eprintln!("cannot save session history: {e}");
+    }
+    end
 }
 
 /// The model and permission a continued run passes. `claude -p --resume` falls back to the default
@@ -1026,6 +1123,106 @@ mod tests {
         assert_eq!(
             pick_llama_server(None, Path::new("/models")),
             Path::new("/models").join("llama/llama-server")
+        );
+    }
+
+    /// Answers each of `replies.len()` requests with one streamed reply; gives the base URL and
+    /// the request bodies it read.
+    fn model_server(
+        replies: &'static [&'static str],
+    ) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            replies
+                .iter()
+                .map(|reply| {
+                    let (stream, _) = listener.accept().unwrap();
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut length = 0;
+                    loop {
+                        let mut line = String::new();
+                        reader.read_line(&mut line).unwrap();
+                        if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                            length = v.trim().parse().unwrap();
+                        }
+                        if line == "\r\n" {
+                            break;
+                        }
+                    }
+                    let mut body = vec![0; length];
+                    reader.read_exact(&mut body).unwrap();
+                    let chunk =
+                        serde_json::json!({ "choices": [{ "delta": { "content": reply } }] });
+                    let mut stream = stream;
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {chunk}\n\ndata: [DONE]\n\n"
+                    )
+                    .unwrap();
+                    String::from_utf8(body).unwrap()
+                })
+                .collect()
+        });
+        (base, handle)
+    }
+
+    #[test]
+    fn api_run_records_the_reply() {
+        let dir = tempfile::tempdir().unwrap();
+        let history = Mutex::new(History::load(&dir.path().join("s.json")));
+        let (base, bodies) = model_server(&["Paris", "About 2 million"]);
+        let config = erindi_core::api::ApiConfig {
+            base_url: base,
+            key: None,
+            model: "m".into(),
+        };
+        let id = uuid::Uuid::from_u128(7);
+        let start = Start {
+            agent: Agent::Api,
+            native_id: Some(id.to_string()),
+            model: Some("m".into()),
+            permission: None,
+        };
+        let cancel = AtomicBool::new(false);
+        for (n, prompt) in ["Capital of France?", "How many people live there?"]
+            .into_iter()
+            .enumerate()
+        {
+            history
+                .lock()
+                .unwrap()
+                .record(id, "C:/a", Prompt::Plain(prompt.into()), n as u64, &start)
+                .unwrap();
+            let end = run_api(&config, &history, id, &cancel, |_| {});
+            assert_eq!(end, RunEnd::Exited { success: true });
+        }
+        let bodies = bodies.join().unwrap();
+        let second: serde_json::Value = serde_json::from_str(&bodies[1]).unwrap();
+        let contents: Vec<_> = second["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["content"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            contents,
+            ["Capital of France?", "Paris", "How many people live there?"]
+        );
+        let prompts = history.lock().unwrap().get(id).unwrap().prompts.clone();
+        assert_eq!(
+            prompts,
+            [
+                Prompt::Answered {
+                    text: "Capital of France?".into(),
+                    reply: "Paris".into()
+                },
+                Prompt::Answered {
+                    text: "How many people live there?".into(),
+                    reply: "About 2 million".into()
+                },
+            ]
         );
     }
 }

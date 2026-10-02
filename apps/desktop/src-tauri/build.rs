@@ -28,6 +28,7 @@ fn main() {
         "has_api_key",
         "set_api_key",
         "clear_api_key",
+        "api_models",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(commands))
         .expect("failed to run tauri-build");
