@@ -82,7 +82,8 @@ function outcome(p: Phrase): string | null {
 export function bubble(view: View, hidesIn: number | null = null): Bubble {
   const agent = view.phrases.find((p) => p.status === "classifying" || p.status === "running" || p.status === "cancelling");
   const busy = agent !== undefined || view.phrases.some((p) => p.status === "queued");
-  const clickable = view.sessionId !== null && !busy && view.phrases.some(finished);
+  // The local model has no terminal, so its answer is nothing to click.
+  const clickable = view.sessionId !== null && view.agent !== "api" && !busy && view.phrases.some(finished);
   const hint = clickable ? (view.limited ? "Click to open in Codex and trust" : "Click to open in terminal") : null;
   const newest = view.phrases.filter(finished).at(-1);
 

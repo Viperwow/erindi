@@ -175,3 +175,11 @@ test("the local model works under the name the person gave it", () => {
   const b = bubble(view({ agent: "api", apiName: "LM Studio", phrases: [phrase("running")] }));
   assert.equal(b.running?.text, "LM Studio is working");
 });
+
+test("a local model answer offers no terminal", () => {
+  const done = { ...phrase("done"), outcome: "Paris" };
+  const b = bubble(view({ agent: "api", sessionId: "s", phrases: [done] }));
+  assert.equal(b.clickable, false);
+  assert.equal(b.phrases[0].clickHint, null);
+  assert.equal(bubble(view({ agent: "claude", sessionId: "s", phrases: [done] })).clickable, true);
+});
