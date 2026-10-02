@@ -166,7 +166,7 @@ export function SessionsView() {
                       </span>
                       <span>
                         {textOf(p)}
-                        {typeof p !== "string" && (
+                        {typeof p !== "string" && "raw" in p && (
                           <span class="block text-xs text-neutral-500">Said: {p.raw}</span>
                         )}
                       </span>
