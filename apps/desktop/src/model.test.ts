@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { modelLabel, sessionLine } from "./model.ts";
+import { modelLabel, replyOf, sessionLine, textOf } from "./model.ts";
 
 test("Claude model IDs read as names", () => {
   assert.equal(modelLabel("claude-opus-5-5"), "Claude Opus 5.5");
@@ -17,4 +17,12 @@ test("session line reads agent · model · permission", () => {
   assert.equal(sessionLine("Claude", "claude-opus-5-5", "plan"), "Claude · Opus 5.5 · plan");
   assert.equal(sessionLine("Codex", "gpt-5.6-sol", "workspace-write", "GPT-5.6-Sol"), "Codex · GPT-5.6-Sol · workspace-write");
   assert.equal(sessionLine("Claude", null, "default"), "Claude · Default model · default");
+});
+
+test("a phrase to the local model carries its reply", () => {
+  assert.equal(textOf({ text: "q", reply: "a" }), "q");
+  assert.equal(replyOf({ text: "q", reply: "a" }), "a");
+  assert.equal(textOf("plain"), "plain");
+  assert.equal(replyOf("plain"), null);
+  assert.equal(replyOf({ text: "Fix it.", raw: "um fix it" }), null);
 });

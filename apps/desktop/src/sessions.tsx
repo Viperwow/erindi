@@ -2,13 +2,9 @@ import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AgentIcon, useAgents } from "./agents";
-import { type Agent, Keys, Reveal, type Settings, agentLabels, useBusy } from "./controls";
-import { sessionLine } from "./model";
+import { type Agent, Keys, Reveal, type Settings, agentName, useBusy } from "./controls";
+import { type Prompt, replyOf, sessionLine, textOf } from "./model";
 import { ago } from "./time";
-
-type Prompt = string | { text: string; raw: string } | { text: string; reply: string };
-
-const textOf = (p: Prompt) => (typeof p === "string" ? p : p.text);
 
 type Entry = {
   id: string;
@@ -60,8 +56,12 @@ export function SessionsView() {
   const load = () => invoke<Sessions>("list_sessions").then(setData);
   const { agents } = useAgents();
   const [talk, setTalk] = useState("");
+  const [apiName, setApiName] = useState("");
   useEffect(() => {
-    invoke<Settings>("get_settings").then((s) => setTalk(s.talkHotkey));
+    invoke<Settings>("get_settings").then((s) => {
+      setTalk(s.talkHotkey);
+      setApiName(s.apiName);
+    });
   }, []);
 
   useEffect(() => {
@@ -115,7 +115,9 @@ export function SessionsView() {
           const model = live?.model ?? entry.startedModel;
           const status = agents.find((a) => a.agent === entry.agent);
           const listed = status?.models.find((m) => m.id === model)?.label;
-          const agentLabel = status?.label ?? agentLabels[entry.agent];
+          const agentLabel = entry.agent === "api" ? agentName("api", { apiName }) : (status?.label ?? agentName(entry.agent, { apiName }));
+          // The local model has no permissions, and Erindi keeps its conversation, so there is no log to read.
+          const api = entry.agent === "api";
           const permission = live?.permission ?? entry.startedPermission ?? "default";
           const resumable = entry.nativeId !== null;
           return (
@@ -129,11 +131,11 @@ export function SessionsView() {
               <p class="line-clamp-2 font-medium">{textOf(entry.prompts[0])}</p>
               <p class="mt-1 flex h-4 min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-neutral-600 dark:text-neutral-400">
                 <AgentIcon agent={entry.agent} class="h-4 w-4 shrink-0" />
-                <span class="truncate">{sessionLine(agentLabel, model, permission, listed)}</span>
+                <span class="truncate">{api ? [agentLabel, model].filter(Boolean).join(" · ") : sessionLine(agentLabel, model, permission, listed)}</span>
                 {!resumable ? (
                   <Note tone="error" text="This session didn't start, so it can't be continued." />
                 ) : (
-                  !live && <Note tone="info" text="Couldn't read the agent's log. Showing the values the session started with." />
+                  !live && !api && <Note tone="info" text="Couldn't read the agent's log. Showing the values the session started with." />
                 )}
               </p>
               <p class="mt-1 flex min-w-0 gap-1 text-xs text-neutral-500">
@@ -169,20 +171,25 @@ export function SessionsView() {
                         {typeof p !== "string" && "raw" in p && (
                           <span class="block text-xs text-neutral-500">Said: {p.raw}</span>
                         )}
+                        {replyOf(p) !== null && (
+                          <span class="mt-1 block whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">{replyOf(p)}</span>
+                        )}
                       </span>
                     </li>
                   ))}
                 </ol>
               </Reveal>
               <div class="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  class={button}
-                  disabled={busy || !resumable}
-                  onClick={() => run("open_history_session", entry.id)}
-                >
-                  Open in terminal
-                </button>
+                {!api && (
+                  <button
+                    type="button"
+                    class={button}
+                    disabled={busy || !resumable}
+                    onClick={() => run("open_history_session", entry.id)}
+                  >
+                    Open in terminal
+                  </button>
+                )}
                 <button
                   type="button"
                   class={button}
