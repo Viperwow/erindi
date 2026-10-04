@@ -11,7 +11,9 @@ The Sessions tab has two panes.
 - **List (left).** A search field, a count line, and the sessions, newest first.
 - **Conversation (right).** The open session, read-only, every turn stacked top to bottom.
 
-The settings window opens at 1120 × 720; its minimum stays 640 × 480. Below 900 px of window width the conversation slides over the list from the right instead of sitting beside it; Esc or ✕ closes it.
+The settings window opens at 1120 × 720; its minimum stays 640 × 480. Below 900 px of window width one pane shows at a time, as in Material's list-detail layout: a click on a session replaces the list with the conversation, and "← Sessions" in its header, or Esc, goes back (screen 27).
+
+With nothing selected the right pane says "No session selected" and "Choose a session on the left." It shows the same after the open session is deleted; the list keeps its scroll position (screen 26). While the history loads, grey bars in the shape of rows stand in for the list (screen 25).
 
 With no sessions at all the tab shows only "No sessions yet" and "Ask an agent something by voice. Its sessions appear here." (screen 3).
 
@@ -60,6 +62,15 @@ Row menu: Make active, Open in terminal, separator, Delete.
 - **Open in terminal** is absent for the local model.
 - **Delete** turns into "Confirm delete · 3 s" on a red fill; a second click within 3 seconds deletes, as today.
 
+### Session details
+
+Under the conversation's title, one grey line: folder, permission, time since the last turn, the first 8 characters of the session ID (screen 15). The folder cuts with … and shows in full on hover. Long titles cut with … on one line and show in full on hover (screen 19).
+
+- When Erindi cleaned up a phrase before sending it, the question shows "Said: …" under it in grey.
+- A session that never started shows the note "This session didn't start, so it can't be continued." above its turns; Make active and Open in terminal are greyed in both menus (screen 16).
+- When the agent's log can't be read, an ⓘ ends the details line, with the tooltip "Couldn't read the agent's log. Showing the values the session started with."
+- A failed action (delete, make active, open in terminal) shows its error in a red box floating at the bottom of the list, with ✕ to dismiss; no row moves (screen 17).
+
 ## Search
 
 One field searches every session, always. Search runs in the settings window over the loaded history, 200 ms after the last keystroke.
@@ -75,6 +86,12 @@ Below the field: "9 matches in 2 sessions". Results group by session, each group
 
 A click opens the session at that turn. Clearing the search returns to the list.
 
+- Switched-on toggles get a blue fill (screen 18).
+- No result: "No matches", plus "Turn off Aa, ab or .* to widen the search." when a toggle is on.
+- A long query scrolls inside the field; the toggles stay in place (screen 19).
+- A session-name match lists the session as a plain row with the title highlighted (screen 20).
+- With every filter cleared: "Nothing to search in" and "Pick Questions, Answers or Session names in Filter."
+
 ## Conversation pane
 
 Header: the session title, then "‹ 1 of 9 ›" while searching or "‹ 98 of 214 ›" otherwise, then ⋯, then ✕. The title starts on the text line of the turns below it.
@@ -89,9 +106,22 @@ Each turn:
 - **Answer.** Label with agent icon, agent name and model, "Claude · opus"; the model is grey. The answer renders as Markdown when Preview is on.
 - On hover, top right: **⧉ Answer** and **⧉ Q&A** copy Markdown; the button reads "✓ Copied" for 1.5 s.
 
-A strip on the right edge maps every question of the session: one tick per question, white for the current one, red for a failed answer, a light band for the visible part. A click jumps to that question (screen 7). Turns use `content-visibility: auto`, so sessions with hundreds of turns stay fast.
+- **Preview on** renders Markdown: code blocks, tables, and Mermaid diagrams as today. **Preview off** shows the text as the agent wrote it, in monospace (screens 21–22).
+- A turn with no stored answer, such as one from before this change, shows "No answer saved for this turn." in grey italics.
+- Queued, cancelled and waiting phrases appear in the conversation with their rails and the labels "You · 99 · queued", "You · 100 · cancelled" and "Waiting" (screen 23).
+- Copy session confirms with a short note at the bottom of the pane, "✓ Copied the session as Markdown", for 1.5 s (screen 24).
+
+A strip on the right edge maps every question of the session: one tick per question, white for the current one, red for a failed answer, a light band for the visible part. Hovering a tick shows its question, "98 · Cheaper areas nearby?"; a click jumps to it (screens 7, 24). Turns use `content-visibility: auto`, so sessions with hundreds of turns stay fast.
 
 Header menu: Make active, Open in terminal, Copy session (Markdown), separator, **Preview** with a switch on the right, separator, Delete. The switch is 26 × 14 px; only its knob moves.
+
+## Keyboard
+
+↑ ↓ move through the list, Enter opens, Esc closes the conversation or goes back in a narrow window, Enter or Space opens ⋯. Every control has a visible focus ring.
+
+## Themes
+
+Both themes, as today. The light theme uses white surfaces, `#f0f0f0` for the selected row, `#dbeafe` for the selected result, `#eff6ff` for the current turn and `#fde68a` for matches; rails and marks keep their colours (screens 28–29).
 
 ## Rails
 
