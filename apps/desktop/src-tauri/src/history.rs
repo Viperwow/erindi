@@ -12,15 +12,30 @@ pub const MAX_ENTRIES: usize = 200;
 #[serde(untagged)]
 pub enum Prompt {
     Plain(String),
+    /// A phrase with the agent's answer. It comes before `Refined`, which would otherwise read an
+    /// answered phrase that kept its `raw` text and drop the answer.
+    Answered {
+        text: String,
+        reply: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        raw: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
+    },
     Refined {
         text: String,
         raw: String,
     },
-    /// A phrase to the local model with the model's reply.
-    Answered {
-        text: String,
-        reply: String,
-    },
+}
+
+/// What a run left for its phrase.
+pub struct Answer {
+    pub reply: String,
+    pub model: Option<String>,
+    /// The reply is the run's error.
+    pub failed: bool,
 }
 
 impl Prompt {
@@ -153,19 +168,28 @@ impl History {
         self.save()
     }
 
-    /// Stores the model's reply to the last prompt of session `id`.
-    pub fn set_reply(&mut self, id: Uuid, reply: String) -> Result<(), String> {
-        if let Some(last) = self
+    /// Stores the answer to the last prompt of session `id`. A session deleted meanwhile keeps nothing.
+    pub fn set_answer(&mut self, id: Uuid, answer: Answer) -> Result<(), String> {
+        let Some(last) = self
             .entries
             .iter_mut()
             .find(|e| e.id == id)
             .and_then(|e| e.prompts.last_mut())
-        {
-            *last = Prompt::Answered {
-                text: last.text().to_string(),
-                reply,
-            };
-        }
+        else {
+            return Ok(());
+        };
+        let raw = match last {
+            Prompt::Refined { raw, .. } => Some(raw.clone()),
+            Prompt::Answered { raw, .. } => raw.clone(),
+            Prompt::Plain(_) => None,
+        };
+        *last = Prompt::Answered {
+            text: last.text().to_string(),
+            reply: answer.reply,
+            raw,
+            model: answer.model,
+            failed: answer.failed,
+        };
         self.save()
     }
 
@@ -178,7 +202,11 @@ impl History {
                     .map(|p| erindi_core::api::Turn {
                         prompt: p.text().to_string(),
                         reply: match p {
-                            Prompt::Answered { reply, .. } => Some(reply.clone()),
+                            Prompt::Answered {
+                                reply,
+                                failed: false,
+                                ..
+                            } => Some(reply.clone()),
                             _ => None,
                         },
                     })
@@ -222,6 +250,14 @@ mod tests {
 
     fn plain(text: &str) -> Prompt {
         Prompt::Plain(text.into())
+    }
+
+    fn done(reply: &str) -> Answer {
+        Answer {
+            reply: reply.into(),
+            model: None,
+            failed: false,
+        }
     }
 
     fn claude_start(id: Uuid) -> Start {
@@ -324,6 +360,77 @@ mod tests {
             .unwrap();
         let h = History::load(&path);
         assert_eq!(h.get(id(1)).unwrap().prompts, [plain("old"), refined]);
+    }
+
+    #[test]
+    fn old_history_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.json");
+        let old = format!(
+            r#"[{{"id":"{}","cwd":"C:/a","prompts":["a",{{"text":"b","raw":"bb"}},{{"text":"c","reply":"d"}}],"createdMs":1,"updatedMs":1,"agent":"api","nativeId":"n","startedModel":null,"startedPermission":null}}]"#,
+            id(1)
+        );
+        std::fs::write(&path, &old).unwrap();
+        let mut h = History::load(&path);
+        h.set_native(id(1), "n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+    }
+
+    #[test]
+    fn an_answer_keeps_what_was_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.json");
+        let mut h = History::load(&path);
+        let refined = Prompt::Refined {
+            text: "b".into(),
+            raw: "uh b".into(),
+        };
+        h.record(id(1), "C:/a", refined, 1, &claude_start(id(1)))
+            .unwrap();
+        let answer = Answer {
+            reply: "ok".into(),
+            model: Some("opus".into()),
+            failed: false,
+        };
+        h.set_answer(id(1), answer).unwrap();
+        let expected = Prompt::Answered {
+            text: "b".into(),
+            reply: "ok".into(),
+            raw: Some("uh b".into()),
+            model: Some("opus".into()),
+            failed: false,
+        };
+        assert_eq!(History::load(&path).get(id(1)).unwrap().prompts, [expected]);
+    }
+
+    #[test]
+    fn an_answer_for_a_deleted_session_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = History::load(&dir.path().join("s.json"));
+        h.record(id(1), "C:/a", plain("a"), 1, &claude_start(id(1)))
+            .unwrap();
+        let answer = Answer {
+            reply: "late".into(),
+            model: None,
+            failed: false,
+        };
+        assert_eq!(h.set_answer(id(2), answer), Ok(()));
+        assert_eq!(h.get(id(1)).unwrap().prompts, [plain("a")]);
+    }
+
+    #[test]
+    fn a_failed_answer_is_not_a_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = History::load(&dir.path().join("s.json"));
+        h.record(id(1), "C:/a", plain("a"), 1, &claude_start(id(1)))
+            .unwrap();
+        let answer = Answer {
+            reply: "Invalid API key".into(),
+            model: None,
+            failed: true,
+        };
+        h.set_answer(id(1), answer).unwrap();
+        assert_eq!(h.turns(id(1))[0].reply, None);
     }
 
     #[test]
@@ -448,14 +555,17 @@ mod tests {
         let mut h = History::load(&path);
         h.record(id(1), "C:/a", plain("a"), 1, &api_start(id(1)))
             .unwrap();
-        h.set_reply(id(1), "ra".into()).unwrap();
+        h.set_answer(id(1), done("ra")).unwrap();
         h.record(id(1), "C:/a", plain("b"), 2, &api_start(id(1)))
             .unwrap();
-        h.set_reply(id(1), "rb".into()).unwrap();
+        h.set_answer(id(1), done("rb")).unwrap();
         let h = History::load(&path);
         let answered = |text: &str, reply: &str| Prompt::Answered {
             text: text.into(),
             reply: reply.into(),
+            raw: None,
+            model: None,
+            failed: false,
         };
         assert_eq!(
             h.get(id(1)).unwrap().prompts,
@@ -470,7 +580,7 @@ mod tests {
         let mut h = History::load(&dir.path().join("s.json"));
         h.record(id(1), "C:/a", plain("a"), 1, &api_start(id(1)))
             .unwrap();
-        h.set_reply(id(1), "ra".into()).unwrap();
+        h.set_answer(id(1), done("ra")).unwrap();
         h.record(id(1), "C:/a", plain("b"), 2, &api_start(id(1)))
             .unwrap();
         let turns = h.turns(id(1));

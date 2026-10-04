@@ -22,7 +22,7 @@ use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::{Agents, missing};
-use crate::history::{Entry, History, Prompt, Start};
+use crate::history::{Answer, Entry, History, Prompt, Start};
 use crate::overlay;
 use crate::settings::Settings;
 
@@ -835,16 +835,23 @@ fn run_api(
         return RunEnd::Exited { success: false };
     };
     let messages = erindi_core::api::messages(&turns, &last.prompt);
-    let mut reply = None;
+    let mut result = None;
     let end = erindi_core::api::stream_chat(config, &messages, cancel, |event| {
-        if let RunEvent::Result { ok: true, text } = &event {
-            reply = Some(text.clone());
+        if let RunEvent::Result { ok, text } = &event {
+            result = Some((*ok, text.clone()));
         }
         on_event(event);
     });
     // A run cancelled as it finished shows "Cancelled", so its reply must not join the conversation.
-    if let Some(reply) = reply.filter(|_| !cancel.load(Ordering::SeqCst))
-        && let Err(e) = history.lock().unwrap().set_reply(id, reply)
+    if let Some((ok, reply)) = result.filter(|_| !cancel.load(Ordering::SeqCst))
+        && let Err(e) = history.lock().unwrap().set_answer(
+            id,
+            Answer {
+                reply,
+                model: Some(config.model.clone()),
+                failed: !ok,
+            },
+        )
     {
         eprintln!("cannot save session history: {e}");
     }
@@ -1325,11 +1332,17 @@ mod tests {
             [
                 Prompt::Answered {
                     text: "Capital of France?".into(),
-                    reply: "Paris".into()
+                    reply: "Paris".into(),
+                    raw: None,
+                    model: Some("m".into()),
+                    failed: false,
                 },
                 Prompt::Answered {
                     text: "How many people live there?".into(),
-                    reply: "About 2 million".into()
+                    reply: "About 2 million".into(),
+                    raw: None,
+                    model: Some("m".into()),
+                    failed: false,
                 },
             ]
         );
