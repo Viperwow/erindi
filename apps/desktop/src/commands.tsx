@@ -161,7 +161,7 @@ export function CommandsView() {
   };
 
   return (
-    <form onSubmit={guard(save)} class="@container max-w-4xl space-y-4 p-6">
+    <form onSubmit={guard(save)} class="@container mx-auto max-w-4xl space-y-4 p-6">
       <div class="space-y-1">
         <h2 class="text-base font-semibold">Commands</h2>
         <p class="text-neutral-600 dark:text-neutral-400">
@@ -180,7 +180,7 @@ export function CommandsView() {
         <Section title={c.name} description={`Example: «${c.example}»`}>
           {c.shortcuts ? (
             c.shortcuts.map(([label, hotkey, gesture]) => (
-              <div class="flex min-w-0 items-center gap-3">
+              <div class="flex min-w-0 flex-wrap items-center gap-3">
                 <span class="w-28 shrink-0 text-neutral-500">{label}</span>
                 <HotkeyInput
                   label={`${c.name} ${label}`}

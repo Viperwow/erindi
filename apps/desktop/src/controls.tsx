@@ -268,7 +268,7 @@ export function HotkeyInput(props: { value: string; label: string; onChange: (va
       type="button"
       aria-label={props.label}
       aria-pressed={recording}
-      class={`${input} min-w-0 flex-1 truncate text-left ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
+      class={`${input} min-w-48 flex-1 truncate text-left ${recording ? "ring-2 ring-blue-500 text-neutral-500" : ""}`}
       onClick={() => setRecording(!recording)}
       onBlur={() => setRecording(false)}
     >
