@@ -171,6 +171,19 @@ body.overlay {
 .dot.ok { color: #22c55e; }
 .dot.err { color: #ef4444; }
 .dot.run { color: #f59e0b; }
+.dot.run polygon {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.run polygon { animation: none; }
+}
 
 /* Three dots that appear one by one, in a fixed-width slot so the label does not move. */
 .ell {

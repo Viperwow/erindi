@@ -37,9 +37,12 @@ const TerminalIcon = () => (
   </svg>
 );
 
+// Each state has its own shape as well as its colour, so it reads without telling colours apart.
 const Dot = ({ kind }: { kind: "ok" | "err" | "run" }) => (
-  <svg class={`dot ${kind}`} viewBox="0 0 13 13">
-    <circle cx="6.5" cy="6.5" r="3.5" fill="currentColor" />
+  <svg class={`dot ${kind}`} viewBox="0 0 13 13" aria-hidden="true">
+    {kind === "ok" && <circle cx="6.5" cy="6.5" r="3.5" fill="currentColor" />}
+    {kind === "err" && <polygon points="6.5,2.2 10.8,10.2 2.2,10.2" fill="currentColor" />}
+    {kind === "run" && <polygon points="2.3,6.5 4.4,2.9 8.6,2.9 10.7,6.5 8.6,10.1 4.4,10.1" fill="currentColor" />}
   </svg>
 );
 
