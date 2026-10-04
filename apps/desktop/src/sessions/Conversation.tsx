@@ -152,6 +152,12 @@ export function Conversation(props: {
     if (turn && props.pattern) turn.querySelectorAll<HTMLElement>(".markdown").forEach((m) => markMatches(m, props.pattern!));
   }, [entry.id, props.current, props.pattern, props.preview]);
 
+  const dictating = props.live.map((l) => `${l.rail}:${l.text}`).join("\n");
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && dictating) el.scrollTop = el.scrollHeight;
+  }, [dictating]);
+
   const step = (by: number) => {
     if (!props.stops.length) return;
     const i = at < 0 ? (by > 0 ? 0 : props.stops.length - 1) : Math.max(0, Math.min(props.stops.length - 1, at + by));

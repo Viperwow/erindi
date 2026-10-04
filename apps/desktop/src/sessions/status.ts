@@ -1,4 +1,4 @@
-import type { Status, View } from "../bubble.ts";
+import { bubble, type Status, type View } from "../bubble.ts";
 
 /** What a session is doing, shown left of its title. */
 export type Mark = "waiting" | "speak" | "decode" | "run" | "idle";
@@ -19,13 +19,14 @@ const rails: Record<Status, Rail> = {
 
 export const railOf = (s: Status): Rail => rails[s];
 
+/** The bubble's state for the session it serves. */
 export function markOf(view: View | null, sessionId: string): Mark {
   if (!view || view.sessionId !== sessionId) return "idle";
-  const has = (...s: Status[]) => view.phrases.some((p) => s.includes(p.status));
-  if (has("running", "cancelling")) return "run";
-  if (has("speaking") || view.mic === "listening") return "speak";
-  if (has("transcribing", "classifying")) return "decode";
-  return view.mic === "waiting" ? "waiting" : "idle";
+  const b = bubble(view);
+  if (b.running?.icon === "terminal") return "run";
+  if (b.strip === "speak") return "speak";
+  if (b.strip === "decode" || b.running) return "decode";
+  return b.mic === "waiting" ? "waiting" : "idle";
 }
 
 /** Phrases the history records once their run starts. */
@@ -38,7 +39,8 @@ const recorded: Status[] = ["running", "cancelling", "done", "failed"];
 export function liveOf(view: View | null, sessionId: string, lastText?: string): { rail: Rail; text: string }[] {
   if (!view || view.sessionId !== sessionId) return [];
   const live = view.phrases
-    .filter((p) => !recorded.includes(p.status) && !(p.status === "cancelled" && p.text === lastText))
+    // A held key opens a phrase before any words arrive; like the bubble, it shows once it has text.
+    .filter((p) => p.text && !recorded.includes(p.status) && !(p.status === "cancelled" && p.text === lastText))
     .map((p) => ({ rail: railOf(p.status), text: p.text }));
   if (!live.length && view.mic === "waiting") return [{ rail: "waiting", text: "Waiting" }];
   return live;

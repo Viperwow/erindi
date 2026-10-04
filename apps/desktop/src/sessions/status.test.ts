@@ -12,11 +12,13 @@ test("other sessions are idle", () => {
   assert.equal(markOf(null, "a"), "idle");
 });
 
-test("marks follow the most active phrase", () => {
-  assert.equal(markOf(view({ phrases: [phrase("speaking"), phrase("running")] }), "a"), "run");
+test("marks follow the bubble", () => {
+  assert.equal(markOf(view({ mic: "listening", phrases: [phrase("speaking"), phrase("running")] }), "a"), "run");
   assert.equal(markOf(view({ phrases: [phrase("cancelling")] }), "a"), "run");
-  assert.equal(markOf(view({ phrases: [phrase("transcribing"), phrase("speaking")] }), "a"), "speak");
+  assert.equal(markOf(view({ mic: "listening", transcribing: true }), "a"), "speak");
+  assert.equal(markOf(view({ transcribing: true }), "a"), "decode");
   assert.equal(markOf(view({ phrases: [phrase("classifying")] }), "a"), "decode");
+  assert.equal(markOf(view({ mic: "waiting", phrases: [phrase("speaking", "")] }), "a"), "waiting");
   assert.equal(markOf(view({ mic: "waiting", phrases: [phrase("done")] }), "a"), "waiting");
   assert.equal(markOf(view({ phrases: [phrase("done")] }), "a"), "idle");
 });
@@ -39,6 +41,10 @@ test("live phrases skip what history already keeps", () => {
 test("a waiting mic with nothing said shows Waiting", () => {
   assert.deepEqual(liveOf(view({ mic: "waiting" }), "a"), [{ rail: "waiting", text: "Waiting" }]);
   assert.deepEqual(liveOf(view({ mic: "waiting" }), "b"), []);
+});
+
+test("a phrase without words yet is not shown", () => {
+  assert.deepEqual(liveOf(view({ mic: "listening", phrases: [phrase("speaking", "")] }), "a"), []);
 });
 
 test("a running phrase is already in history", () => {
