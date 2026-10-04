@@ -40,3 +40,9 @@ test("a waiting mic with nothing said shows Waiting", () => {
   assert.deepEqual(liveOf(view({ mic: "waiting" }), "a"), [{ rail: "waiting", text: "Waiting" }]);
   assert.deepEqual(liveOf(view({ mic: "waiting" }), "b"), []);
 });
+
+test("a running phrase is already in history", () => {
+  assert.deepEqual(liveOf(view({ phrases: [phrase("running"), phrase("cancelling"), phrase("speaking", "s")] }), "a"), [
+    { rail: "speak", text: "s" },
+  ]);
+});

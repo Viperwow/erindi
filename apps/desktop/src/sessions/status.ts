@@ -28,11 +28,14 @@ export function markOf(view: View | null, sessionId: string): Mark {
   return view.mic === "waiting" ? "waiting" : "idle";
 }
 
+/** Phrases the history records once their run starts. */
+const recorded: Status[] = ["running", "cancelling", "done", "failed"];
+
 /** The session's phrases the history does not keep yet, in order. */
 export function liveOf(view: View | null, sessionId: string): { rail: Rail; text: string }[] {
   if (!view || view.sessionId !== sessionId) return [];
   const live = view.phrases
-    .filter((p) => p.status !== "done" && p.status !== "failed")
+    .filter((p) => !recorded.includes(p.status))
     .map((p) => ({ rail: railOf(p.status), text: p.text }));
   if (!live.length && view.mic === "waiting") return [{ rail: "waiting", text: "Waiting" }];
   return live;
