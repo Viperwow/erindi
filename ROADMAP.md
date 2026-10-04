@@ -44,6 +44,9 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 
 - [x] **Model downloads.** Speech and command models install from Settings with progress and hash checks.
 - [ ] **Model picker.** Choose among several speech and command models, with Hugging Face search.
+- [ ] **Read answers aloud.** A neural text-to-speech model reads each agent's answer in natural-sounding speech, not the flat system voice.
+- [ ] **Voice picker.** Choose the voice that reads the answers.
+- [ ] **Text-to-speech model picker.** Choose the model that speaks the answers, local or cloud.
 
 ### Controls
 

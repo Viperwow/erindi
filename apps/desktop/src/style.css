@@ -171,6 +171,28 @@ body.overlay {
 .dot.ok { color: #22c55e; }
 .dot.err { color: #ef4444; }
 .dot.run { color: #f59e0b; }
+/* A thin stroke in the fill colour rounds the corners, so small shapes do not look jagged. */
+.dot polygon {
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 0.6;
+  stroke-linejoin: round;
+}
+
+/* The pentagon turns around the centre of its circle, so it spins in place. */
+.dot.run polygon {
+  transform-box: view-box;
+  transform-origin: 6.5px 6.5px;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.run polygon { animation: none; }
+}
 
 /* Three dots that appear one by one, in a fixed-width slot so the label does not move. */
 .ell {
