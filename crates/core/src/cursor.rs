@@ -90,12 +90,15 @@ pub fn parse_line(line: &str) -> Vec<RunEvent> {
         return vec![];
     };
     match (v["type"].as_str(), v["subtype"].as_str()) {
-        (Some("system"), Some("init")) => match v["session_id"].as_str() {
-            Some(id) => vec![RunEvent::SessionStarted {
+        (Some("system"), Some("init")) => {
+            let id = v["session_id"].as_str().map(|id| RunEvent::SessionStarted {
                 native_id: id.into(),
-            }],
-            None => vec![],
-        },
+            });
+            let model = v["model"]
+                .as_str()
+                .map(|name| RunEvent::Model { name: name.into() });
+            id.into_iter().chain(model).collect()
+        }
         (Some("tool_call"), Some("started")) => tool_name(&v["tool_call"])
             .map(|name| vec![RunEvent::ToolUse { name }])
             .unwrap_or_default(),
@@ -127,8 +130,20 @@ mod tests {
     const RUN: &str = include_str!("../tests/fixtures/cursor-stream.jsonl");
 
     #[test]
+    fn cursor_init_reports_the_model() {
+        let events: Vec<_> = RUN.lines().flat_map(parse_line).collect();
+        assert!(events.contains(&RunEvent::Model {
+            name: "Auto".into()
+        }));
+    }
+
+    #[test]
     fn a_run_reports_its_session_and_reply() {
-        let events: Vec<RunEvent> = RUN.lines().flat_map(parse_line).collect();
+        let events: Vec<RunEvent> = RUN
+            .lines()
+            .flat_map(parse_line)
+            .filter(|e| !matches!(e, RunEvent::Model { .. }))
+            .collect();
         assert_eq!(
             events,
             [
