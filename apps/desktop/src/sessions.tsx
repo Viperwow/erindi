@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { query } from "./query";
 import { listen } from "@tauri-apps/api/event";
 import { useAgents } from "./agents";
 import type { View } from "./bubble";
@@ -42,11 +43,11 @@ export function SessionsView() {
   const [note, setNote] = useState<string | null>(null);
   const [narrow, setNarrow] = useState(window.innerWidth < NARROW);
   const { agents } = useAgents();
-  const load = () => invoke<Sessions>("list_sessions").then(setData);
+  const load = () => query<Sessions>("list_sessions").then(setData);
 
   useEffect(() => {
     load();
-    invoke<Settings>("get_settings").then((s) => setApiName(s.apiName));
+    query<Settings>("get_settings").then((s) => setApiName(s.apiName));
     const offs = [
       listen("sessions-changed", () => {
         setStreamed(null);

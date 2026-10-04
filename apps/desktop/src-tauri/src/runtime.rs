@@ -671,9 +671,11 @@ impl Executor {
         let (tx, history, app) = (self.tx.clone(), self.history.clone(), self.app.clone());
         tauri::async_runtime::spawn(async move {
             let cancel = Arc::new(AtomicBool::new(false));
-            let (flag, events, sessions) = (cancel.clone(), tx.clone(), app.clone());
-            let blocking = tauri::async_runtime::spawn_blocking(move || {
-                run_api(&config, &history, id, &flag, |event| {
+            let decided = Arc::new(AtomicBool::new(false));
+            let (flag, won, events, sessions) =
+                (cancel.clone(), decided.clone(), tx.clone(), app.clone());
+            let mut blocking = tauri::async_runtime::spawn_blocking(move || {
+                run_api(&config, &history, id, &flag, &won, |event| {
                     // A cancelled run's late chunks must not reach the next phrase's bubble.
                     if flag.load(Ordering::SeqCst) {
                         return;
@@ -686,10 +688,15 @@ impl Executor {
                 })
             });
             let end = tokio::select! {
-                end = blocking => end.unwrap_or(RunEnd::Exited { success: false }),
+                end = &mut blocking => end.unwrap_or(RunEnd::Exited { success: false }),
                 _ = token.cancelled() => {
                     cancel.store(true, Ordering::SeqCst);
-                    RunEnd::Cancelled
+                    if decided.swap(true, Ordering::SeqCst) {
+                        // The reply was already kept, so the run ends as it really did.
+                        blocking.await.unwrap_or(RunEnd::Exited { success: false })
+                    } else {
+                        RunEnd::Cancelled
+                    }
                 }
             };
             let _ = app.emit_to("settings", "sessions-changed", ());
@@ -875,6 +882,7 @@ fn run_api(
     history: &Mutex<History>,
     id: uuid::Uuid,
     cancel: &AtomicBool,
+    decided: &AtomicBool,
     mut on_event: impl FnMut(RunEvent),
 ) -> RunEnd {
     let mut turns = history.lock().unwrap().turns(id);
@@ -889,8 +897,11 @@ fn run_api(
         }
         on_event(event);
     });
-    // A run cancelled as it finished shows "Cancelled", so its reply must not join the conversation.
-    if let Some((ok, reply)) = result.filter(|_| !cancel.load(Ordering::SeqCst))
+    // Cancel and the reply race for `decided`: a run shown as cancelled keeps no reply.
+    if decided.swap(true, Ordering::SeqCst) || cancel.load(Ordering::SeqCst) {
+        return RunEnd::Cancelled;
+    }
+    if let Some((ok, reply)) = result
         && let Err(e) = history.lock().unwrap().set_answer(
             id,
             Answer {
@@ -1373,11 +1384,18 @@ mod tests {
             .unwrap();
         let cancel = AtomicBool::new(false);
         // The person cancels as the last chunk arrives.
-        run_api(&config, &history, id, &cancel, |event| {
-            if matches!(event, RunEvent::Result { .. }) {
-                cancel.store(true, Ordering::SeqCst);
-            }
-        });
+        run_api(
+            &config,
+            &history,
+            id,
+            &cancel,
+            &AtomicBool::new(false),
+            |event| {
+                if matches!(event, RunEvent::Result { .. }) {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+            },
+        );
         let prompts = history.lock().unwrap().get(id).unwrap().prompts.clone();
         assert_eq!(prompts, [Prompt::Plain("Capital of France?".into())]);
     }
@@ -1409,7 +1427,14 @@ mod tests {
                 .unwrap()
                 .record(id, "C:/a", Prompt::Plain(prompt.into()), n as u64, &start)
                 .unwrap();
-            let end = run_api(&config, &history, id, &cancel, |_| {});
+            let end = run_api(
+                &config,
+                &history,
+                id,
+                &cancel,
+                &AtomicBool::new(false),
+                |_| {},
+            );
             assert_eq!(end, RunEnd::Exited { success: true });
         }
         let bodies = bodies.join().unwrap();
