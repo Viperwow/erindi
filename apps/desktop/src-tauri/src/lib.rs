@@ -467,7 +467,7 @@ pub(crate) fn show_settings(app: &AppHandle) {
         WebviewUrl::App("index.html#settings".into()),
     )
     .title("Erindi")
-    .inner_size(880.0, 680.0)
+    .inner_size(1120.0, 720.0)
     .min_inner_size(640.0, 480.0)
     .build();
 }
