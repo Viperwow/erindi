@@ -29,7 +29,7 @@ Each row has two lines (screen 2):
 
 ### Status marks
 
-One per session. Only the active session shows a live mark; every other session shows none.
+One per session. Only the active session shows a live mark; every other session is idle.
 
 | State | Mark |
 |---|---|
@@ -37,7 +37,7 @@ One per session. Only the active session shows a live mark; every other session 
 | Listening | dot, `#38bdf8`, pulsing |
 | Transcribing | equilateral triangle pointing down, `#a855f7`, pulsing |
 | Answering | regular pentagon, `#f59e0b`, turning clockwise around its own centre |
-| Idle | no mark |
+| Idle | dot, `#737373`, still |
 
 Shapes are regular polygons drawn as SVG with a 0.6 px stroke in the fill colour and round joins, 12 px box. Motion stops under `prefers-reduced-motion`.
 
