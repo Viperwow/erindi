@@ -41,8 +41,8 @@ const TerminalIcon = () => (
 const Dot = ({ kind }: { kind: "ok" | "err" | "run" }) => (
   <svg class={`dot ${kind}`} viewBox="0 0 13 13" aria-hidden="true">
     {kind === "ok" && <circle cx="6.5" cy="6.5" r="3.5" fill="currentColor" />}
-    {kind === "err" && <polygon points="6.5,2.2 10.8,10.2 2.2,10.2" fill="currentColor" />}
-    {kind === "run" && <polygon points="2.3,6.5 4.4,2.9 8.6,2.9 10.7,6.5 8.6,10.1 4.4,10.1" fill="currentColor" />}
+    {kind === "err" && <polygon points="6.5,3.28 10.22,9.73 2.78,9.73" />}
+    {kind === "run" && <polygon points="6.5,2.3 10.49,5.2 8.97,9.9 4.03,9.9 2.51,5.2" />}
   </svg>
 );
 
