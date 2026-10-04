@@ -30,6 +30,18 @@ export function pattern(o: Options): RegExp | null {
   }
 }
 
+/** An answer without its Markdown marks, so a snippet reads as text. */
+const plain = (md: string) =>
+  md
+    .split("\n")
+    .filter((line) => !/^\s*(```|\|?\s*:?-{3,})/.test(line))
+    .map((line) => line.replace(/^\s*(#{1,6}|>|[-*+]|\d+\.)\s+/, ""))
+    .join(" ")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/\|/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 function snippet(text: string, at: number, length: number): Omit<Hit, "turn" | "kind"> {
   let before = text.slice(0, at);
   if (before.length > BEFORE) before = `…${before.slice(-BEFORE).replace(/^\S*\s/, "")}`;
@@ -59,7 +71,7 @@ export function search(sessions: { id: string; prompts: Prompt[] }[], o: Options
       const q = o.questions ? find(re, textOf(p)) : null;
       if (q) hits.push({ turn: i + 1, kind: "q", ...q });
       const reply = replyOf(p);
-      const a = o.answers && reply ? find(re, reply) : null;
+      const a = o.answers && reply ? find(re, plain(reply)) : null;
       if (a) hits.push({ turn: i + 1, kind: "a", ...a });
     });
     if (titleHit || hits.length) {

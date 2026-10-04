@@ -64,3 +64,9 @@ test("a snippet keeps the text around the match", () => {
   assert.ok(hit.before.startsWith("…") && hit.before.length <= 42);
   assert.ok(hit.after.endsWith("…") && hit.after.length <= 82);
 });
+
+test("answer snippets read as plain text", () => {
+  const found = search(one([{ text: "q", reply: "### Rent caps\n- **Centre**: `€36`\n| a | b |" }]), { ...base, query: "centre" });
+  const [hit] = hits(found);
+  assert.equal(`${hit.before}${hit.match}${hit.after}`, "Rent caps Centre: €36 a b");
+});
