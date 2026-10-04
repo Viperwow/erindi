@@ -361,7 +361,8 @@ function App() {
           </button>
         ))}
       </nav>
-      <main class="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+      {/* Sessions scrolls its list and conversation itself. */}
+      <main class={`flex-1 ${tab === "sessions" ? "overflow-hidden" : "overflow-y-auto [scrollbar-gutter:stable]"}`}>
         {tab === "sessions" ? (
           <SessionsView />
         ) : tab === "commands" ? (

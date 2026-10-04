@@ -6,6 +6,7 @@ import type { View } from "./bubble";
 import { type Settings, agentName } from "./controls";
 import { failedOf, textOf } from "./model";
 import { Conversation } from "./sessions/Conversation";
+import { copyText } from "./sessions/clipboard";
 import { sessionMarkdown } from "./sessions/copy";
 import { countOf, type Entry, type Sessions, titleOf } from "./sessions/data";
 import { ErrorToast, rowKeys, SessionRow, Skeleton } from "./sessions/List";
@@ -131,8 +132,9 @@ export function SessionsView() {
         label: "Copy session",
         hint: "Markdown",
         onSelect: () => {
-          void navigator.clipboard.writeText(sessionMarkdown(titleOf(e), e.prompts));
-          flash("✓ Copied the session as Markdown");
+          void copyText(sessionMarkdown(titleOf(e), e.prompts)).then((ok) =>
+            flash(ok ? "✓ Copied the session as Markdown" : "The session was not copied"),
+          );
         },
       });
       items.push("separator", { switch: "Preview", on: preview, onToggle: () => setPreview(!preview) });

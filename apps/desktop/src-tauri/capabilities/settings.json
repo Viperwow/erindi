@@ -24,6 +24,7 @@
     "allow-api-models",
     "allow-codex-limited",
     "allow-folder-untrusted",
-    "allow-trust-folder"
+    "allow-trust-folder",
+    "clipboard-manager:allow-write-text"
   ]
 }

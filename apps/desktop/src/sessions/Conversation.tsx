@@ -4,9 +4,11 @@ import { AgentIcon } from "../agents";
 import { drawDiagrams } from "../diagram";
 import { markdown } from "../markdown";
 import { failedOf, modelOf, modelShort, type Prompt, rawOf, replyOf, textOf } from "../model";
+import { copyText } from "./clipboard";
 import { answerMarkdown, qaMarkdown } from "./copy";
 import type { Entry } from "./data";
 import { type MenuItem, MoreMenu } from "./Menu";
+import { ScrollMap, type Tick } from "./ScrollMap";
 import type { Rail } from "./status";
 
 export type Live = { rail: Rail; text: string };
@@ -88,22 +90,25 @@ const Body = memo(function Body(props: { text: string; preview: boolean; caret?:
 });
 
 function CopyButtons(props: { prompt: Prompt }) {
-  const [copied, setCopied] = useState<"a" | "qa" | null>(null);
-  const copy = (what: "a" | "qa") => {
-    void navigator.clipboard.writeText(what === "a" ? answerMarkdown(props.prompt) : qaMarkdown(props.prompt));
-    setCopied(what);
-    setTimeout(() => setCopied((c) => (c === what ? null : c)), 1500);
+  const [copied, setCopied] = useState<{ what: "a" | "qa"; ok: boolean } | null>(null);
+  const copy = async (what: "a" | "qa") => {
+    const ok = await copyText(what === "a" ? answerMarkdown(props.prompt) : qaMarkdown(props.prompt));
+    const shown = { what, ok };
+    setCopied(shown);
+    setTimeout(() => setCopied((c) => (c === shown ? null : c)), 1500);
   };
+  const label = (what: "a" | "qa", idle: string) =>
+    copied?.what === what ? (copied.ok ? "✓ Copied" : "Not copied") : idle;
   const button = "rounded border border-[var(--line)] bg-[var(--bg)] px-2 py-0.5 text-xs hover:bg-[var(--hover)]";
   return (
     <div class="ses-copy absolute right-2 top-1.5 flex gap-1">
       {replyOf(props.prompt) !== null && (
         <button type="button" class={`${button} w-[78px]`} onClick={() => copy("a")}>
-          {copied === "a" ? "✓ Copied" : "⧉ Answer"}
+          {label("a", "⧉ Answer")}
         </button>
       )}
       <button type="button" class={`${button} w-[78px]`} onClick={() => copy("qa")}>
-        {copied === "qa" ? "✓ Copied" : "⧉ Q&A"}
+        {label("qa", "⧉ Q&A")}
       </button>
     </div>
   );
@@ -132,7 +137,6 @@ export function Conversation(props: {
 }) {
   const { entry } = props;
   const scroller = useRef<HTMLDivElement>(null);
-  const [band, setBand] = useState({ top: 0, height: 100 });
   const n = entry.prompts.length;
   const at = props.current === null ? -1 : props.stops.indexOf(props.current);
 
@@ -147,17 +151,6 @@ export function Conversation(props: {
     turn?.scrollIntoView({ block: "center" });
     if (turn && props.pattern) turn.querySelectorAll<HTMLElement>(".markdown").forEach((m) => markMatches(m, props.pattern!));
   }, [entry.id, props.current, props.pattern, props.preview]);
-
-  const frame = useRef(0);
-  const onScroll = () => {
-    if (frame.current) return;
-    frame.current = requestAnimationFrame(() => {
-      frame.current = 0;
-      const el = scroller.current;
-      if (!el || !el.scrollHeight) return;
-      setBand({ top: (el.scrollTop / el.scrollHeight) * 100, height: (el.clientHeight / el.scrollHeight) * 100 });
-    });
-  };
 
   const step = (by: number) => {
     if (!props.stops.length) return;
@@ -219,15 +212,15 @@ export function Conversation(props: {
       <div
         ref={scroller}
         tabIndex={-1}
-        onScroll={onScroll}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             step(e.key === "ArrowDown" ? 1 : -1);
           }
         }}
-        class="min-h-0 flex-1 overflow-y-auto py-3 pl-4 pr-6 text-sm outline-none"
+        class="ses-scroll min-h-0 flex-1 overflow-y-auto py-3 pl-4 pr-6 text-sm outline-none"
       >
+        <div>
         {entry.prompts.map((p, i) => {
           const turn = i + 1;
           const reply = replyOf(p);
@@ -237,7 +230,7 @@ export function Conversation(props: {
           const running = last && reply === null ? props.running : null;
           const re = props.current === turn ? props.pattern : null;
           return (
-            <div id={`turn-${turn}`} key={`${entry.id}-${turn}`} class={`ses-turn ${props.current === turn ? "current" : ""}`}>
+            <div id={`turn-${turn}`} data-turn key={`${entry.id}-${turn}`} class={`ses-turn ${props.current === turn ? "current" : ""}`}>
               <CopyButtons prompt={p} />
               <div class="ses-railed rail-speak ml-3">
                 <div class="ses-muted text-xs">You · {turn}</div>
@@ -283,22 +276,18 @@ export function Conversation(props: {
             </div>
           </div>
         ))}
+        </div>
       </div>
-      <div class="absolute bottom-2.5 right-1 top-[60px] w-2.5" aria-hidden="true">
-        <div class="absolute inset-x-0 rounded-sm bg-[var(--selected)]" style={{ top: `${band.top}%`, height: `${band.height}%` }} />
-        {entry.prompts.map((p, i) => (
-          <button
-            type="button"
-            tabIndex={-1}
-            title={`${i + 1} · ${textOf(p)}`}
-            class={`absolute left-0.5 h-0.5 w-1.5 rounded-sm ${
-              props.current === i + 1 ? "!left-0 !w-2.5 bg-[var(--strong)]" : failedOf(p) ? "bg-red-400" : "bg-sky-400/50"
-            }`}
-            style={{ top: `${(i / Math.max(1, n)) * 100}%` }}
-            onClick={() => props.onCurrent(i + 1)}
-          />
-        ))}
-      </div>
+      <ScrollMap
+        scroller={scroller}
+        ticks={entry.prompts.flatMap((p, i): Tick[] => {
+          const turn = i + 1;
+          const kind =
+            props.current === turn ? "current" : failedOf(p) ? "failed" : props.pattern && props.stops.includes(turn) ? "match" : null;
+          return kind ? [{ turn, kind, label: `${turn} · ${textOf(p)}` }] : [];
+        })}
+        onJump={props.onCurrent}
+      />
       {props.note && (
         <div role="status" class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md border border-[var(--line)] bg-[var(--pop)] px-3 py-1.5 text-[13px] text-green-700 shadow-lg dark:text-green-300">
           {props.note}
