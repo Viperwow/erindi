@@ -121,7 +121,7 @@ Header menu: Make active, Open in terminal, Copy session (Markdown), separator, 
 
 ## Themes
 
-Both themes, as today. The light theme uses white surfaces, `#f0f0f0` for the selected row, `#dbeafe` for the selected result, `#eff6ff` for the current turn and `#fde68a` for matches; rails and marks keep their colours (screens 28–29).
+Both themes, as today. The light theme uses white surfaces, `#f0f0f0` for the selected row, `#dbeafe` for the selected result, `#eff6ff` for the current turn and `#fde68a` for matches; the ⋯ button fills `#e0e0e0` on hover and `#d0d0d0` while its menu is open; rails and marks keep their colours (screens 28–29).
 
 ## Rails
 
