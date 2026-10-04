@@ -46,3 +46,8 @@ test("a running phrase is already in history", () => {
     { rail: "speak", text: "s" },
   ]);
 });
+
+test("a cancelled phrase that already ran shows once, from history", () => {
+  const v = view({ phrases: [phrase("cancelled", "Run the release"), phrase("cancelled", "never sent")] });
+  assert.deepEqual(liveOf(v, "a", "Run the release"), [{ rail: "gone", text: "never sent" }]);
+});

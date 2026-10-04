@@ -33,7 +33,7 @@ export function Results(props: {
         const info = props.info(g.id);
         const title = g.titleHit ? highlight(g.title, props.pattern) : g.title;
         return (
-          <section class="ses-row" aria-label={g.title}>
+          <section key={g.id} class="ses-row" aria-label={g.title}>
             {g.hits.length ? (
               <div class="relative py-0.5 pl-[19px] pr-[34px]">
                 <TitleLine mark={info.mark} title={title} fullTitle={g.title} active={info.active} agent={info.agent} meta={info.meta} />
@@ -56,6 +56,7 @@ export function Results(props: {
               const on = props.current?.id === g.id && props.current.turn === h.turn && props.current.kind === h.kind;
               return (
                 <button
+                  key={`${h.turn}:${h.kind}`}
                   type="button"
                   data-row={`${g.id}:${h.turn}:${h.kind}`}
                   aria-current={on ? "true" : undefined}

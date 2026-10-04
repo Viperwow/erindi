@@ -148,8 +148,13 @@ export function SessionsView() {
     return items;
   };
 
+  const lastText = (e: Entry) => {
+    const last = e.prompts[e.prompts.length - 1];
+    return last ? textOf(last) : undefined;
+  };
+
   const lineOf = (e: Entry) => {
-    const live = liveOf(view, e.id);
+    const live = liveOf(view, e.id, lastText(e));
     if (live.length) return live[live.length - 1];
     const last = e.prompts[e.prompts.length - 1];
     return { rail: last && failedOf(last) ? ("err" as const) : ("speak" as const), text: last ? textOf(last) : "" };
@@ -231,6 +236,7 @@ export function SessionsView() {
           <ul>
             {entries.map((e) => (
               <SessionRow
+                key={e.id}
                 id={e.id}
                 title={titleOf(e)}
                 active={e.id === data.active}
@@ -272,7 +278,7 @@ export function SessionsView() {
           current={current?.turn ?? null}
           onCurrent={(turn) => setCurrent({ turn, kind: null })}
           pattern={re}
-          live={liveOf(view, entry.id)}
+          live={liveOf(view, entry.id, lastText(entry))}
           running={
             markOf(view, entry.id) === "run"
               ? { detail: view?.detail ?? "", streamed: streamed?.id === entry.id ? streamed.text : null }

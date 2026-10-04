@@ -864,6 +864,7 @@ fn answer_of(
         Some((ok, text)) if !text.is_empty() => Some((text, !ok)),
         Some((true, _)) => last_reply.map(|reply| (reply, false)),
         _ if *end == (RunEnd::Exited { success: true }) => last_reply.map(|reply| (reply, false)),
+        _ if *end == RunEnd::TimedOut => Some(("Timed out".into(), true)),
         _ => Some((stderr.trim().to_string(), true)),
     }
 }
@@ -1091,6 +1092,12 @@ mod tests {
 ",
         );
         assert_eq!(got, Some(("boom".into(), true)));
+    }
+
+    #[test]
+    fn answer_of_a_timeout_says_so() {
+        let got = answer_of(None, None, &RunEnd::TimedOut, "");
+        assert_eq!(got, Some(("Timed out".into(), true)));
     }
 
     #[test]

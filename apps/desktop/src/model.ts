@@ -12,7 +12,7 @@ export const modelLabel = (raw: string) => {
 
 /** "Claude · Opus 5.5 · plan": the agent, its model without the agent's name, the permission. */
 export const sessionLine = (agent: string, model: string | null, permission: string, listed?: string) => {
-  const name = model ? (listed ?? modelLabel(model).replace(new RegExp(`^${agent} `), "")) : "Default model";
+  const name = model ? (listed ?? modelShort(model, agent)) : "Default model";
   return [agent, name, permission].join(" · ");
 };
 
@@ -35,3 +35,9 @@ export const modelOf = (p: Prompt) => (typeof p !== "string" && "reply" in p && 
 
 /** The answer is the run's error. */
 export const failedOf = (p: Prompt) => typeof p !== "string" && "reply" in p && p.failed === true;
+
+/** The model's name without its agent's: "Opus 5.5" for Claude's `claude-opus-5-5`. */
+export const modelShort = (model: string, agent: string) => {
+  const label = modelLabel(model);
+  return label.startsWith(`${agent} `) ? label.slice(agent.length + 1) : label;
+};

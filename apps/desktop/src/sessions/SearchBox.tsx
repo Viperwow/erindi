@@ -98,7 +98,12 @@ export function SearchBox(props: { options: Options; invalid: boolean; onChange:
           </div>
         </div>
       )}
-      {props.invalid && <p class="mt-1 text-xs text-red-600 dark:text-red-400">Invalid regular expression</p>}
+      {/* Floats under the field, so the list below does not move. */}
+      {props.invalid && (
+        <p role="alert" class="absolute left-0 top-full z-10 mt-0.5 text-xs text-red-600 dark:text-red-400">
+          Invalid regular expression
+        </p>
+      )}
     </div>
   );
 }

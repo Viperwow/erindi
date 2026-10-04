@@ -31,11 +31,14 @@ export function markOf(view: View | null, sessionId: string): Mark {
 /** Phrases the history records once their run starts. */
 const recorded: Status[] = ["running", "cancelling", "done", "failed"];
 
-/** The session's phrases the history does not keep yet, in order. */
-export function liveOf(view: View | null, sessionId: string): { rail: Rail; text: string }[] {
+/**
+ * The session's phrases the history does not keep yet, in order. A phrase cancelled while it ran is
+ * already the session's last prompt (`lastText`); one cancelled before it ran never reached history.
+ */
+export function liveOf(view: View | null, sessionId: string, lastText?: string): { rail: Rail; text: string }[] {
   if (!view || view.sessionId !== sessionId) return [];
   const live = view.phrases
-    .filter((p) => !recorded.includes(p.status))
+    .filter((p) => !recorded.includes(p.status) && !(p.status === "cancelled" && p.text === lastText))
     .map((p) => ({ rail: railOf(p.status), text: p.text }));
   if (!live.length && view.mic === "waiting") return [{ rail: "waiting", text: "Waiting" }];
   return live;

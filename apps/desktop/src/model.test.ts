@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { failedOf, modelLabel, modelOf, rawOf, replyOf, sessionLine, textOf } from "./model.ts";
+import { failedOf, modelLabel, modelOf, modelShort, rawOf, replyOf, sessionLine, textOf } from "./model.ts";
 
 test("Claude model IDs read as names", () => {
   assert.equal(modelLabel("claude-opus-5-5"), "Claude Opus 5.5");
@@ -35,4 +35,10 @@ test("an answer keeps what was said, its model and its failure", () => {
   assert.equal(modelOf("a"), null);
   assert.equal(failedOf({ text: "b", reply: "r", failed: true }), true);
   assert.equal(failedOf("a"), false);
+});
+
+test("a model reads without its agent's name, whatever the name holds", () => {
+  assert.equal(modelShort("claude-opus-5-5", "Claude"), "Opus 5.5");
+  assert.equal(modelShort("qwen3-14b", "C++ helper"), "qwen3-14b");
+  assert.equal(modelShort("C++ helper big", "C++ helper"), "big");
 });

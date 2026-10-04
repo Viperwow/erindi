@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { memo } from "preact/compat";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { AgentIcon } from "../agents";
 import { drawDiagrams } from "../diagram";
 import { markdown } from "../markdown";
-import { failedOf, modelLabel, modelOf, type Prompt, rawOf, replyOf, textOf } from "../model";
+import { failedOf, modelOf, modelShort, type Prompt, rawOf, replyOf, textOf } from "../model";
 import { answerMarkdown, qaMarkdown } from "./copy";
 import type { Entry } from "./data";
 import { type MenuItem, MoreMenu } from "./Menu";
@@ -58,7 +59,9 @@ function markMatches(root: HTMLElement, re: RegExp) {
   }
 }
 
-function Body(props: { text: string; preview: boolean; caret?: boolean; re?: RegExp | null }) {
+// Scrolling and every live event re-render the pane, so an unchanged answer must not parse again.
+const Body = memo(function Body(props: { text: string; preview: boolean; caret?: boolean; re?: RegExp | null }) {
+  const html = useMemo(() => (props.preview ? markdown(props.text, props.caret) : ""), [props.text, props.preview, props.caret]);
   if (!props.preview) {
     return (
       <div class="whitespace-pre-wrap font-mono text-xs leading-relaxed">
@@ -69,15 +72,20 @@ function Body(props: { text: string; preview: boolean; caret?: boolean; re?: Reg
   }
   return (
     <div
+      // Search marks are added to this HTML by hand, so a new search remounts it clean.
+      key={props.re?.source ?? ""}
       class="markdown"
       // A diagram still streaming does not parse yet, so it is drawn once the reply ends.
       ref={(el) => {
-        if (el && !props.caret) void drawDiagrams(el);
+        if (el && !props.caret && !el.dataset.drawn) {
+          el.dataset.drawn = "1";
+          void drawDiagrams(el);
+        }
       }}
-      dangerouslySetInnerHTML={{ __html: markdown(props.text, props.caret) }}
+      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
-}
+});
 
 function CopyButtons(props: { prompt: Prompt }) {
   const [copied, setCopied] = useState<"a" | "qa" | null>(null);
@@ -140,10 +148,15 @@ export function Conversation(props: {
     if (turn && props.pattern) turn.querySelectorAll<HTMLElement>(".markdown").forEach((m) => markMatches(m, props.pattern!));
   }, [entry.id, props.current, props.pattern, props.preview]);
 
+  const frame = useRef(0);
   const onScroll = () => {
-    const el = scroller.current;
-    if (!el || !el.scrollHeight) return;
-    setBand({ top: (el.scrollTop / el.scrollHeight) * 100, height: (el.clientHeight / el.scrollHeight) * 100 });
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      const el = scroller.current;
+      if (!el || !el.scrollHeight) return;
+      setBand({ top: (el.scrollTop / el.scrollHeight) * 100, height: (el.clientHeight / el.scrollHeight) * 100 });
+    });
   };
 
   const step = (by: number) => {
@@ -241,7 +254,7 @@ export function Conversation(props: {
                   <div class="ses-muted flex items-center gap-1.5 text-xs">
                     <AgentIcon agent={entry.agent} class="h-3.5 w-3.5 shrink-0" />
                     {props.agentLabel}
-                    {model && <span>· {modelLabel(model).replace(new RegExp(`^${props.agentLabel} `), "")}</span>}
+                    {model && <span>· {modelShort(model, props.agentLabel)}</span>}
                     {running && !running.streamed && <span>· working</span>}
                   </div>
                   {running ? (
