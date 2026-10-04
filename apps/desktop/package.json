@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
-    "test": "node --test src/*.test.ts"
+    "test": "node --test src/*.test.ts src/sessions/*.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
