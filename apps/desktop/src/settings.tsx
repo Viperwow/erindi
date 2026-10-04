@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { query } from "./query";
 import { AgentFields, ApiFields, RecheckButton, useAgents } from "./agents";
 import { CommandsView } from "./commands";
 import { DictionaryView } from "./dictionary";
@@ -46,7 +47,7 @@ function SettingsView() {
   const [mics, setMics] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>(null);
   const [models, setModels] = useState<ModelStatus[]>([]);
-  const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
+  const refreshModels = () => query<ModelStatus[]>("model_status").then(setModels);
   const { agents, checking: checkingAgents, recheck } = useAgents();
   // The saved folder as each agent sees it: Codex runs it limited, Claude and Cursor not at all, until trusted.
   const [untrusted, setUntrusted] = useState<Partial<Record<Agent, boolean>>>({});
@@ -59,9 +60,9 @@ function SettingsView() {
     setUntrusted({});
     const check = () =>
       Promise.all([
-        invoke<boolean>("codex_limited", { cwd }),
-        invoke<boolean>("folder_untrusted", { agent: "claude", cwd }),
-        invoke<boolean>("folder_untrusted", { agent: "cursor", cwd }),
+        query<boolean>("codex_limited", { cwd }),
+        query<boolean>("folder_untrusted", { agent: "claude", cwd }),
+        query<boolean>("folder_untrusted", { agent: "cursor", cwd }),
       ]).then(([codex, claude, cursor]) => current && setUntrusted({ codex, claude, cursor }));
     check();
     window.addEventListener("focus", check);
@@ -72,11 +73,11 @@ function SettingsView() {
   }, [cwd]);
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then((loaded) => {
+    query<Settings>("get_settings").then((loaded) => {
       setS(loaded);
       setCwd(loaded.cwd);
     });
-    invoke<string[]>("list_microphones").then(setMics);
+    query<string[]>("list_microphones").then(setMics);
     refreshModels();
   }, []);
 
@@ -366,7 +367,8 @@ function App() {
           </button>
         ))}
       </nav>
-      <main class="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+      {/* Sessions scrolls its list and conversation itself. */}
+      <main class={`flex-1 ${tab === "sessions" ? "overflow-hidden" : "overflow-y-auto [scrollbar-gutter:stable]"}`}>
         {tab === "sessions" ? (
           <SessionsView />
         ) : tab === "commands" ? (

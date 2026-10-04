@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { query } from "./query";
 import { listen } from "@tauri-apps/api/event";
 import { type Agent, type AgentSettings, type AgentStatus, Field, Spinner, input, pair, unsafePermissions } from "./controls";
 import claudeIcon from "./icons/claude.svg";
@@ -29,7 +30,7 @@ export function useAgents() {
   const [pending, setPending] = useState(0);
   useEffect(() => {
     // The cache shows at once; it never replaces an answer that came first.
-    invoke<AgentStatus[]>("agent_status").then((cached) => setAgents((now) => (now.length ? now : cached)));
+    query<AgentStatus[]>("agent_status").then((cached) => setAgents((now) => (now.length ? now : cached)));
     const off = listen<AgentStatus[]>("agents-changed", (e) => setAgents(e.payload));
     const onFocus = () => {
       setPending((n) => n + 1);
@@ -183,7 +184,7 @@ export function ApiFields(props: {
   const [stored, setStored] = useState(false);
   const refresh = () => {
     setLoading(true);
-    invoke<string[]>("api_models", { baseUrl: props.baseUrl })
+    query<string[]>("api_models", { baseUrl: props.baseUrl })
       .then((list) => {
         setModels(list);
         setError(null);
@@ -196,7 +197,7 @@ export function ApiFields(props: {
   };
   useEffect(refresh, []);
   useEffect(() => {
-    invoke<boolean>("has_api_key").then(setStored);
+    query<boolean>("has_api_key").then(setStored);
   }, []);
   const clear = () => invoke("clear_api_key").then(() => setStored(false));
   const listed = models !== null && models.length > 0;

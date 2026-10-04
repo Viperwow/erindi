@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { query } from "./query";
 import { SaveBar, type Settings, type Status, input, useBusy } from "./controls";
 
 export function DictionaryView() {
@@ -9,7 +10,7 @@ export function DictionaryView() {
   const { run: guard, busy } = useBusy();
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then(setS);
+    query<Settings>("get_settings").then(setS);
   }, []);
 
   if (!s) return null;

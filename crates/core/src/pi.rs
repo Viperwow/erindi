@@ -74,7 +74,11 @@ impl Parser {
     }
 
     fn assistant(&mut self, message: &Value) -> Vec<RunEvent> {
-        let mut events = vec![];
+        let mut events: Vec<_> = message["model"]
+            .as_str()
+            .map(|name| RunEvent::Model { name: name.into() })
+            .into_iter()
+            .collect();
         let mut reply = String::new();
         for part in message["content"].as_array().into_iter().flatten() {
             match part["type"].as_str() {
@@ -146,9 +150,18 @@ mod tests {
     }
 
     #[test]
+    fn pi_reports_the_model() {
+        assert!(events(RUN).contains(&RunEvent::Model {
+            name: "prism-ml/bonsai-27b".into()
+        }));
+    }
+
+    #[test]
     fn events_from_a_run_with_a_tool() {
+        let mut got = events(RUN);
+        got.retain(|e| !matches!(e, RunEvent::Model { .. }));
         assert_eq!(
-            events(RUN),
+            got,
             [
                 RunEvent::SessionStarted {
                     native_id: "01a0e976-6857-762c-a700-c31f66fa9cc0".into()

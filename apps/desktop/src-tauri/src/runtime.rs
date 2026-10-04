@@ -22,7 +22,7 @@ use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::{Agents, missing};
-use crate::history::{Entry, History, Prompt, Start};
+use crate::history::{Answer, Entry, History, Prompt, Start};
 use crate::overlay;
 use crate::settings::Settings;
 
@@ -446,6 +446,7 @@ impl Executor {
             }
             Effect::Show(view) => {
                 let _ = self.app.emit_to("overlay", "view", &view);
+                let _ = self.app.emit_to("settings", "view", &view);
                 if view.visible {
                     overlay::show(&self.app);
                 } else {
@@ -670,9 +671,11 @@ impl Executor {
         let (tx, history, app) = (self.tx.clone(), self.history.clone(), self.app.clone());
         tauri::async_runtime::spawn(async move {
             let cancel = Arc::new(AtomicBool::new(false));
-            let (flag, events, sessions) = (cancel.clone(), tx.clone(), app.clone());
-            let blocking = tauri::async_runtime::spawn_blocking(move || {
-                run_api(&config, &history, id, &flag, |event| {
+            let decided = Arc::new(AtomicBool::new(false));
+            let (flag, won, events, sessions) =
+                (cancel.clone(), decided.clone(), tx.clone(), app.clone());
+            let mut blocking = tauri::async_runtime::spawn_blocking(move || {
+                run_api(&config, &history, id, &flag, &won, |event| {
                     // A cancelled run's late chunks must not reach the next phrase's bubble.
                     if flag.load(Ordering::SeqCst) {
                         return;
@@ -685,10 +688,15 @@ impl Executor {
                 })
             });
             let end = tokio::select! {
-                end = blocking => end.unwrap_or(RunEnd::Exited { success: false }),
+                end = &mut blocking => end.unwrap_or(RunEnd::Exited { success: false }),
                 _ = token.cancelled() => {
                     cancel.store(true, Ordering::SeqCst);
-                    RunEnd::Cancelled
+                    if decided.swap(true, Ordering::SeqCst) {
+                        // The reply was already kept, so the run ends as it really did.
+                        blocking.await.unwrap_or(RunEnd::Exited { success: false })
+                    } else {
+                        RunEnd::Cancelled
+                    }
                 }
             };
             let _ = app.emit_to("settings", "sessions-changed", ());
@@ -774,15 +782,23 @@ impl Executor {
         self.cancel = Some(token.clone());
         let (tx, history, app) = (self.tx.clone(), self.history.clone(), self.app.clone());
         let new = matches!(session, Session::New(_));
+        let requested = request.model.clone();
         tauri::async_runtime::spawn(async move {
             let mut parser = EventParser::new(agent);
             let mut native_seen = false;
+            let (mut result, mut last_reply, mut model) = (None, None, None);
             let mut pgid = None;
             let outcome = run(
                 spec,
                 token,
                 |line| {
                     for event in parser.feed(line) {
+                        match &event {
+                            RunEvent::Result { ok, text } => result = Some((*ok, text.clone())),
+                            RunEvent::Reply { text } => last_reply = Some(text.clone()),
+                            RunEvent::Model { name } => model = Some(name.clone()),
+                            _ => {}
+                        }
                         if let RunEvent::SessionStarted { native_id } = &event {
                             native_seen = true;
                             if let Err(e) = history.lock().unwrap().set_native(id, native_id) {
@@ -801,6 +817,24 @@ impl Executor {
             .await;
             if let Some(pid) = pgid {
                 crate::guard::untrack(pid);
+            }
+            let (end, stderr) = match &outcome {
+                Ok(o) => (o.end.clone(), o.stderr_tail.clone()),
+                Err(e) => (
+                    RunEnd::Exited { success: false },
+                    format!("Cannot start {}: {e}", agent.cli()),
+                ),
+            };
+            if let Some((reply, failed)) = answer_of(result, last_reply, &end, &stderr) {
+                let answer = Answer {
+                    reply,
+                    model: model.or(requested),
+                    failed,
+                };
+                if let Err(e) = history.lock().unwrap().set_answer(id, answer) {
+                    eprintln!("cannot save session history: {e}");
+                }
+                let _ = app.emit_to("settings", "sessions-changed", ());
             }
             let msg = match outcome {
                 Ok(outcome) => Msg::RunExited {
@@ -822,12 +856,33 @@ impl Executor {
     }
 }
 
+/// The answer a finished run leaves for its phrase, and whether it is an error. Pi ends with an
+/// empty result after its last reply, so the reply stands in for it. A cancelled run leaves none.
+fn answer_of(
+    result: Option<(bool, String)>,
+    last_reply: Option<String>,
+    end: &RunEnd,
+    stderr: &str,
+) -> Option<(String, bool)> {
+    if *end == RunEnd::Cancelled {
+        return None;
+    }
+    match result {
+        Some((ok, text)) if !text.is_empty() => Some((text, !ok)),
+        Some((true, _)) => last_reply.map(|reply| (reply, false)),
+        _ if *end == (RunEnd::Exited { success: true }) => last_reply.map(|reply| (reply, false)),
+        _ if *end == RunEnd::TimedOut => Some(("Timed out".into(), true)),
+        _ => Some((stderr.trim().to_string(), true)),
+    }
+}
+
 /// Sends session `id`'s last phrase with the conversation before it, and stores the reply.
 fn run_api(
     config: &erindi_core::api::ApiConfig,
     history: &Mutex<History>,
     id: uuid::Uuid,
     cancel: &AtomicBool,
+    decided: &AtomicBool,
     mut on_event: impl FnMut(RunEvent),
 ) -> RunEnd {
     let mut turns = history.lock().unwrap().turns(id);
@@ -835,16 +890,26 @@ fn run_api(
         return RunEnd::Exited { success: false };
     };
     let messages = erindi_core::api::messages(&turns, &last.prompt);
-    let mut reply = None;
+    let mut result = None;
     let end = erindi_core::api::stream_chat(config, &messages, cancel, |event| {
-        if let RunEvent::Result { ok: true, text } = &event {
-            reply = Some(text.clone());
+        if let RunEvent::Result { ok, text } = &event {
+            result = Some((*ok, text.clone()));
         }
         on_event(event);
     });
-    // A run cancelled as it finished shows "Cancelled", so its reply must not join the conversation.
-    if let Some(reply) = reply.filter(|_| !cancel.load(Ordering::SeqCst))
-        && let Err(e) = history.lock().unwrap().set_reply(id, reply)
+    // Cancel and the reply race for `decided`: a run shown as cancelled keeps no reply.
+    if decided.swap(true, Ordering::SeqCst) || cancel.load(Ordering::SeqCst) {
+        return RunEnd::Cancelled;
+    }
+    if let Some((ok, reply)) = result
+        && let Err(e) = history.lock().unwrap().set_answer(
+            id,
+            Answer {
+                reply,
+                model: Some(config.model.clone()),
+                failed: !ok,
+            },
+        )
     {
         eprintln!("cannot save session history: {e}");
     }
@@ -1005,6 +1070,57 @@ mod tests {
 
     use super::*;
     use crate::history;
+
+    fn ok() -> RunEnd {
+        RunEnd::Exited { success: true }
+    }
+
+    #[test]
+    fn answer_of_a_successful_run_is_its_result() {
+        let got = answer_of(Some((true, "Done".into())), None, &ok(), "");
+        assert_eq!(got, Some(("Done".into(), false)));
+    }
+
+    #[test]
+    fn answer_of_an_empty_result_is_the_last_reply() {
+        let got = answer_of(Some((true, String::new())), Some("Hi".into()), &ok(), "");
+        assert_eq!(got, Some(("Hi".into(), false)));
+    }
+
+    #[test]
+    fn answer_of_a_failed_run_is_its_error() {
+        let got = answer_of(Some((false, "Invalid API key".into())), None, &ok(), "");
+        assert_eq!(got, Some(("Invalid API key".into(), true)));
+    }
+
+    #[test]
+    fn answer_of_a_crash_is_stderr() {
+        let got = answer_of(
+            None,
+            None,
+            &RunEnd::Exited { success: false },
+            "boom
+",
+        );
+        assert_eq!(got, Some(("boom".into(), true)));
+    }
+
+    #[test]
+    fn answer_of_a_timeout_says_so() {
+        let got = answer_of(None, None, &RunEnd::TimedOut, "");
+        assert_eq!(got, Some(("Timed out".into(), true)));
+    }
+
+    #[test]
+    fn answer_of_a_cancelled_run_is_nothing() {
+        let got = answer_of(
+            Some((true, "Done".into())),
+            Some("Hi".into()),
+            &RunEnd::Cancelled,
+            "",
+        );
+        assert_eq!(got, None);
+    }
 
     #[test]
     fn restores_the_marked_session_with_its_age() {
@@ -1268,11 +1384,18 @@ mod tests {
             .unwrap();
         let cancel = AtomicBool::new(false);
         // The person cancels as the last chunk arrives.
-        run_api(&config, &history, id, &cancel, |event| {
-            if matches!(event, RunEvent::Result { .. }) {
-                cancel.store(true, Ordering::SeqCst);
-            }
-        });
+        run_api(
+            &config,
+            &history,
+            id,
+            &cancel,
+            &AtomicBool::new(false),
+            |event| {
+                if matches!(event, RunEvent::Result { .. }) {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+            },
+        );
         let prompts = history.lock().unwrap().get(id).unwrap().prompts.clone();
         assert_eq!(prompts, [Prompt::Plain("Capital of France?".into())]);
     }
@@ -1304,7 +1427,14 @@ mod tests {
                 .unwrap()
                 .record(id, "C:/a", Prompt::Plain(prompt.into()), n as u64, &start)
                 .unwrap();
-            let end = run_api(&config, &history, id, &cancel, |_| {});
+            let end = run_api(
+                &config,
+                &history,
+                id,
+                &cancel,
+                &AtomicBool::new(false),
+                |_| {},
+            );
             assert_eq!(end, RunEnd::Exited { success: true });
         }
         let bodies = bodies.join().unwrap();
@@ -1325,11 +1455,17 @@ mod tests {
             [
                 Prompt::Answered {
                     text: "Capital of France?".into(),
-                    reply: "Paris".into()
+                    reply: "Paris".into(),
+                    raw: None,
+                    model: Some("m".into()),
+                    failed: false,
                 },
                 Prompt::Answered {
                     text: "How many people live there?".into(),
-                    reply: "About 2 million".into()
+                    reply: "About 2 million".into(),
+                    raw: None,
+                    model: Some("m".into()),
+                    failed: false,
                 },
             ]
         );

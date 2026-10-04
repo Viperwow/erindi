@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { query } from "./query";
 import {
   type Command,
   type Gesture,
@@ -61,7 +62,7 @@ function TryPhrase(props: { patterns: Patterns }) {
 
   useEffect(() => {
     if (!text.trim()) return setResult(null);
-    invoke<{ commands: Command[]; rest: string }>("test_command", { patterns: props.patterns, text })
+    query<{ commands: Command[]; rest: string }>("test_command", { patterns: props.patterns, text })
       .then(setResult)
       .catch((err) => setResult(String(err)));
   }, [text, props.patterns]);
@@ -136,11 +137,11 @@ export function CommandsView() {
   const [s, setS] = useState<Settings | null>(null);
   const [status, setStatus] = useState<Status>(null);
   const [models, setModels] = useState<ModelStatus[]>([]);
-  const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
+  const refreshModels = () => query<ModelStatus[]>("model_status").then(setModels);
   const { run: guard, busy } = useBusy();
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then(setS);
+    query<Settings>("get_settings").then(setS);
     refreshModels();
   }, []);
 
@@ -207,7 +208,7 @@ export function CommandsView() {
       <button
         type="button"
         class="text-blue-600 hover:underline dark:text-blue-400"
-        onClick={() => invoke<Patterns>("default_patterns").then((patterns) => set({ patterns }))}
+        onClick={() => query<Patterns>("default_patterns").then((patterns) => set({ patterns }))}
       >
         Reset patterns to defaults
       </button>

@@ -25,6 +25,10 @@ pub enum RunEvent {
     },
     /// The agent skips the folder's own hooks and MCP servers because it does not trust the folder.
     Limited,
+    /// The model the agent answers with, when it says.
+    Model {
+        name: String,
+    },
 }
 
 /// Claude's `--output-format stream-json`. Unknown, malformed or irrelevant lines yield no events.
@@ -42,6 +46,10 @@ pub fn parse_line(line: &str) -> Vec<RunEvent> {
             .filter_map(|c| c["name"].as_str())
             .map(|name| RunEvent::ToolUse { name: name.into() })
             .collect(),
+        (Some("system"), Some("init")) => match v["model"].as_str() {
+            Some(name) => vec![RunEvent::Model { name: name.into() }],
+            None => vec![],
+        },
         (Some("system"), Some("permission_denied")) => vec![RunEvent::PermissionDenied {
             tool: str_at("tool_name"),
         }],
@@ -56,6 +64,18 @@ pub fn parse_line(line: &str) -> Vec<RunEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_init_reports_the_model() {
+        let line =
+            r#"{"type":"system","subtype":"init","model":"claude-opus-5-5","session_id":"s"}"#;
+        assert_eq!(
+            parse_line(line),
+            [RunEvent::Model {
+                name: "claude-opus-5-5".into()
+            }]
+        );
+    }
 
     #[test]
     fn tool_use_from_assistant_message() {
