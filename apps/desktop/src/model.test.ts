@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { modelLabel, replyOf, sessionLine, textOf } from "./model.ts";
+import { failedOf, modelLabel, modelOf, rawOf, replyOf, sessionLine, textOf } from "./model.ts";
 
 test("Claude model IDs read as names", () => {
   assert.equal(modelLabel("claude-opus-5-5"), "Claude Opus 5.5");
@@ -25,4 +25,14 @@ test("a phrase to the local model carries its reply", () => {
   assert.equal(textOf("plain"), "plain");
   assert.equal(replyOf("plain"), null);
   assert.equal(replyOf({ text: "Fix it.", raw: "um fix it" }), null);
+});
+
+test("an answer keeps what was said, its model and its failure", () => {
+  assert.equal(rawOf({ text: "b", reply: "r", raw: "uh b" }), "uh b");
+  assert.equal(rawOf({ text: "b", raw: "uh b" }), "uh b");
+  assert.equal(rawOf("a"), null);
+  assert.equal(modelOf({ text: "b", reply: "r", model: "opus" }), "opus");
+  assert.equal(modelOf("a"), null);
+  assert.equal(failedOf({ text: "b", reply: "r", failed: true }), true);
+  assert.equal(failedOf("a"), false);
 });

@@ -17,9 +17,21 @@ export const sessionLine = (agent: string, model: string | null, permission: str
 };
 
 /** One phrase of a session, as the history stores it. */
-export type Prompt = string | { text: string; raw: string } | { text: string; reply: string };
+export type Prompt =
+  | string
+  | { text: string; raw: string }
+  | { text: string; reply: string; raw?: string; model?: string; failed?: boolean };
 
 export const textOf = (p: Prompt) => (typeof p === "string" ? p : p.text);
 
 /** The local model's reply to the phrase, if it has one. */
 export const replyOf = (p: Prompt) => (typeof p !== "string" && "reply" in p ? p.reply : null);
+
+/** What the person said before Erindi cleaned it up, if it did. */
+export const rawOf = (p: Prompt) => (typeof p !== "string" && p.raw ? p.raw : null);
+
+/** The model that answered the phrase, when the agent said. */
+export const modelOf = (p: Prompt) => (typeof p !== "string" && "reply" in p && p.model ? p.model : null);
+
+/** The answer is the run's error. */
+export const failedOf = (p: Prompt) => typeof p !== "string" && "reply" in p && p.failed === true;
