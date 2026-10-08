@@ -171,6 +171,28 @@ body.overlay {
 .dot.ok { color: #22c55e; }
 .dot.err { color: #ef4444; }
 .dot.run { color: #f59e0b; }
+/* A thin stroke in the fill colour rounds the corners, so small shapes do not look jagged. */
+.dot polygon {
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 0.6;
+  stroke-linejoin: round;
+}
+
+/* The pentagon turns around the centre of its circle, so it spins in place. */
+.dot.run polygon {
+  transform-box: view-box;
+  transform-origin: 6.5px 6.5px;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.run polygon { animation: none; }
+}
 
 /* Three dots that appear one by one, in a fixed-width slot so the label does not move. */
 .ell {
@@ -372,4 +394,310 @@ body.overlay {
 .markdown .diagram svg {
   max-width: 100%;
   height: auto;
+}
+
+/* Sessions. Values follow docs/superpowers/specs/2026-10-04-sessions-redesign-design.md. */
+
+.ses {
+  --bg: #fff;
+  --line: #e5e5e5;
+  --text: #262626;
+  --strong: #111;
+  --muted: #525252;
+  --hover: #f5f5f5;
+  --selected: #f0f0f0;
+  --hit: #dbeafe;
+  --focus-turn: #eff6ff;
+  --mark-bg: #fde68a;
+  --mark-fg: #111;
+  --more-hover: #e0e0e0;
+  --more-open: #d0d0d0;
+  --pop: #fff;
+  --code: #f5f5f5;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ses {
+    --bg: #0a0a0a;
+    --line: #1f1f1f;
+    --text: #d4d4d4;
+    --strong: #fff;
+    --muted: #a3a3a3;
+    --hover: #171717;
+    --selected: #262626;
+    --hit: #172554;
+    --focus-turn: #0b1222;
+    --mark-bg: #713f12;
+    --mark-fg: #fef9c3;
+    --more-hover: #333;
+    --more-open: #4a4a4a;
+    --pop: #171717;
+    --code: #171717;
+  }
+}
+
+.ses mark {
+  background: var(--mark-bg);
+  color: var(--mark-fg);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.ses-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  flex-shrink: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+
+.ses-pane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ses-narrow .ses-list {
+  width: auto;
+  flex: 1;
+  border-right: 0;
+}
+
+.ses-strong { color: var(--strong); }
+.ses-muted { color: var(--muted); }
+
+/* Rails: a border snaps to whole device pixels, so every rail is equally thick at any scale. */
+.ses-railed { position: relative; }
+.ses-railed::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 3px;
+  bottom: 3px;
+  border-left: 2.5px solid var(--rail);
+}
+.rail-speak { --rail: #38bdf8; }
+.rail-decode { --rail: #a855f7; }
+.rail-run { --rail: #f59e0b; }
+.rail-ok { --rail: rgba(74, 222, 128, 0.55); }
+.rail-err { --rail: #f87171; }
+.rail-gone { --rail: rgba(128, 128, 128, 0.35); }
+.rail-waiting { --rail: #22508a; }
+.rail-queue { --rail: rgba(128, 128, 128, 0.55); }
+.rail-queue::before {
+  -webkit-mask: repeating-linear-gradient(to bottom, #000 0 2px, transparent 2px 4px);
+  mask: repeating-linear-gradient(to bottom, #000 0 2px, transparent 2px 4px);
+}
+
+/* A mark sits on the rail's line and centres on the title's capitals; its margins cancel its width and the gap. */
+.ses-mark {
+  flex: none;
+  align-self: baseline;
+  width: 12px;
+  height: 12px;
+  margin: 0 -4px 0 -16px;
+  overflow: visible;
+  transform: translateY(calc((12px - 1cap) / 2));
+}
+.ses-mark * {
+  stroke-linejoin: round;
+}
+.ses-mark.speak,
+.ses-mark.decode {
+  animation: ses-pulse 1.4s ease-in-out infinite;
+}
+.ses-mark.run polygon {
+  transform-box: view-box;
+  transform-origin: 6px 6px;
+  animation: ses-spin 2s linear infinite;
+}
+@keyframes ses-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes ses-pulse {
+  50% { opacity: 0.35; }
+}
+
+.ses-more {
+  display: inline-flex;
+  width: 24px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.ses-more:hover { background: var(--more-hover); color: var(--strong); }
+.ses-more[aria-expanded="true"] { background: var(--more-open); color: var(--strong); }
+.ses-more:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
+
+/* The ⋯ slot is always there; only its opacity changes. */
+.ses-row .ses-more { opacity: 0; }
+.ses-row:hover .ses-more,
+.ses-row:focus-within .ses-more,
+.ses-row.selected .ses-more,
+.ses-row .ses-more[aria-expanded="true"] { opacity: 1; }
+
+.ses-chip {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: #1d4ed8;
+  border: 1px solid #3b82f6;
+  border-radius: 999px;
+  padding: 0 7px;
+}
+@media (prefers-color-scheme: dark) {
+  .ses-chip { color: #93c5fd; }
+}
+
+.ses-pop {
+  position: absolute;
+  z-index: 10;
+  min-width: 210px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--pop);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+}
+.ses-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: var(--strong);
+  text-align: left;
+}
+.ses-item:hover:not(:disabled),
+.ses-item:focus-visible { background: var(--selected); outline: none; }
+.ses-item:disabled { color: var(--muted); opacity: 0.6; }
+.ses-item.danger { color: #dc2626; }
+.ses-item.confirm { background: #991b1b; color: #fff; }
+@media (prefers-color-scheme: dark) {
+  .ses-item.danger { color: #fca5a5; }
+}
+.ses-sep { height: 1px; margin: 4px 0; background: var(--line); }
+
+.ses-switch {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: #a3a3a3;
+}
+.ses-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.ses-switch.on { background: #2563eb; }
+.ses-switch.on::after { transform: translateX(12px); }
+
+.ses-turn {
+  position: relative;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+.ses-turn.current {
+  background: var(--focus-turn);
+  box-shadow: inset 0 0 0 1px #3b82f6;
+}
+/* Above the railed lines, which are positioned and come later. */
+.ses-turn .ses-copy { opacity: 0; z-index: 1; }
+.ses-turn:hover .ses-copy,
+.ses-turn:focus-within .ses-copy { opacity: 1; }
+
+.ses-skel {
+  height: 12px;
+  margin: 6px 0;
+  border-radius: 4px;
+  background: var(--selected);
+}
+
+.ses .markdown pre { background: var(--code); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ses-mark,
+  .ses-mark * { animation: none !important; }
+}
+
+.ses button:focus-visible,
+.ses input:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+}
+
+/* The conversation draws its own scrollbar, with a tick where each question starts. */
+.ses-scroll {
+  scrollbar-width: none;
+}
+.ses-scroll::-webkit-scrollbar {
+  display: none;
+}
+.ses-map {
+  position: absolute;
+  top: 64px;
+  bottom: 8px;
+  right: 3px;
+  width: 8px;
+}
+.ses-thumb {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  min-height: 24px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+  cursor: grab;
+  transition: background 0.15s;
+}
+.ses-map:hover .ses-thumb,
+.ses-thumb:active {
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+.ses-tick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  z-index: 1;
+  pointer-events: none;
+}
+.ses-map:hover .ses-tick {
+  pointer-events: auto;
+}
+.ses-tick.match {
+  background: #d4a017;
+}
+.ses-tick.failed {
+  background: #ef4444;
+}
+.ses-tick.current {
+  background: #3b82f6;
 }

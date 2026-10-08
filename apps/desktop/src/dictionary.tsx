@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { query } from "./query";
 import { SaveBar, type Settings, type Status, input, useBusy } from "./controls";
 
 export function DictionaryView() {
@@ -9,7 +10,7 @@ export function DictionaryView() {
   const { run: guard, busy } = useBusy();
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then(setS);
+    query<Settings>("get_settings").then(setS);
   }, []);
 
   if (!s) return null;
@@ -39,7 +40,7 @@ export function DictionaryView() {
   };
 
   return (
-    <form onSubmit={guard(save)} class="@container max-w-4xl space-y-4 p-6">
+    <form onSubmit={guard(save)} class="@container mx-auto max-w-4xl space-y-4 p-6">
       <div class="space-y-1">
         <h2 class="text-base font-semibold">Dictionary</h2>
         <p class="text-neutral-600 dark:text-neutral-400">Replaces what you say with how it should be written.</p>

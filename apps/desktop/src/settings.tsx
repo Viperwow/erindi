@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { query } from "./query";
 import { AgentFields, ApiFields, RecheckButton, useAgents } from "./agents";
 import { CommandsView } from "./commands";
 import { DictionaryView } from "./dictionary";
@@ -46,7 +47,7 @@ function SettingsView() {
   const [mics, setMics] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>(null);
   const [models, setModels] = useState<ModelStatus[]>([]);
-  const refreshModels = () => invoke<ModelStatus[]>("model_status").then(setModels);
+  const refreshModels = () => query<ModelStatus[]>("model_status").then(setModels);
   const { agents, checking: checkingAgents, recheck } = useAgents();
   // The saved folder as each agent sees it: Codex runs it limited, Claude and Cursor not at all, until trusted.
   const [untrusted, setUntrusted] = useState<Partial<Record<Agent, boolean>>>({});
@@ -59,9 +60,9 @@ function SettingsView() {
     setUntrusted({});
     const check = () =>
       Promise.all([
-        invoke<boolean>("codex_limited", { cwd }),
-        invoke<boolean>("folder_untrusted", { agent: "claude", cwd }),
-        invoke<boolean>("folder_untrusted", { agent: "cursor", cwd }),
+        query<boolean>("codex_limited", { cwd }),
+        query<boolean>("folder_untrusted", { agent: "claude", cwd }),
+        query<boolean>("folder_untrusted", { agent: "cursor", cwd }),
       ]).then(([codex, claude, cursor]) => current && setUntrusted({ codex, claude, cursor }));
     check();
     window.addEventListener("focus", check);
@@ -72,11 +73,11 @@ function SettingsView() {
   }, [cwd]);
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then((loaded) => {
+    query<Settings>("get_settings").then((loaded) => {
       setS(loaded);
       setCwd(loaded.cwd);
     });
-    invoke<string[]>("list_microphones").then(setMics);
+    query<string[]>("list_microphones").then(setMics);
     refreshModels();
   }, []);
 
@@ -105,7 +106,7 @@ function SettingsView() {
   return (
     <form
       onSubmit={guard(save)}
-      class="@container max-w-4xl space-y-4 p-6"
+      class="@container mx-auto max-w-4xl space-y-4 p-6"
     >
       <h2 class="text-base font-semibold">Settings</h2>
 
@@ -276,7 +277,7 @@ function SettingsView() {
             ["Hands-free", "handsFreeHotkey", "handsFreeGesture"],
           ] as const
         ).map(([name, hotkey, gesture]) => (
-          <div class="flex min-w-0 items-center gap-3">
+          <div class="flex min-w-0 flex-wrap items-center gap-3">
             <span class="w-32 shrink-0">{name}</span>
             <HotkeyInput label={name} value={s[hotkey]} onChange={(value) => set({ [hotkey]: value })} />
             <GestureSelect label={`${name} mode`} value={s[gesture]} onChange={(value) => set({ [gesture]: value })} />
@@ -321,11 +322,12 @@ function SettingsView() {
   );
 }
 
+// Each tab has an icon, so a narrow window can show the menu as icons only.
 const tabs = [
-  ["settings", "Settings"],
-  ["sessions", "Sessions"],
-  ["commands", "Commands"],
-  ["dictionary", "Dictionary"],
+  ["settings", "Settings", "M4 7h9m4 0h3M4 17h3m4 0h9M15 4.5v5M9 14.5v5"],
+  ["sessions", "Sessions", "M4 5h16v11H10l-4 4v-4H4z"],
+  ["commands", "Commands", "M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z"],
+  ["dictionary", "Dictionary", "M6 4h12v16H8a2 2 0 0 1-2-2zm0 12a2 2 0 0 1 2-2h10"],
 ] as const;
 
 type Tab = (typeof tabs)[number][0];
@@ -341,27 +343,32 @@ function App() {
   }, []);
   return (
     <div class="flex h-screen bg-neutral-50 text-sm text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      <nav class="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-3 dark:border-neutral-800">
+      <nav class="flex w-44 shrink-0 flex-col gap-1 border-r border-neutral-200 p-3 max-[760px]:w-14 max-[760px]:px-2 dark:border-neutral-800">
         <div class="flex items-center gap-2 px-2 pb-3 font-semibold tracking-wide">
-          <img src={logo} alt="" class="h-6 w-6" />
-          Erindi
+          <img src={logo} alt="" class="h-6 w-6 shrink-0" />
+          <span class="max-[760px]:sr-only">Erindi</span>
         </div>
-        {tabs.map(([id, label]) => (
+        {tabs.map(([id, label, icon]) => (
           <button
             type="button"
             aria-current={tab === id ? "page" : undefined}
-            class={`rounded-md px-2 py-1.5 text-left ${
+            title={label}
+            class={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left ${
               tab === id
                 ? "bg-neutral-200 font-medium dark:bg-neutral-800"
                 : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900"
             }`}
             onClick={() => (location.hash = id)}
           >
-            {label}
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="h-[18px] w-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d={icon} />
+            </svg>
+            <span class="max-[760px]:sr-only">{label}</span>
           </button>
         ))}
       </nav>
-      <main class="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+      {/* Sessions scrolls its list and conversation itself. */}
+      <main class={`flex-1 ${tab === "sessions" ? "overflow-hidden" : "overflow-y-auto [scrollbar-gutter:stable]"}`}>
         {tab === "sessions" ? (
           <SessionsView />
         ) : tab === "commands" ? (

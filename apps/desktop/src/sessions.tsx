@@ -1,86 +1,68 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { invoke } from "@tauri-apps/api/core";
+import { query } from "./query";
 import { listen } from "@tauri-apps/api/event";
-import { AgentIcon, useAgents } from "./agents";
-import { type Agent, Keys, Reveal, type Settings, agentName, useBusy } from "./controls";
-import { drawDiagrams } from "./diagram";
-import { markdown } from "./markdown";
-import { type Prompt, replyOf, sessionLine, textOf } from "./model";
+import { useAgents } from "./agents";
+import type { View } from "./bubble";
+import { type Settings, agentName } from "./controls";
+import { failedOf, textOf } from "./model";
+import { Conversation } from "./sessions/Conversation";
+import { copyText } from "./sessions/clipboard";
+import { sessionMarkdown } from "./sessions/copy";
+import { countOf, type Entry, type Sessions, titleOf } from "./sessions/data";
+import { ErrorToast, rowKeys, SessionRow, Skeleton } from "./sessions/List";
+import type { MenuItem } from "./sessions/Menu";
+import { type GroupInfo, Results } from "./sessions/Results";
+import { defaults, SearchBox } from "./sessions/SearchBox";
+import { type Found, type Hit, type Options, pattern, search } from "./sessions/search";
+import { liveOf, markOf } from "./sessions/status";
 import { ago } from "./time";
 
-type Entry = {
-  id: string;
-  cwd: string;
-  prompts: Prompt[];
-  createdMs: number;
-  updatedMs: number;
-  agent: Agent;
-  nativeId: string | null;
-  startedModel: string | null;
-  startedPermission: string | null;
-};
-
-type Details = { model: string | null; permission: string | null };
-
-type Sessions = { entries: Entry[]; active: string | null; details: Record<string, Details> };
-
-
-const button =
-  "rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
-const dangerButton =
-  "rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40";
-
-/** How many seconds the Delete button waits for the confirming second click. */
+/** How many seconds Delete waits for the confirming second click. */
 const CONFIRM_S = 3;
+/** Search runs this long after the last keystroke. */
+const DEBOUNCE_MS = 200;
+/** Below this window width one pane shows at a time. */
+const NARROW = 900;
 
-/** A small mark at the end of the agent line; the text shows on hover and to screen readers. */
-function Note(props: { tone: "error" | "info"; text: string }) {
-  const color = props.tone === "error" ? "text-red-600" : "text-neutral-400";
-  return (
-    <span role="img" aria-label={props.text} title={props.text} class={`shrink-0 cursor-help ${color}`}>
-      <svg aria-hidden="true" viewBox="0 0 16 16" class="h-3.5 w-3.5">
-        <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5" />
-        {props.tone === "error" ? (
-          <path d="M8 4.5v4.2M8 11.2v.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-        ) : (
-          <path d="M8 7.3v4.2M8 4.6v.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-        )}
-      </svg>
-    </span>
-  );
-}
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export function SessionsView() {
   const [data, setData] = useState<Sessions | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
-  const [formatted, setFormatted] = useState(true);
+  const [view, setView] = useState<View | null>(null);
   // The local model's reply while it streams; the saved one replaces it when the run ends.
   const [streamed, setStreamed] = useState<{ id: string; text: string } | null>(null);
+  const [apiName, setApiName] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [current, setCurrent] = useState<{ turn: number; kind: Hit["kind"] | null } | null>(null);
+  const [options, setOptions] = useState<Options>(defaults);
+  const [settled, setSettled] = useState<Options>(defaults);
+  const [preview, setPreview] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ id: string; left: number } | null>(null);
-  const load = () => invoke<Sessions>("list_sessions").then(setData);
+  const [note, setNote] = useState<string | null>(null);
+  const [narrow, setNarrow] = useState(window.innerWidth < NARROW);
   const { agents } = useAgents();
-  const [talk, setTalk] = useState("");
-  const [apiName, setApiName] = useState("");
-  useEffect(() => {
-    invoke<Settings>("get_settings").then((s) => {
-      setTalk(s.talkHotkey);
-      setApiName(s.apiName);
-    });
-  }, []);
+  const load = () => query<Sessions>("list_sessions").then(setData);
 
   useEffect(() => {
     load();
-    const off = listen("sessions-changed", () => {
-      setStreamed(null);
-      load();
-    });
-    const streaming = listen<{ id: string; text: string }>("session-reply", (e) => setStreamed(e.payload));
+    query<Settings>("get_settings").then((s) => setApiName(s.apiName));
+    const offs = [
+      listen("sessions-changed", () => {
+        setStreamed(null);
+        load();
+      }),
+      listen<{ id: string; text: string }>("session-reply", (e) => setStreamed(e.payload)),
+      listen<View>("view", (e) => setView(e.payload)),
+    ];
+    const resize = () => setNarrow(window.innerWidth < NARROW);
     window.addEventListener("focus", load);
+    window.addEventListener("resize", resize);
     return () => {
-      off.then((f) => f());
-      streaming.then((f) => f());
+      offs.forEach((off) => off.then((f) => f()));
       window.removeEventListener("focus", load);
+      window.removeEventListener("resize", resize);
     };
   }, []);
 
@@ -93,182 +75,259 @@ export function SessionsView() {
     return () => clearTimeout(tick);
   }, [confirming]);
 
-  const { run: guard, busy } = useBusy(600);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(options), DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [options]);
+
+  const entries = data?.entries ?? [];
+  const searching = settled.query !== "";
+  // An invalid expression keeps the previous results on screen.
+  const lastGood = useRef<Found>({ groups: [], total: 0 });
+  const found = useMemo(() => {
+    const f = search(entries, settled);
+    if (!("error" in f && f.error === "regex")) lastGood.current = f;
+    return f;
+  }, [entries, settled]);
+  const invalid = "error" in found && found.error === "regex";
+  const shown = invalid ? lastGood.current : found;
+  const re = useMemo(() => (searching ? pattern(settled) : null), [settled, searching]);
+
+  const labelOf = (e: Entry) => {
+    const status = agents.find((a) => a.agent === e.agent);
+    return e.agent === "api" ? agentName("api", { apiName }) : (status?.label ?? agentName(e.agent, { apiName }));
+  };
+
   const act = (command: string, id: string) =>
     invoke(command, { id }).then(
-      () => setError(null),
+      () => {
+        setError(null);
+        return load();
+      },
       (e) => setError(String(e)),
     );
-  const run = guard(act);
 
-  // A second click inside the guard's cooldown is not taken as the delete confirmation.
-  const remove = guard((id: string) => {
+  const remove = (id: string): "keep" | undefined => {
     if (confirming?.id !== id) {
       setConfirming({ id, left: CONFIRM_S });
-      return;
+      return "keep";
     }
     setConfirming(null);
-    return act("delete_session", id).then(load);
-  });
+    if (selected === id) setSelected(null);
+    void act("delete_session", id);
+  };
 
-  if (!data) return null;
-  if (data.entries.length === 0) {
+  const flash = (text: string) => {
+    setNote(text);
+    setTimeout(() => setNote((n) => (n === text ? null : n)), 1500);
+  };
+
+  const menuOf = (e: Entry, inPane: boolean): MenuItem[] => {
+    const active = e.id === data?.active;
+    const resumable = e.nativeId !== null;
+    const items: MenuItem[] = [
+      {
+        label: "Make active",
+        hint: active ? "Active" : undefined,
+        disabled: active || !resumable,
+        onSelect: () => void act("continue_session", e.id),
+      },
+    ];
+    if (e.agent !== "api") {
+      items.push({ label: "Open in terminal", disabled: !resumable, onSelect: () => void act("open_history_session", e.id) });
+    }
+    if (inPane) {
+      items.push({
+        label: "Copy session",
+        hint: "Markdown",
+        onSelect: () => {
+          void copyText(sessionMarkdown(titleOf(e), e.prompts)).then((ok) =>
+            flash(ok ? "✓ Copied the session as Markdown" : "The session was not copied"),
+          );
+        },
+      });
+      items.push("separator", { switch: "Preview", on: preview, onToggle: () => setPreview(!preview) });
+    }
+    const left = confirming?.id === e.id ? confirming.left : null;
+    const confirm = left !== null;
+    items.push("separator", {
+      label: confirm ? "Confirm delete" : "Delete",
+      hint: confirm ? `${left} s` : undefined,
+      danger: true,
+      confirm,
+      onSelect: () => remove(e.id),
+    });
+    return items;
+  };
+
+  const lastText = (e: Entry) => {
+    const last = e.prompts[e.prompts.length - 1];
+    return last ? textOf(last) : undefined;
+  };
+
+  const lineOf = (e: Entry) => {
+    const live = liveOf(view, e.id, lastText(e));
+    if (live.length) return live[live.length - 1];
+    const last = e.prompts[e.prompts.length - 1];
+    return { rail: last && failedOf(last) ? ("err" as const) : ("speak" as const), text: last ? textOf(last) : "" };
+  };
+
+  const open = (id: string, turn: number | null, kind: Hit["kind"] | null) => {
+    const e = entries.find((x) => x.id === id);
+    setSelected(id);
+    setCurrent({ turn: turn ?? e?.prompts.length ?? 1, kind });
+  };
+
+  const entry = entries.find((e) => e.id === selected) ?? null;
+  const stops = useMemo(() => {
+    if (!entry) return [];
+    const group = searching && "groups" in shown ? shown.groups.find((g) => g.id === entry.id) : undefined;
+    if (group?.hits.length) return [...new Set(group.hits.map((h) => h.turn))];
+    return entry.prompts.map((_, i) => i + 1);
+  }, [entry, shown, searching]);
+
+  if (data && entries.length === 0) {
     return (
-      <div class="p-6 text-neutral-500">
-        No sessions yet. Hold <Keys combo={talk} /> and say a task.
+      <div class="ses items-center justify-center text-center">
+        <div>
+          <p class="ses-strong font-semibold">No sessions yet</p>
+          <p class="ses-muted mt-1">Ask an agent something by voice. Its sessions appear here.</p>
+        </div>
       </div>
     );
   }
 
+  const info = (id: string): GroupInfo => {
+    const e = entries.find((x) => x.id === id)!;
+    return {
+      mark: markOf(view, id),
+      active: id === data?.active,
+      agent: e.agent,
+      meta: `${labelOf(e)} · ${countOf(e)}`,
+      menu: menuOf(e, false),
+      label: `Actions for ${titleOf(e)}`,
+    };
+  };
+
+  const toggleOn = settled.matchCase || settled.word || settled.regex;
+  const summary = !data
+    ? " "
+    : !searching
+      ? count(entries.length, "session", "sessions")
+      : "error" in shown
+        ? " "
+        : `${count(shown.total, "match", "matches")}${shown.total ? ` in ${count(shown.groups.length, "session", "sessions")}` : ""}`;
+
+  const list = (
+    <aside class="ses-list" aria-label="Sessions">
+      <div class="space-y-2 p-4 pb-2">
+        <h2 class="ses-strong text-base font-semibold">Sessions</h2>
+        <SearchBox options={options} invalid={invalid} onChange={setOptions} />
+        <p class="ses-muted text-xs" aria-live="polite">
+          {summary}
+        </p>
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-16" onKeyDown={rowKeys}>
+        {!data ? (
+          <Skeleton />
+        ) : "error" in found && found.error === "nothing" ? (
+          <Empty title="Nothing to search in" text="Pick Questions, Answers or Session names in Filter." />
+        ) : searching && "groups" in shown ? (
+          shown.groups.length ? (
+            <Results
+              groups={shown.groups}
+              info={info}
+              pattern={re}
+              current={selected && current?.kind ? { id: selected, turn: current.turn, kind: current.kind } : null}
+              onOpen={open}
+            />
+          ) : (
+            <Empty title="No matches" text={toggleOn ? "Turn off Aa, ab or .* to widen the search." : ""} />
+          )
+        ) : (
+          <ul>
+            {entries.map((e) => (
+              <SessionRow
+                key={e.id}
+                id={e.id}
+                title={titleOf(e)}
+                active={e.id === data.active}
+                selected={e.id === selected}
+                mark={markOf(view, e.id)}
+                agent={e.agent}
+                meta={`${labelOf(e)} · ${countOf(e)}`}
+                line={lineOf(e)}
+                menu={menuOf(e, false)}
+                onOpen={() => open(e.id, null, null)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+      {error && <ErrorToast text={error} onClose={() => setError(null)} />}
+    </aside>
+  );
+
+  const details = entry && data?.details[entry.id];
+  const pane = (
+    <section class="ses-pane" aria-label="Conversation">
+      {entry ? (
+        <Conversation
+          entry={entry}
+          title={titleOf(entry)}
+          agentLabel={labelOf(entry)}
+          details={[
+            entry.cwd,
+            ...(entry.agent === "api" ? [] : [details?.permission ?? entry.startedPermission ?? "default"]),
+            ago(entry.updatedMs),
+            entry.id.slice(0, 8),
+          ]}
+          logUnread={!details && entry.agent !== "api" && entry.agent !== "cursor" && entry.nativeId !== null}
+          notStarted={entry.nativeId === null}
+          menu={menuOf(entry, true)}
+          preview={preview}
+          stops={stops}
+          current={current?.turn ?? null}
+          onCurrent={(turn) => setCurrent({ turn, kind: null })}
+          pattern={re}
+          live={liveOf(view, entry.id, lastText(entry))}
+          running={
+            markOf(view, entry.id) === "run"
+              ? { detail: view?.detail ?? "", streamed: streamed?.id === entry.id ? streamed.text : null }
+              : null
+          }
+          note={note}
+          narrow={narrow}
+          onBack={() => setSelected(null)}
+        />
+      ) : (
+        <Empty
+          title="No session selected"
+          text={searching ? "Choose a session or a match on the left." : "Choose a session on the left."}
+          center
+        />
+      )}
+    </section>
+  );
+
   return (
-    <div class="max-w-4xl space-y-3 p-6">
-      <h2 class="text-base font-semibold">Sessions</h2>
-      {error && <p class="text-red-600">{error}</p>}
-      <ul class="space-y-2">
-        {data.entries.map((entry) => {
-          const active = entry.id === data.active;
-          const expanded = open === entry.id;
-          const count = entry.prompts.length;
-          const live = data.details[entry.id];
-          const model = live?.model ?? entry.startedModel;
-          const status = agents.find((a) => a.agent === entry.agent);
-          const listed = status?.models.find((m) => m.id === model)?.label;
-          const agentLabel = entry.agent === "api" ? agentName("api", { apiName }) : (status?.label ?? agentName(entry.agent, { apiName }));
-          // The local model has no permissions, and Erindi keeps its conversation, so there is no log to read.
-          const api = entry.agent === "api";
-          const permission = live?.permission ?? entry.startedPermission ?? "default";
-          const resumable = entry.nativeId !== null;
-          return (
-            <li
-              class={`rounded-lg border p-3 ${
-                active
-                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950/40"
-                  : "border-neutral-200 dark:border-neutral-800"
-              }`}
-            >
-              <p class="line-clamp-2 font-medium">{textOf(entry.prompts[0])}</p>
-              <p class="mt-1 flex h-4 min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-neutral-600 dark:text-neutral-400">
-                <AgentIcon agent={entry.agent} class="h-4 w-4 shrink-0" />
-                <span class="truncate">{api ? [agentLabel, model].filter(Boolean).join(" · ") : sessionLine(agentLabel, model, permission, listed)}</span>
-                {!resumable ? (
-                  <Note tone="error" text="This session didn't start, so it can't be continued." />
-                ) : (
-                  !live && !api && entry.agent !== "cursor" && <Note tone="info" text="Couldn't read the agent's log. Showing the values the session started with." />
-                )}
-              </p>
-              <p class="mt-1 flex min-w-0 gap-1 text-xs text-neutral-500">
-                <span class="truncate" title={entry.cwd}>
-                  {entry.cwd}
-                </span>
-                <span class="shrink-0">· {[ago(entry.updatedMs), entry.id.slice(0, 8)].join(" · ")}</span>
-              </p>
-              <div class="mt-2 flex items-center justify-between">
-                <button
-                  type="button"
-                  class="-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                  aria-expanded={expanded}
-                  onClick={() => setOpen(expanded ? null : entry.id)}
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 16 16"
-                    class={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}
-                  >
-                    <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                  {expanded ? "Hide" : "Show"} {count} {count === 1 ? "prompt" : "prompts"}
-                </button>
-                {api && expanded && (
-                  <button
-                    type="button"
-                    aria-pressed={formatted}
-                    aria-label="Format Markdown"
-                    title={formatted ? "Showing formatted replies. Show plain text" : "Showing plain text. Format Markdown"}
-                    class={`rounded-md p-1 hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-blue-500 dark:hover:bg-neutral-800 ${
-                      formatted ? "text-blue-600 dark:text-blue-400" : "text-neutral-500"
-                    }`}
-                    onClick={() => setFormatted(!formatted)}
-                  >
-                    <svg aria-hidden="true" viewBox="0 0 208 128" class="h-4 w-6">
-                      <rect x="5" y="5" width="198" height="118" rx="15" fill="none" stroke="currentColor" stroke-width="10" />
-                      <path d="M30 98V30h20l20 25 20-25h20v68H90V59L70 84 50 59v39zm125 0-30-33h20V30h20v35h20z" fill="currentColor" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              <Reveal open={expanded}>
-                <ol class="mt-2 space-y-1.5 rounded-md bg-neutral-100 p-3 dark:bg-neutral-900">
-                  {entry.prompts.map((p, i) => {
-                    const last = i === entry.prompts.length - 1;
-                    const streaming = last && replyOf(p) === null && streamed?.id === entry.id;
-                    const reply = streaming ? streamed.text : replyOf(p);
-                    return (
-                      <li class="flex gap-2">
-                        <span class="w-5 shrink-0 text-right text-xs leading-5 text-neutral-500 tabular-nums">
-                          {i + 1}.
-                        </span>
-                        <span class="min-w-0 flex-1">
-                          {textOf(p)}
-                          {typeof p !== "string" && "raw" in p && (
-                            <span class="block text-xs text-neutral-500">Said: {p.raw}</span>
-                          )}
-                          {reply !== null && (
-                            <div aria-busy={streaming}>
-                              {formatted ? (
-                                <div
-                                  class="markdown mt-1 text-neutral-700 dark:text-neutral-300"
-                                  // A diagram still streaming does not parse yet, so it is drawn once the reply ends.
-                                  ref={(el) => {
-                                    if (el && !streaming) void drawDiagrams(el);
-                                  }}
-                                  dangerouslySetInnerHTML={{ __html: markdown(reply, streaming) }}
-                                />
-                              ) : (
-                                <span class="mt-1 block whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">
-                                  {reply}
-                                  {streaming && <span class="caret" aria-hidden="true" />}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </Reveal>
-              <div class="mt-3 flex gap-2">
-                {!api && (
-                  <button
-                    type="button"
-                    class={button}
-                    disabled={busy || !resumable}
-                    onClick={() => run("open_history_session", entry.id)}
-                  >
-                    Open in terminal
-                  </button>
-                )}
-                <button
-                  type="button"
-                  class={button}
-                  disabled={busy || active || !resumable}
-                  onClick={() => run("continue_session", entry.id)}
-                >
-                  {active ? "Active" : "Continue by voice"}
-                </button>
-                <button
-                  type="button"
-                  class={`${dangerButton} ml-auto tabular-nums`}
-                  disabled={busy}
-                  onClick={() => remove(entry.id)}
-                >
-                  {confirming?.id === entry.id ? `Confirm delete (${confirming.left})` : "Delete"}
-                </button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+    <div
+      class={`ses ${narrow ? "ses-narrow" : ""}`}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && selected) setSelected(null);
+      }}
+    >
+      {(!narrow || !entry) && list}
+      {(!narrow || entry) && pane}
+    </div>
+  );
+}
+
+function Empty(props: { title: string; text: string; center?: boolean }) {
+  return (
+    <div class={`px-6 py-7 text-center text-[13px] ${props.center ? "m-auto" : ""}`}>
+      <p class="ses-strong font-semibold">{props.title}</p>
+      {props.text && <p class="ses-muted mt-1">{props.text}</p>}
     </div>
   );
 }

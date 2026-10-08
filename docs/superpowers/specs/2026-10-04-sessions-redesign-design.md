@@ -1,0 +1,158 @@
+# Sessions redesign
+
+The Sessions tab today lists sessions as cards that expand in place. A long conversation with the local model makes the list hard to read, a question and its answer are hard to copy, and there is no way to find an old answer. This redesign turns the tab into a searchable list with the conversation open beside it.
+
+Reference screens: [2026-10-04-sessions-states.html](2026-10-04-sessions-states.html). Screen numbers below refer to it.
+
+## Layout
+
+The Sessions tab has two panes.
+
+- **List (left).** A search field, a count line, and the sessions, newest first.
+- **Conversation (right).** The open session, read-only, every turn stacked top to bottom.
+
+The settings window opens at 1120 × 720; its minimum stays 640 × 480. Below 900 px of window width one pane shows at a time, as in Material's list-detail layout: a click on a session replaces the list with the conversation, and "← Sessions" in its header, or Esc, goes back (screen 27).
+
+With nothing selected the right pane says "No session selected" and "Choose a session on the left." It shows the same after the open session is deleted; the list keeps its scroll position (screen 26). While the history loads, grey bars in the shape of rows stand in for the list (screen 25).
+
+With no sessions at all the tab shows only "No sessions yet" and "Ask an agent something by voice. Its sessions appear here." (screen 3).
+
+## Session list
+
+Each row has two lines (screen 2):
+
+1. A status mark, the title, the Active chip, then on the right the agent icon, agent name and turn count, then the ⋯ button.
+2. The rail and the session's last line (see Rails).
+
+- The title is the session's first prompt, cut to one line.
+- **Selected** (the session open on the right) has a grey fill, `#262626`.
+- **Active** (the session the next utterance continues) has a chip right after the title: the word Active, blue text, 1 px blue outline, fully rounded. Selected and active are independent.
+- The status mark sits on the rail's vertical line, left of the title, centred on the title's capital letters. Its slot is always reserved, so the title never moves.
+
+### Status marks
+
+One per session. Only the active session shows a live mark; every other session is idle.
+
+| State | Mark |
+|---|---|
+| Waiting | hollow circle, `#22508a`, still |
+| Listening | dot, `#38bdf8`, pulsing |
+| Transcribing | equilateral triangle pointing down, `#a855f7`, pulsing |
+| Answering | regular pentagon, `#f59e0b`, turning clockwise around its own centre |
+| Idle | dot, `#737373`, still |
+
+Shapes are regular polygons drawn as SVG with a 0.6 px stroke in the fill colour and round joins, 12 px box. Motion stops under `prefers-reduced-motion`.
+
+Waiting means the microphone is on for the active session and nothing has been said yet. Queued, done, failed and cancelled have no session mark; they show on the phrase rail.
+
+### ⋯ menu
+
+The ⋯ slot is always reserved. The button shows on row hover, keyboard focus inside the row, on the selected row, and while its menu is open.
+
+| State | Look |
+|---|---|
+| Row hovered | grey dots, no fill |
+| Button hovered | fill `#333` |
+| Menu open | fill `#4a4a4a`, white dots |
+| Keyboard focus | 2 px blue ring |
+
+Row menu: Make active, Open in terminal, separator, Delete.
+
+- **Make active** is dimmed with "Active" on the right when the session already is.
+- **Open in terminal** is absent for the local model.
+- **Delete** turns into "Confirm delete · 3 s" on a red fill; a second click within 3 seconds deletes, as today.
+
+### Session details
+
+Under the conversation's title, one grey line: folder, permission, time since the last turn, the first 8 characters of the session ID (screen 15). The folder cuts with … and shows in full on hover. Long titles cut with … on one line and show in full on hover (screen 19).
+
+- When Erindi cleaned up a phrase before sending it, the question shows "Said: …" under it in grey.
+- A session that never started shows the note "This session didn't start, so it can't be continued." above its turns; Make active and Open in terminal are greyed in both menus (screen 16).
+- When the agent's log can't be read, an ⓘ ends the details line, with the tooltip "Couldn't read the agent's log. Showing the values the session started with."
+- A failed action (delete, make active, open in terminal) shows its error in a red box floating at the bottom of the list, with ✕ to dismiss; no row moves (screen 17).
+
+## Search
+
+One field searches every session, always. Search runs in the settings window over the loaded history, 200 ms after the last keystroke.
+
+- **✕** clears the text.
+- **Aa** matches case, **ab** whole words, **.\*** treats the text as a regular expression. An invalid expression shows "Invalid regular expression" under the field and keeps the previous results.
+- **Filter ▾** opens checkboxes: Questions, Answers, Session names. Questions and Answers are on by default. A changed filter shows its count on the button, "Filter · 1 ▾". **Reset** restores the defaults.
+
+Below the field: "9 matches in 2 sessions". Results group by session, each group headed like a list row with its own ⋯. Each result is one line on the grid rail · label · text (screen 1):
+
+- the label is "You · 97" or "Answer · 97", 68 px wide, 4 px gap;
+- the text is a one-line snippet around the match, the match highlighted `#713f12` on `#fef9c3`.
+
+A click opens the session at that turn. Clearing the search returns to the list.
+
+- Switched-on toggles get a blue fill (screen 18).
+- No result: "No matches", plus "Turn off Aa, ab or .* to widen the search." when a toggle is on.
+- A long query scrolls inside the field; the toggles stay in place (screen 19).
+- A session-name match lists the session as a plain row with the title highlighted (screen 20).
+- With every filter cleared: "Nothing to search in" and "Pick Questions, Answers or Session names in Filter."
+
+## Conversation pane
+
+Header: the session title, then "‹ 1 of 9 ›" while searching or "‹ 98 of 214 ›" otherwise, then ⋯, then ✕. The title starts on the text line of the turns below it.
+
+- **‹ ›** and **↑ ↓** step between matches while searching, otherwise between questions.
+- Opening from the list scrolls to the last turn; opening from a result scrolls to that turn.
+- The current turn has a 1 px blue inset outline on `#0b1222`; matches inside it are highlighted.
+
+Each turn:
+
+- **Question.** Label "You · 97", text in white, blue rail.
+- **Answer.** Label with agent icon, agent name and model, "Claude · opus"; the model is grey. The answer renders as Markdown when Preview is on.
+- On hover, top right: **⧉ Answer** and **⧉ Q&A** copy Markdown; the button reads "✓ Copied" for 1.5 s.
+
+- **Preview on** renders Markdown: code blocks, tables, and Mermaid diagrams as today. **Preview off** shows the text as the agent wrote it, in monospace (screens 21–22).
+- A turn with no stored answer, such as one from before this change, shows "No answer saved for this turn." in grey italics.
+- Queued, cancelled and waiting phrases appear in the conversation with their rails and the labels "You · 99 · queued", "You · 100 · cancelled" and "Waiting" (screen 23).
+- Copy session confirms with a short note at the bottom of the pane, "✓ Copied the session as Markdown", for 1.5 s (screen 24).
+
+A strip on the right edge maps every question of the session: one tick per question, white for the current one, red for a failed answer, a light band for the visible part. Hovering a tick shows its question, "98 · Cheaper areas nearby?"; a click jumps to it (screens 7, 24). Turns use `content-visibility: auto`, so sessions with hundreds of turns stay fast.
+
+Header menu: Make active, Open in terminal, Copy session (Markdown), separator, **Preview** with a switch on the right, separator, Delete. The switch is 26 × 14 px; only its knob moves.
+
+## Keyboard
+
+↑ ↓ move through the list, Enter opens, Esc closes the conversation or goes back in a narrow window, Enter or Space opens ⋯. Every control has a visible focus ring.
+
+## Themes
+
+Both themes, as today. The light theme uses white surfaces, `#f0f0f0` for the selected row, `#dbeafe` for the selected result, `#eff6ff` for the current turn and `#fde68a` for matches; the ⋯ button fills `#e0e0e0` on hover and `#d0d0d0` while its menu is open; rails and marks keep their colours (screens 28–29).
+
+## Rails
+
+A rail belongs to one phrase, exactly as in the bubble: same colours, same meaning. Rails are 2.5 px, drawn as a left border so every rail renders at the same whole number of device pixels at any display scale.
+
+| State | Rail | Text |
+|---|---|---|
+| Waiting | `#22508a` | "Waiting", grey |
+| Speaking | `#38bdf8` | white, grows as you speak |
+| Transcribing | `#a855f7` | white |
+| Queued | dashed 2 px / 2 px, white 35 % | grey |
+| Running | `#f59e0b` | white; tool steps under it while the agent works |
+| Done | green 55 % | grey |
+| Failed | `#f87171` | the error, red |
+| Cancelled | white 22 % | grey, struck through |
+
+The list row's second line shows the active session's live phrase while there is one (screens 11–13); otherwise the last question.
+
+## Data
+
+Today only local-model sessions keep answers, and no prompt keeps its model. The redesign needs both for every agent.
+
+- **Answers for every agent.** The run's final `Result` text is stored on its prompt for Claude, Codex, Cursor and Pi too, through the same path as the local model's reply.
+- **Failed answers.** A prompt keeps whether its run failed, with the error text as its answer.
+- **Model per answer.** The model comes from the run's own output where the agent reports it: Claude's and Cursor's init line, Pi's messages. Codex `exec` does not report it, so Erindi uses the model it asked for, or the session's model read from Codex's log. The prompt stores it.
+- **Live state.** The settings window receives the controller's view, the same one the overlay gets, so it can draw marks, live rails and streamed text for the active session.
+
+Older history files keep loading: every new field is optional.
+
+## Out of scope
+
+- An error mark on the session and a done mark: rails carry both.
+- Editing or re-asking a turn.
+- Search inside agents' own logs; only what Erindi stored is searched.

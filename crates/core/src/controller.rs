@@ -544,6 +544,7 @@ impl Controller {
                     self.result = Some((ok, text));
                     vec![]
                 }
+                RunEvent::Model { .. } => vec![],
                 RunEvent::Limited => {
                     self.limited = true;
                     vec![self.show()]
