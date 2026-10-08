@@ -30,8 +30,8 @@ const button =
 const dangerButton =
   "rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40";
 
-/** How long the Delete button waits for the confirming second click. */
-const CONFIRM_MS = 3000;
+/** How many seconds the Delete button waits for the confirming second click. */
+const CONFIRM_S = 3;
 
 /** A small mark at the end of the agent line; the text shows on hover and to screen readers. */
 function Note(props: { tone: "error" | "info"; text: string }) {
@@ -57,7 +57,7 @@ export function SessionsView() {
   // The local model's reply while it streams; the saved one replaces it when the run ends.
   const [streamed, setStreamed] = useState<{ id: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{ id: string; left: number } | null>(null);
   const load = () => invoke<Sessions>("list_sessions").then(setData);
   const { agents } = useAgents();
   const [talk, setTalk] = useState("");
@@ -84,6 +84,15 @@ export function SessionsView() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!confirming) return;
+    const tick = setTimeout(
+      () => setConfirming(confirming.left > 1 ? { ...confirming, left: confirming.left - 1 } : null),
+      1000,
+    );
+    return () => clearTimeout(tick);
+  }, [confirming]);
+
   const { run: guard, busy } = useBusy(600);
   const act = (command: string, id: string) =>
     invoke(command, { id }).then(
@@ -94,9 +103,8 @@ export function SessionsView() {
 
   // A second click inside the guard's cooldown is not taken as the delete confirmation.
   const remove = guard((id: string) => {
-    if (confirming !== id) {
-      setConfirming(id);
-      setTimeout(() => setConfirming((current) => (current === id ? null : current)), CONFIRM_MS);
+    if (confirming?.id !== id) {
+      setConfirming({ id, left: CONFIRM_S });
       return;
     }
     setConfirming(null);
@@ -250,11 +258,11 @@ export function SessionsView() {
                 </button>
                 <button
                   type="button"
-                  class={`${dangerButton} ml-auto`}
+                  class={`${dangerButton} ml-auto tabular-nums`}
                   disabled={busy}
                   onClick={() => remove(entry.id)}
                 >
-                  {confirming === entry.id ? "Confirm delete" : "Delete"}
+                  {confirming?.id === entry.id ? `Confirm delete (${confirming.left})` : "Delete"}
                 </button>
               </div>
             </li>
