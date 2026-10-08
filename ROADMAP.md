@@ -48,6 +48,18 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Voice picker.** Choose the voice that reads the answers.
 - [ ] **Text-to-speech model picker.** Choose the model that speaks the answers, local or cloud.
 
+### Call transcription and Notes
+
+- [ ] **Teams and Slack PoC.** Transcribe voice and video calls in Microsoft Teams and Slack, capturing both the user's microphone and the other participants' audio. Evaluate OS audio capture/loopback, per-app capture and app integrations before choosing an approach.
+- [ ] **Google Meet.** Extend call transcription to Google Meet after the Teams and Slack PoC.
+- [ ] **Discord.** Add Discord after Google Meet, then extend support to other apps with voice input and output.
+- [ ] **Speaker separation.** Detect speaker turns and label speakers consistently throughout a call; use participant names when available.
+- [ ] **Transcript cleanup.** Remove filler words such as "uh", "um", "ээ", "ну" and "типа" while preserving meaning and speaker attribution. Keep the original transcript alongside the cleaned version.
+- [ ] **Notes tab.** Store call transcripts in a separate Notes tab, with the call's date, source app and speaker labels; open and review the original or cleaned transcript.
+- [ ] **Send a note to an agent.** Send a transcript straight from Notes to the selected agent with an instruction, such as summarizing the call, extracting action items or processing its contents.
+- [ ] **Local summary before sending.** Optionally summarize the completed dialogue with a local model before sending it to an agent. Keep the summary in Notes alongside the original and cleaned transcripts, and choose whether the agent receives the summary, the full dialogue or both.
+- [ ] **Call automations.** Configure a workflow that runs when a call ends and its transcript is ready: clean up the dialogue, optionally summarize it locally, save it in Notes and automatically send it to a chosen agent with a saved instruction and project folder. Make this workflow available from the Teams and Slack PoC.
+
 ### Controls
 
 - [x] **Hotkey recorder.** Click the field and press the combination, as in games.
