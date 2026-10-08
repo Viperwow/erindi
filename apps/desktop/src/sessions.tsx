@@ -18,8 +18,8 @@ import { type Found, type Hit, type Options, pattern, search } from "./sessions/
 import { liveOf, markOf } from "./sessions/status";
 import { ago } from "./time";
 
-/** How long Delete waits for the confirming second click. */
-const CONFIRM_MS = 3000;
+/** How many seconds Delete waits for the confirming second click. */
+const CONFIRM_S = 3;
 /** Search runs this long after the last keystroke. */
 const DEBOUNCE_MS = 200;
 /** Below this window width one pane shows at a time. */
@@ -39,7 +39,7 @@ export function SessionsView() {
   const [settled, setSettled] = useState<Options>(defaults);
   const [preview, setPreview] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{ id: string; left: number } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [narrow, setNarrow] = useState(window.innerWidth < NARROW);
   const { agents } = useAgents();
@@ -65,6 +65,15 @@ export function SessionsView() {
       window.removeEventListener("resize", resize);
     };
   }, []);
+
+  useEffect(() => {
+    if (!confirming) return;
+    const tick = setTimeout(
+      () => setConfirming(confirming.left > 1 ? { ...confirming, left: confirming.left - 1 } : null),
+      1000,
+    );
+    return () => clearTimeout(tick);
+  }, [confirming]);
 
   useEffect(() => {
     const t = setTimeout(() => setSettled(options), DEBOUNCE_MS);
@@ -99,9 +108,8 @@ export function SessionsView() {
     );
 
   const remove = (id: string): "keep" | undefined => {
-    if (confirming !== id) {
-      setConfirming(id);
-      setTimeout(() => setConfirming((c) => (c === id ? null : c)), CONFIRM_MS);
+    if (confirming?.id !== id) {
+      setConfirming({ id, left: CONFIRM_S });
       return "keep";
     }
     setConfirming(null);
@@ -140,10 +148,11 @@ export function SessionsView() {
       });
       items.push("separator", { switch: "Preview", on: preview, onToggle: () => setPreview(!preview) });
     }
-    const confirm = confirming === e.id;
+    const left = confirming?.id === e.id ? confirming.left : null;
+    const confirm = left !== null;
     items.push("separator", {
       label: confirm ? "Confirm delete" : "Delete",
-      hint: confirm ? "3 s" : undefined,
+      hint: confirm ? `${left} s` : undefined,
       danger: true,
       confirm,
       onSelect: () => remove(e.id),
