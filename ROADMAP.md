@@ -93,6 +93,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Logo.** Three normal-distribution peaks in the aurora stage colors: green, orange and blue with lilac joins.
 - [x] **Logo order.** Blue on the left as the start, orange in the middle, green on the right as the result.
 - [x] **Form saving.** One Save button for the whole form (keep it).
+- [ ] **App version.** The window shows the app version in its bottom-left corner.
 - [ ] **Localization.** English interface by default, with infrastructure for more interface and speech languages.
 
 ### Platforms
