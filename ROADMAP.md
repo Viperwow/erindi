@@ -29,25 +29,33 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **More voice commands.** Switch the project folder by name.
 - [ ] **Browse for the project folder.** A Browse button next to the project folder field opens the system folder picker.
 - [ ] **Installed agents only.** Erindi checks which supported agents are installed and lists only those in the agent picker: the built-in agents first, then custom agents once they arrive.
+- [ ] **Keep the agent running.** Each phrase now starts a new agent process that resumes the session. Keep one process open and stream phrases into it, such as Claude's `--input-format stream-json`, so a phrase does not wait for the agent to start.
 - [ ] **Unload the command model** after idle time, for machines short on memory.
-- [ ] **Command model device.** Auto, GPU or CPU; a CUDA build if Vulkan is not fast enough.
 - [ ] **Command model endpoints.** Cloud, Ollama and LM Studio by address and API key.
-- [ ] **Prompt cleanup, revisited.** Rewriting dictation with a 3B model translated and dropped sentences; retry with a larger model or drop the idea.
+- [ ] **Prompt cleanup, revisited.** Rewriting dictation with a 3B model translated and dropped sentences; retry with a larger model or drop the idea. Scope it to fillers, stutters and false starts, and keep technical terms, paths and identifiers as spoken.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
 - [ ] **Plugin system.** Users add their own agents and customize Erindi through plugins, beyond the agents built into the app.
 - [ ] **Agent install guide.** When an agent's CLI is missing, show the minimal install steps for that agent on the user's system.
-- [ ] **Agent Client Protocol.** Talk to every agent through ACP, the shared protocol Zed and other editors use, instead of parsing each CLI's own output. Weigh it against Codex app-server, the JSON-RPC interface behind the Codex VS Code extension.
+- [ ] **Agent Client Protocol.** Talk to every agent through ACP, a shared protocol between editors and agents, instead of parsing each CLI's own output. Weigh it against Codex app-server, Codex's own JSON-RPC interface.
 - [ ] **Computer control (later).** An "Allow computer control" checkbox lets agents click and type in other apps. A short warning hint appears under it; the same hint appears when `bypassPermissions` is selected.
 
 ### Voice and models
 
 - [x] **Model downloads.** Speech and command models install from Settings with progress and hash checks.
+- [ ] **Acceleration, picked automatically.** Detect the hardware and run speech, command and text-to-speech models on the fastest backend it has: CUDA on NVIDIA, Metal or Core ML on Apple silicon, DirectML or Vulkan on other GPUs, CPU otherwise. Settings show the backend in use and allow Auto, GPU or CPU. Today speech recognition runs on the CPU and the command model on Vulkan (Windows) or Metal (macOS).
 - [ ] **Model picker.** Choose among several speech and command models, with Hugging Face search.
-- [ ] **EmbeddingGemma 2 speech recognition.** Try Google's open multimodal embedding model `google/embeddinggemma-2` (740M parameters, 300M of them the audio encoder) as a speech-to-text model: decode the transcript straight from its shared audio and text embedding space. Embedding Gemma Transcribe (eg2.haku.sh) keeps the audio encoder as is, trains a small reader that maps audio slices to the nearest of ~229,000 English words, and adds punctuation with a tiny extra model. On a base M3 MacBook Air it transcribes an hour of audio in 12.6 seconds (288× real time) at about 5% word error rate, against 2–3% for leading speech models. The base model understands 100+ languages, but that reader knows English only, so Russian needs a reader trained on Russian speech with a Russian word list. Unsloth's audio fine-tuning notebook is a starting point for training it. Unsloth's GGUF for llama.cpp covers text only, so the audio encoder needs another runtime. Measure speed and accuracy against Parakeet TDT on the same machine, and add it to the model picker if it holds up.
+- [ ] **EmbeddingGemma 2 speech recognition.** Try Google's open multimodal embedding model `google/embeddinggemma-2` (740M parameters, 300M of them the audio encoder) as a speech-to-text model: decode the transcript straight from its shared audio and text embedding space. A known approach keeps the audio encoder as is, trains a small reader that maps audio slices to the nearest of ~229,000 English words, and adds punctuation with a tiny extra model. On a base M3 MacBook Air it transcribes an hour of audio in 12.6 seconds (288× real time) at about 5% word error rate, against 2–3% for leading speech models. The base model understands 100+ languages, but that reader knows English only, so Russian needs a reader trained on Russian speech with a Russian word list. Unsloth's audio fine-tuning notebook is a starting point for training it. Unsloth's GGUF for llama.cpp covers text only, so the audio encoder needs another runtime. Measure speed and accuracy against Parakeet TDT on the same machine, and add it to the model picker if it holds up.
 - [ ] **Read answers aloud.** A neural text-to-speech model reads each agent's answer in natural-sounding speech, not the flat system voice.
+- [ ] **Speak while the agent writes.** Text-to-speech starts on the answer's first sentence while the agent is still writing the rest.
 - [ ] **Voice picker.** Choose the voice that reads the answers.
 - [ ] **Text-to-speech model picker.** Choose the model that speaks the answers, local or cloud.
+- [ ] **Voices tab.** A bank of voices: the list of available and cloned voices, with Voice cloning as a section of the tab.
+- [ ] **Voice sharing.** Export a voice from the Voices tab as one file and import it on another machine, to share it or back it up. The file holds the voice's samples, model and settings; which agent uses it stays local.
+- [ ] **A voice per agent.** Assign a voice from the Voices tab to each agent, so the speaker is clear by ear.
+- [ ] **Voice cloning.** Create a voice for the Voices bank from the user's own speech. The voice cloning section records a first sample even with Captures off: the user reads a prepared text of about 15 seconds that covers the voice well. With Captures on, saved recordings become extra samples for a closer voice. Needs a text-to-speech model that clones, such as Qwen3-TTS or Chatterbox.
+- [ ] **Captures.** An opt-in setting, off by default, keeps each recording's audio next to its transcript, since audio fills the disk and text barely does. Saved audio can be replayed, re-transcribed with another model later or sent again.
+- [ ] **Paralinguistic tags.** An opt-in mode keeps tags such as laughter, sighs and emotion in the transcript. Off by default, since agents rarely need them; voice answers can use them to sound right. Needs a speech model that emits them, such as SenseVoice.
 
 ### Call transcription and Notes
 
@@ -69,12 +77,15 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Startup behavior.** Choose between opening Settings on launch and starting minimized to the tray.
 - [x] **Launch at login.** A Settings toggle starts Erindi with the system.
 - [ ] **First-run setup.** Detect GPU, VRAM and CPU, pick models and device, warn when cleanup would be slow; re-run when the hardware changes.
+- [ ] **macOS permissions guide.** Walk through the Microphone, Accessibility and Input Monitoring grants, each with a link that opens its page in System Settings.
+- [ ] **Dictate into any app.** Paste the transcript into the focused text field instead of sending it to an agent. The clipboard is restored afterwards.
 - [x] **Tray click.** Clicking or double-clicking the tray icon opens the window.
 
 ### UI and UX
 
 - [x] **Overlay bubble.** The aurora moved into a small bubble: a thin strip shows the microphone, rails beside each phrase show its state, and a bottom row shows the microphone and the running work.
 - [x] **Listening mode and phrase queue.** Hands-free keeps listening after each pause; phrases said while the agent works wait in a queue and run one by one.
+- [ ] **Speaking in the bubble.** No speech plays in the background unseen: while an agent speaks, the bubble stays up for the whole reply. It shows the agent's icon, the voice name, the answer text and bars that follow the audio.
 - [ ] **Redesign.** Modern look, dark by default, with accent colors.
 - [ ] **Themes.** Light, dark and system modes, with main colors set as hex codes.
 - [x] **Dictionary tab.** Move the dictionary to its own tab; the main page keeps only what matters most.
