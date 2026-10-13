@@ -1,5 +1,6 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { query } from "./query";
 import { AgentFields, ApiFields, RecheckButton, useAgents } from "./agents";
@@ -336,7 +337,9 @@ const tabFromHash = (): Tab => tabs.find(([id]) => `#${id}` === location.hash)?.
 
 function App() {
   const [tab, setTab] = useState<Tab>(tabFromHash());
+  const [version, setVersion] = useState("");
   useEffect(() => {
+    getVersion().then(setVersion);
     const onHash = () => setTab(tabFromHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -366,6 +369,9 @@ function App() {
             <span class="max-[760px]:sr-only">{label}</span>
           </button>
         ))}
+        <span class="mt-auto h-4 px-2 text-[11px] text-neutral-400 tabular-nums max-[760px]:px-0 max-[760px]:text-center dark:text-neutral-500">
+          {version && `v${version}`}
+        </span>
       </nav>
       {/* Sessions scrolls its list and conversation itself. */}
       <main class={`flex-1 ${tab === "sessions" ? "overflow-hidden" : "overflow-y-auto [scrollbar-gutter:stable]"}`}>
