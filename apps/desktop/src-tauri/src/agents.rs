@@ -8,6 +8,8 @@ use tauri::{AppHandle, Emitter};
 
 /// How old a check may be before the Settings window re-checks on focus or a tab switch.
 const STALE: Duration = Duration::from_secs(30);
+/// A CLI that has not listed its models by then is treated as failed, so the model field never waits forever.
+const CLI_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +94,10 @@ fn check(agent: Agent) -> AgentStatus {
 }
 
 fn cli_output(program: &Path, args: &[&str]) -> Result<String, String> {
+    cli_output_within(program, args, CLI_TIMEOUT)
+}
+
+fn cli_output_within(program: &Path, args: &[&str], timeout: Duration) -> Result<String, String> {
     let mut command = std::process::Command::new(program);
     // npm-installed CLIs look for `node` on PATH, which a macOS app only has from the login shell.
     command
@@ -104,7 +110,30 @@ fn cli_output(program: &Path, args: &[&str]) -> Result<String, String> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    let out = command.output().map_err(|e| e.to_string())?;
+    let child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    // `.cmd` CLIs start node underneath; the job takes the whole tree down when it drops on a timeout.
+    #[cfg(windows)]
+    let _job =
+        erindi_core::job::KillOnClose::new().and_then(|job| job.assign(&child).map(|()| job));
+    #[cfg(unix)]
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    let Ok(out) = rx.recv_timeout(timeout) else {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
+        return Err(format!("no answer in {} s", timeout.as_secs()));
+    };
+    let out = out.map_err(|e| e.to_string())?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         return Err(stderr.lines().last().unwrap_or("failed").to_string());
@@ -133,7 +162,14 @@ impl Agents {
     pub fn check_now(&self, app: &AppHandle) -> Vec<AgentStatus> {
         let (fresh, changed) = self.check_once(|| {
             erindi_core::shell_env::refresh();
-            Agent::ALL.into_iter().map(check).collect()
+            // In parallel, so the slowest CLI sets the wait, not the sum of all of them.
+            std::thread::scope(|s| {
+                let checks: Vec<_> = Agent::ALL
+                    .into_iter()
+                    .map(|a| s.spawn(move || check(a)))
+                    .collect();
+                checks.into_iter().map(|c| c.join().unwrap()).collect()
+            })
         });
         if changed {
             let _ = app.emit_to("settings", "agents-changed", fresh.clone());
@@ -212,6 +248,19 @@ mod tests {
         assert!(!stale(&Some((Instant::now(), vec![ok.clone()]))));
         assert!(stale(&Some((old, vec![ok.clone()]))));
         assert!(stale(&Some((Instant::now(), vec![ok, failed]))));
+    }
+
+    #[test]
+    fn a_cli_that_does_not_answer_times_out() {
+        #[cfg(windows)]
+        let (program, args) = ("ping", ["-n", "30", "127.0.0.1"]);
+        #[cfg(unix)]
+        let (program, args) = ("sleep", ["30", ""]);
+        let args: Vec<&str> = args.into_iter().filter(|a| !a.is_empty()).collect();
+        let started = Instant::now();
+        let result = cli_output_within(Path::new(program), &args, Duration::from_secs(1));
+        assert_eq!(result, Err("no answer in 1 s".to_string()));
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

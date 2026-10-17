@@ -156,6 +156,8 @@ function SettingsView() {
             class={input}
             aria-label="Agent"
             value={s.agent}
+            aria-busy={agents.length === 0}
+            disabled={agents.length === 0}
             onMouseDown={() => void recheck()}
             onChange={(e) => set({ agent: e.currentTarget.value as Agent })}
           >

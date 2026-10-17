@@ -82,7 +82,13 @@ export function AgentFields(props: {
       <div class={pair}>
         <Field label="Model" error={loading ? undefined : (status.modelsError ?? undefined)}>
           <div class="relative">
-            <select class={input} value={selected} aria-busy={loading} onChange={(e) => pick(e.currentTarget.value)}>
+            <select
+              class={input}
+              value={selected}
+              aria-busy={loading}
+              disabled={loading}
+              onChange={(e) => pick(e.currentTarget.value)}
+            >
               <option value={DEFAULT}>Default ({status.label})</option>
               {status.models.map((m) => (
                 <option value={m.id}>{m.label}</option>
