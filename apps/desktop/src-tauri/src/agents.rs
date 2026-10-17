@@ -56,7 +56,10 @@ fn status_of(
         Ok(m) => (m, None),
         Err(e) => (
             vec![],
-            Some(format!("Couldn't read {} models: {e}", agent.label())),
+            Some(format!(
+                "Couldn't read {} models: {e}. Pick Custom model ID to enter one by hand.",
+                agent.label()
+            )),
         ),
     };
     AgentStatus {
@@ -276,10 +279,13 @@ mod tests {
         let fresh = status_of(Agent::Pi, Some("pi".into()), Ok(vec![]));
         let claude = status_of(Agent::Claude, Some("claude".into()), Ok(vec![]));
         assert_eq!(
-            merged(&[old.clone()], &[fresh.clone(), claude.clone()]),
+            merged(std::slice::from_ref(&old), &[fresh.clone(), claude.clone()]),
             vec![claude.clone(), fresh]
         );
-        assert_eq!(merged(&[old.clone()], &[claude.clone()]), vec![claude, old]);
+        assert_eq!(
+            merged(std::slice::from_ref(&old), std::slice::from_ref(&claude)),
+            vec![claude, old]
+        );
     }
 
     #[test]
@@ -313,7 +319,9 @@ mod tests {
         assert_eq!(s.models, vec![]);
         assert_eq!(
             s.models_error.as_deref(),
-            Some("Couldn't read Codex models: not JSON: x")
+            Some(
+                "Couldn't read Codex models: not JSON: x. Pick Custom model ID to enter one by hand."
+            )
         );
         let s = status_of(Agent::Claude, None, Ok(vec![]));
         assert_eq!(s.path, None);
