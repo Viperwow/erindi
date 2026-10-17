@@ -51,7 +51,7 @@ export type ModelStatus = {
   downloading: boolean;
 };
 
-export { type Agent, agentLabels, agentName } from "./agent.ts";
+export { type Agent, agentLabels, agentName, pickableAgents } from "./agent.ts";
 
 export type ModelChoice = { listed: string } | { custom: string } | null;
 

@@ -11,6 +11,7 @@ import {
   type AgentStatus,
   agentLabels,
   agentName,
+  pickableAgents,
   Field,
   GestureSelect,
   HotkeyInput,
@@ -153,7 +154,7 @@ function SettingsView() {
         >
           <div class="flex items-center gap-3">
             <select class={input} aria-label="Agent" value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
-              {(Object.keys(agentLabels) as Agent[]).map((agent) => (
+              {pickableAgents(agents, s.agent).map((agent) => (
                 <option value={agent}>{agentName(agent, s)}</option>
               ))}
             </select>
