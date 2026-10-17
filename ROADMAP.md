@@ -28,7 +28,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Trim long conversations.** Drop the oldest turns of a local model session to fit the model's context.
 - [ ] **More voice commands.** Switch the project folder by name.
 - [x] **Browse for the project folder.** A Browse button next to the project folder field opens the system folder picker.
-- [ ] **Installed agents only.** Erindi checks which supported agents are installed and lists only those in the agent picker: the built-in agents first, then custom agents once they arrive.
+- [x] **Installed agents only.** Erindi checks which supported agents are installed and lists only those in the agent picker: the built-in agents first, then custom agents once they arrive.
 - [ ] **Keep the agent running.** Each phrase now starts a new agent process that resumes the session. Keep one process open and stream phrases into it, such as Claude's `--input-format stream-json`, so a phrase does not wait for the agent to start.
 - [ ] **Unload the command model** after idle time, for machines short on memory.
 - [ ] **Command model endpoints.** Cloud, Ollama and LM Studio by address and API key.

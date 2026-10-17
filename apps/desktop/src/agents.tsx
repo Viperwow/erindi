@@ -24,7 +24,10 @@ export function AgentIcon(props: { agent: Agent; class?: string }) {
   return <img src={icons[props.agent]} alt="" class={`${tone} ${props.class ?? "h-4 w-4"}`} />;
 }
 
-/** Agent state from Rust, refreshed on `agents-changed` and re-checked when a tab opens or the window gains focus. */
+/**
+ * Agent state from Rust, refreshed on `agents-changed` and re-checked when a tab opens or the window gains focus.
+ * `recheck` looks again at once and reloads models and permission modes.
+ */
 export function useAgents() {
   const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [pending, setPending] = useState(0);
@@ -53,47 +56,6 @@ export function useAgents() {
   return { agents, checking: pending > 0, recheck };
 }
 
-/** Re-check with a spinner while it runs, then "Installed ✓", "Not found" or "Failed" for 3 s; each label fades in and out. */
-export function RecheckButton(props: { recheck: () => Promise<boolean> }) {
-  const [phase, setPhase] = useState<"idle" | "checking" | "installed" | "missing" | "failed">("idle");
-  const [visible, setVisible] = useState(true);
-  const run = () => {
-    setPhase("checking");
-    const spinnerSeen = new Promise((done) => setTimeout(done, 400));
-    Promise.all([props.recheck(), spinnerSeen])
-      .then(([installed]) => setPhase(installed ? "installed" : "missing"), () => setPhase("failed"))
-      .then(() => {
-        setTimeout(() => setVisible(false), 3000);
-        setTimeout(() => {
-          setPhase("idle");
-          setVisible(true);
-        }, 3200);
-      });
-  };
-  return (
-    <button
-      type="button"
-      disabled={phase !== "idle"}
-      aria-live="polite"
-      title="Look for the agent CLIs again and reload their models and permission modes"
-      class={`inline-flex w-32 shrink-0 items-center justify-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1.5 enabled:hover:bg-neutral-100 dark:border-neutral-700 dark:enabled:hover:bg-neutral-800 ${phase === "checking" ? "opacity-70" : ""}`}
-      onClick={run}
-    >
-      <span
-        key={phase}
-        class={`inline-flex items-center gap-1.5 transition-opacity motion-safe:animate-[fade-in_150ms_ease-out] ${visible ? "opacity-100 duration-150 ease-out" : "opacity-0 duration-200 ease-in"}`}
-      >
-        {phase === "checking" && <Spinner />}
-        {phase === "idle" && "Re-check"}
-        {phase === "checking" && "Checking"}
-        {phase === "installed" && <span class="text-green-700 dark:text-green-400">Installed ✓</span>}
-        {phase === "missing" && <span class="text-red-600">Not found</span>}
-        {phase === "failed" && <span class="text-red-600">Failed</span>}
-      </span>
-    </button>
-  );
-}
-
 const CUSTOM = "\u0000custom";
 const DEFAULT = "";
 
@@ -120,7 +82,13 @@ export function AgentFields(props: {
       <div class={pair}>
         <Field label="Model" error={loading ? undefined : (status.modelsError ?? undefined)}>
           <div class="relative">
-            <select class={input} value={selected} aria-busy={loading} onChange={(e) => pick(e.currentTarget.value)}>
+            <select
+              class={input}
+              value={selected}
+              aria-busy={loading}
+              disabled={loading}
+              onChange={(e) => pick(e.currentTarget.value)}
+            >
               <option value={DEFAULT}>Default ({status.label})</option>
               {status.models.map((m) => (
                 <option value={m.id}>{m.label}</option>
