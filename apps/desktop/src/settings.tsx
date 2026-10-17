@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { query } from "./query";
-import { AgentFields, ApiFields, RecheckButton, useAgents } from "./agents";
+import { AgentFields, ApiFields, useAgents } from "./agents";
 import { CommandsView } from "./commands";
 import { DictionaryView } from "./dictionary";
 import {
@@ -145,25 +145,24 @@ function SettingsView() {
 
         <Field
           label="Agent"
-          hint="New sessions use it. Say “claude”, “codex”, “pi”, “cursor” or “model” to pick one for a new session. Installed or updated a CLI? Re-check finds it and reloads its models."
+          hint="New sessions use it. Say “claude”, “codex”, “pi”, “cursor” or “model” to pick one for a new session."
           error={
             s.agent !== "api" && agentStatus && !agentStatus.path
-              ? `${agentStatus.label} CLI not found. Install it, then press Re-check.`
+              ? `${agentStatus.label} CLI not found. Install it and it shows up here.`
               : undefined
           }
         >
-          <div class="flex items-center gap-3">
-            <select class={input} aria-label="Agent" value={s.agent} onChange={(e) => set({ agent: e.currentTarget.value as Agent })}>
-              {pickableAgents(agents, s.agent).map((agent) => (
-                <option value={agent}>{agentName(agent, s)}</option>
-              ))}
-            </select>
-            {s.agent !== "api" && (
-              <RecheckButton
-                recheck={() => recheck().then((fresh) => !!fresh.find((a) => a.agent === s.agent)?.path)}
-              />
-            )}
-          </div>
+          <select
+            class={input}
+            aria-label="Agent"
+            value={s.agent}
+            onMouseDown={() => void recheck()}
+            onChange={(e) => set({ agent: e.currentTarget.value as Agent })}
+          >
+            {pickableAgents(agents, s.agent).map((agent) => (
+              <option value={agent}>{agentName(agent, s)}</option>
+            ))}
+          </select>
         </Field>
         {s.agent === "api" ? (
           <ApiFields

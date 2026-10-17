@@ -40,7 +40,7 @@ pub struct Agents {
 
 pub fn missing(agent: Agent) -> String {
     format!(
-        "{} CLI not found. Install it, then press Re-check in Settings.",
+        "{} CLI not found. Install it, or pick another agent in Settings.",
         agent.label()
     )
 }
@@ -218,7 +218,7 @@ mod tests {
     fn missing_cli_message_names_the_agent() {
         assert_eq!(
             missing(Agent::Codex),
-            "Codex CLI not found. Install it, then press Re-check in Settings."
+            "Codex CLI not found. Install it, or pick another agent in Settings."
         );
     }
 
