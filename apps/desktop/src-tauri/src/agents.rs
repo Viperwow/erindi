@@ -69,6 +69,17 @@ fn status_of(
     }
 }
 
+/// Every agent in the usual order: a fresh answer where one arrived, else the previous one.
+fn merged(previous: &[AgentStatus], done: &[AgentStatus]) -> Vec<AgentStatus> {
+    Agent::ALL
+        .into_iter()
+        .filter_map(|agent| {
+            let pick = |list: &[AgentStatus]| list.iter().find(|s| s.agent == agent).cloned();
+            pick(done).or_else(|| pick(previous))
+        })
+        .collect()
+}
+
 fn check(agent: Agent) -> AgentStatus {
     // The local model is a server, not a CLI; Settings reads its models from the server itself.
     if !agent.is_cli() {
@@ -162,13 +173,22 @@ impl Agents {
     pub fn check_now(&self, app: &AppHandle) -> Vec<AgentStatus> {
         let (fresh, changed) = self.check_once(|| {
             erindi_core::shell_env::refresh();
-            // In parallel, so the slowest CLI sets the wait, not the sum of all of them.
+            // In parallel, and each agent shows as soon as its own check ends, so the selected one
+            // never waits for the slowest CLI.
+            let previous = self.status();
+            let (tx, rx) = std::sync::mpsc::channel();
             std::thread::scope(|s| {
-                let checks: Vec<_> = Agent::ALL
-                    .into_iter()
-                    .map(|a| s.spawn(move || check(a)))
-                    .collect();
-                checks.into_iter().map(|c| c.join().unwrap()).collect()
+                for agent in Agent::ALL {
+                    let tx = tx.clone();
+                    s.spawn(move || tx.send(check(agent)));
+                }
+                drop(tx);
+                let mut done = Vec::new();
+                for status in rx {
+                    done.push(status);
+                    let _ = app.emit_to("settings", "agents-changed", merged(&previous, &done));
+                }
+                merged(&[], &done)
             })
         });
         if changed {
@@ -248,6 +268,18 @@ mod tests {
         assert!(!stale(&Some((Instant::now(), vec![ok.clone()]))));
         assert!(stale(&Some((old, vec![ok.clone()]))));
         assert!(stale(&Some((Instant::now(), vec![ok, failed]))));
+    }
+
+    #[test]
+    fn fresh_answers_replace_old_ones_in_the_usual_order() {
+        let old = status_of(Agent::Pi, None, Ok(vec![]));
+        let fresh = status_of(Agent::Pi, Some("pi".into()), Ok(vec![]));
+        let claude = status_of(Agent::Claude, Some("claude".into()), Ok(vec![]));
+        assert_eq!(
+            merged(&[old.clone()], &[fresh.clone(), claude.clone()]),
+            vec![claude.clone(), fresh]
+        );
+        assert_eq!(merged(&[old.clone()], &[claude.clone()]), vec![claude, old]);
     }
 
     #[test]
