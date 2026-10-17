@@ -2,6 +2,7 @@ import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { query } from "./query";
 import { AgentFields, ApiFields, useAgents } from "./agents";
 import { CommandsView } from "./commands";
@@ -115,7 +116,18 @@ function SettingsView() {
       <Section title="Agent" description="Which agent runs your requests and how.">
         <div>
           <Field label="Project folder" hint="Agents run here. Pick only folders you trust.">
-            <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
+            <div class="flex items-center gap-3">
+              <input class={input} value={s.cwd} onInput={(e) => set({ cwd: e.currentTarget.value })} />
+              <button
+                type="button"
+                class="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                onClick={() =>
+                  open({ directory: true, defaultPath: s.cwd || undefined }).then((dir) => dir && set({ cwd: dir }))
+                }
+              >
+                Browse
+              </button>
+            </div>
           </Field>
           <Reveal
             open={!!untrusted[s.agent] && s.cwd === cwd && !!agentStatus?.path}
