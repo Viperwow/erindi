@@ -32,19 +32,21 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Keep the agent running.** Each phrase now starts a new agent process that resumes the session. Keep one process open and stream phrases into it, such as Claude's `--input-format stream-json`, so a phrase does not wait for the agent to start.
 - [ ] **Unload the command model** after idle time, for machines short on memory.
 - [ ] **Command model endpoints.** Cloud, Ollama and LM Studio by address and API key.
-- [ ] **Prompt cleanup, revisited.** Rewriting dictation with a 3B model translated and dropped sentences; retry with a larger model or drop the idea. Scope it to fillers, stutters and false starts, and keep technical terms, paths and identifiers as spoken.
+- [ ] **Prompt cleanup, revisited.** Remove fillers, stutters and false starts with deterministic rules, with no model involved. Rewriting dictation with a 3B model translated and dropped sentences, so a larger model stays an option on top of the rules. Keep technical terms, paths and identifiers as spoken. The original phrase can always be restored.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
 - [ ] **Plugin system.** Users add their own agents and customize Erindi through plugins, beyond the agents built into the app.
 - [ ] **Agent install guide.** When an agent's CLI is missing, show the minimal install steps for that agent on the user's system.
 - [ ] **Agent Client Protocol.** Talk to every agent through ACP, a shared protocol between editors and agents, instead of parsing each CLI's own output. Weigh it against Codex app-server, Codex's own JSON-RPC interface.
+- [ ] **MCP server for Notes and Sessions.** Agents list, search and read notes and past sessions over MCP. Off by default and read-only.
+- [ ] **Screen context.** A phrase can carry the selected text, the clipboard and the text of the focused window to the agent. Off by default. Nothing is read while a password field is active.
 - [ ] **Computer control (later).** An "Allow computer control" checkbox lets agents click and type in other apps. A short warning hint appears under it; the same hint appears when `bypassPermissions` is selected.
 
 ### Voice and models
 
 - [x] **Model downloads.** Speech and command models install from Settings with progress and hash checks.
-- [ ] **Acceleration, picked automatically.** Detect the hardware and run speech, command and text-to-speech models on the fastest backend it has: CUDA on NVIDIA, Metal or Core ML on Apple silicon, DirectML or Vulkan on other GPUs, CPU otherwise. Settings show the backend in use and allow Auto, GPU or CPU. Today speech recognition runs on the CPU and the command model on Vulkan (Windows) or Metal (macOS).
-- [ ] **Model picker.** Choose among several speech and command models, with Hugging Face search.
+- [ ] **Acceleration, picked automatically.** Detect the hardware and run speech, command and text-to-speech models on the fastest backend it has: CUDA on NVIDIA, Metal or Core ML on Apple silicon, DirectML or Vulkan on other GPUs, CPU otherwise. Settings show the backend in use and allow Auto, GPU or CPU. Today speech recognition runs on the CPU and the command model on Vulkan (Windows) or Metal (macOS). Apple silicon comes first.
+- [ ] **Model picker.** Choose among several speech and command models, with Hugging Face search. Whisper joins the speech models. A custom OpenAI-compatible endpoint can recognize speech too.
 - [ ] **EmbeddingGemma 2 speech recognition.** Try Google's open multimodal embedding model `google/embeddinggemma-2` (740M parameters, 300M of them the audio encoder) as a speech-to-text model: decode the transcript straight from its shared audio and text embedding space. A known approach keeps the audio encoder as is, trains a small reader that maps audio slices to the nearest of ~229,000 English words, and adds punctuation with a tiny extra model. On a base M3 MacBook Air it transcribes an hour of audio in 12.6 seconds (288× real time) at about 5% word error rate, against 2–3% for leading speech models. The base model understands 100+ languages, but that reader knows English only, so Russian needs a reader trained on Russian speech with a Russian word list. Unsloth's audio fine-tuning notebook is a starting point for training it. Unsloth's GGUF for llama.cpp covers text only, so the audio encoder needs another runtime. Measure speed and accuracy against Parakeet TDT on the same machine, and add it to the model picker if it holds up.
 - [ ] **Read answers aloud.** A neural text-to-speech model reads each agent's answer in natural-sounding speech, not the flat system voice.
 - [ ] **Speak while the agent writes.** Text-to-speech starts on the answer's first sentence while the agent is still writing the rest.
@@ -55,16 +57,19 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **A voice per agent.** Assign a voice from the Voices tab to each agent, so the speaker is clear by ear.
 - [ ] **Voice cloning.** Create a voice for the Voices bank from the user's own speech. The voice cloning section records a first sample even with Captures off: the user reads a prepared text of about 15 seconds that covers the voice well. With Captures on, saved recordings become extra samples for a closer voice. Needs a text-to-speech model that clones, such as Qwen3-TTS or Chatterbox.
 - [ ] **Captures.** An opt-in setting, off by default, keeps each recording's audio next to its transcript, since audio fills the disk and text barely does. Saved audio can be replayed, re-transcribed with another model later or sent again.
+- [ ] **Learn from corrections.** Fix a misheard word in a past phrase, and the fix joins the Dictionary, so the word is right next time.
 - [ ] **Paralinguistic tags.** An opt-in mode keeps tags such as laughter, sighs and emotion in the transcript. Off by default, since agents rarely need them; voice answers can use them to sound right. Needs a speech model that emits them, such as SenseVoice.
 
 ### Call transcription and Notes
 
-- [ ] **Teams and Slack PoC.** Transcribe voice and video calls in Microsoft Teams and Slack, capturing both the user's microphone and the other participants' audio. Evaluate OS audio capture/loopback, per-app capture and app integrations before choosing an approach.
+- [ ] **Teams and Slack PoC.** Transcribe voice and video calls in Microsoft Teams and Slack, capturing both the user's microphone and the other participants' audio. Evaluate OS audio capture/loopback, per-app capture and app integrations before choosing an approach. Remove the other side's speech that the microphone picks up from the speakers. Record from the start of the call, while the speech model is still loading.
 - [ ] **Google Meet.** Extend call transcription to Google Meet after the Teams and Slack PoC.
 - [ ] **Discord.** Add Discord after Google Meet, then extend support to other apps with voice input and output.
-- [ ] **Speaker separation.** Detect speaker turns and label speakers consistently throughout a call; use participant names when available.
+- [ ] **Call detection.** When a call starts, Erindi offers to record it. The offer appears once per call and goes away after 30 seconds.
+- [ ] **Speaker separation.** Detect speaker turns and label speakers consistently throughout a call; use participant names when available. Speaker names can be set by hand, and named voices are remembered.
 - [ ] **Transcript cleanup.** Remove filler words such as "uh", "um", "ээ", "ну" and "типа" while preserving meaning and speaker attribution. Keep the original transcript alongside the cleaned version.
 - [ ] **Notes tab.** Store call transcripts in a separate Notes tab, with the call's date, source app and speaker labels; open and review the original or cleaned transcript.
+- [ ] **Export notes.** Export a note as Markdown or to an Obsidian vault.
 - [ ] **Send a note to an agent.** Send a transcript straight from Notes to the selected agent with an instruction, such as summarizing the call, extracting action items or processing its contents.
 - [ ] **Local summary before sending.** Optionally summarize the completed dialogue with a local model before sending it to an agent. Keep the summary in Notes alongside the original and cleaned transcripts, and choose whether the agent receives the summary, the full dialogue or both.
 - [ ] **Call automations.** Configure a workflow that runs when a call ends and its transcript is ready: clean up the dialogue, optionally summarize it locally, save it in Notes and automatically send it to a chosen agent with a saved instruction and project folder. Make this workflow available from the Teams and Slack PoC.
@@ -78,7 +83,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Launch at login.** A Settings toggle starts Erindi with the system.
 - [ ] **First-run setup.** Detect GPU, VRAM and CPU, pick models and device, warn when cleanup would be slow; re-run when the hardware changes.
 - [ ] **macOS permissions guide.** Walk through the Microphone, Accessibility and Input Monitoring grants, each with a link that opens its page in System Settings.
-- [ ] **Dictate into any app.** Paste the transcript into the focused text field instead of sending it to an agent. The clipboard is restored afterwards.
+- [ ] **Dictate into any app.** Paste the transcript into the focused text field instead of sending it to an agent. The clipboard is restored afterwards. If the paste can't reach the app, the text stays on the clipboard, so a dictation is never lost.
+- [ ] **Pause media while talking.** Music and video pause while Erindi listens and resume afterwards.
 - [x] **Tray click.** Clicking or double-clicking the tray icon opens the window.
 
 ### UI and UX
