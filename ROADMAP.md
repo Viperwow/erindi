@@ -32,7 +32,7 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **Keep the agent running.** Each phrase now starts a new agent process that resumes the session. Keep one process open and stream phrases into it, such as Claude's `--input-format stream-json`, so a phrase does not wait for the agent to start.
 - [ ] **Unload the command model** after idle time, for machines short on memory.
 - [ ] **Command model endpoints.** Cloud, Ollama and LM Studio by address and API key.
-- [ ] **Prompt cleanup, revisited.** Remove fillers, stutters and false starts with deterministic rules, with no model involved. Rewriting dictation with a 3B model translated and dropped sentences, so a larger model stays an option on top of the rules. Keep technical terms, paths and identifiers as spoken. The original phrase can always be restored.
+- [ ] **Prompt cleanup, revisited.** Remove fillers, stutters and false starts with deterministic rules, with no model involved. Rewriting dictation with a 3B model translated and dropped sentences, so a larger model stays an option on top of the rules. Keep technical terms, paths and identifiers as spoken. The raw transcript is stored before cleanup, so the original phrase can always be restored.
 - [ ] **Provider, model, permission mode.** Pick a provider, then choose from its available models and permission modes instead of typing a model name.
 - [ ] **Orca and other orchestrators.** Hand tasks to the locally installed Orca and similar agent orchestrators.
 - [ ] **Plugin system.** Users add their own agents and customize Erindi through plugins, beyond the agents built into the app.
@@ -57,15 +57,15 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [ ] **A voice per agent.** Assign a voice from the Voices tab to each agent, so the speaker is clear by ear.
 - [ ] **Voice cloning.** Create a voice for the Voices bank from the user's own speech. The voice cloning section records a first sample even with Captures off: the user reads a prepared text of about 15 seconds that covers the voice well. With Captures on, saved recordings become extra samples for a closer voice. Needs a text-to-speech model that clones, such as Qwen3-TTS or Chatterbox.
 - [ ] **Captures.** An opt-in setting, off by default, keeps each recording's audio next to its transcript, since audio fills the disk and text barely does. Saved audio can be replayed, re-transcribed with another model later or sent again.
-- [ ] **Learn from corrections.** Fix a misheard word in a past phrase, and the fix joins the Dictionary, so the word is right next time.
+- [ ] **Learn from corrections.** Fix a misheard word in a past phrase, and Erindi offers to add the fix to the Dictionary, so the word is right next time.
 - [ ] **Paralinguistic tags.** An opt-in mode keeps tags such as laughter, sighs and emotion in the transcript. Off by default, since agents rarely need them; voice answers can use them to sound right. Needs a speech model that emits them, such as SenseVoice.
 
 ### Call transcription and Notes
 
-- [ ] **Teams and Slack PoC.** Transcribe voice and video calls in Microsoft Teams and Slack, capturing both the user's microphone and the other participants' audio. Evaluate OS audio capture/loopback, per-app capture and app integrations before choosing an approach. Remove the other side's speech that the microphone picks up from the speakers. Record from the start of the call, while the speech model is still loading.
+- [ ] **Teams and Slack PoC.** Transcribe voice and video calls in Microsoft Teams and Slack, capturing both the user's microphone and the other participants' audio. Evaluate OS audio capture/loopback, per-app capture and app integrations before choosing an approach. Remove the other side's speech that the microphone picks up from the speakers. Recording starts as soon as the user starts it; audio captured while the speech model loads is transcribed once the model is ready.
 - [ ] **Google Meet.** Extend call transcription to Google Meet after the Teams and Slack PoC.
 - [ ] **Discord.** Add Discord after Google Meet, then extend support to other apps with voice input and output.
-- [ ] **Call detection.** When a call starts, Erindi offers to record it. The offer appears once per call and goes away after 30 seconds.
+- [ ] **Call detection.** When a call starts, Erindi offers to record it. The offer appears once per call and goes away after 30 seconds. Nothing is recorded before the user accepts.
 - [ ] **Speaker separation.** Detect speaker turns and label speakers consistently throughout a call; use participant names when available. Speaker names can be set by hand, and named voices are remembered.
 - [ ] **Transcript cleanup.** Remove filler words such as "uh", "um", "ээ", "ну" and "типа" while preserving meaning and speaker attribution. Keep the original transcript alongside the cleaned version.
 - [ ] **Notes tab.** Store call transcripts in a separate Notes tab, with the call's date, source app and speaker labels; open and review the original or cleaned transcript.
@@ -83,8 +83,8 @@ Erindi is a work in progress. This list tracks what exists and what comes next.
 - [x] **Launch at login.** A Settings toggle starts Erindi with the system.
 - [ ] **First-run setup.** Detect GPU, VRAM and CPU, pick models and device, warn when cleanup would be slow; re-run when the hardware changes.
 - [ ] **macOS permissions guide.** Walk through the Microphone, Accessibility and Input Monitoring grants, each with a link that opens its page in System Settings.
-- [ ] **Dictate into any app.** Paste the transcript into the focused text field instead of sending it to an agent. The clipboard is restored afterwards. If the paste can't reach the app, the text stays on the clipboard, so a dictation is never lost.
-- [ ] **Pause media while talking.** Music and video pause while Erindi listens and resume afterwards.
+- [ ] **Dictate into any app.** Paste the transcript into the focused text field instead of sending it to an agent. The clipboard is restored only after a confirmed paste. If the paste can't be confirmed, the text stays on the clipboard, so a dictation is never lost.
+- [ ] **Pause media while talking.** Music and video pause while Erindi listens. Erindi resumes only the media it paused.
 - [x] **Tray click.** Clicking or double-clicking the tray icon opens the window.
 
 ### UI and UX
